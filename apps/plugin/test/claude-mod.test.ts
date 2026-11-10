@@ -1,7 +1,7 @@
 import { SessionNotFound } from "@tentacles/worker-api/errors";
 import { SessionRef, SessionStatuses } from "@tentacles/worker-api/session-state";
 import * as Schema from "effect/Schema";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CommandResultJson,
@@ -21,7 +21,6 @@ import type {
   ToolCallResult,
 } from "../src/claude/engine.ts";
 import { register } from "../src/claude/register.ts";
-import { eventually } from "./eventually.ts";
 import { Failed, sessionIdOf } from "./values.ts";
 
 const sessionId = sessionIdOf(1);
@@ -168,7 +167,7 @@ describe("Claude mod", () => {
     const mod = loadMod(new Map(), {});
 
     await mod.start();
-    await eventually(() => mod.registered.length === 6);
+    await vi.waitFor(() => expect(mod.registered).toHaveLength(6), { timeout: 2000, interval: 20 });
 
     expect(mod.registered.toSorted((left, right) => left.localeCompare(right))).toEqual([
       "answer",
@@ -188,12 +187,15 @@ describe("Claude mod", () => {
     const mod = loadMod(files, { list: Success.make({ result: [migrate] }) });
 
     await mod.start();
-    await eventually(() => mod.runs.length === 2);
+    await vi.waitFor(() => expect(mod.runs).toHaveLength(2), { timeout: 2000, interval: 20 });
 
     mod.watch.push(
       `${Schema.encodeSync(WatchLineJson)({ sessionId, state: Failed.make({ failure: "No workspace." }) })}\n`,
     );
-    await eventually(() => mod.prompts.length > 0);
+    await vi.waitFor(() => expect(mod.prompts).not.toHaveLength(0), {
+      timeout: 2000,
+      interval: 20,
+    });
 
     expect(mod.runs).toEqual([
       [
@@ -216,7 +218,7 @@ describe("Claude mod", () => {
     });
 
     await mod.start();
-    await eventually(() => mod.registered.length === 6);
+    await vi.waitFor(() => expect(mod.registered).toHaveLength(6), { timeout: 2000, interval: 20 });
 
     const result = await mod.callTool({
       tool: "mcp__tentacles__prompt",

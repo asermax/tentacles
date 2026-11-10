@@ -4,13 +4,13 @@ import * as Fiber from "effect/Fiber";
 import type * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import type { SessionId } from "@tentacles/worker-api/ids";
+import { vi } from "vitest";
 
 import type { CommandResult, WatchLine } from "../src/core/helper-output.ts";
 import { runCommand, type CommandName } from "../src/helper/command.ts";
 import { NodeWebSocketConstructor } from "../src/helper/client.ts";
 import { watchSessions } from "../src/helper/watch.ts";
 import { stubApiKey } from "./stub-worker.ts";
-import { eventually } from "./eventually.ts";
 
 export type Variables = Record<string, string>;
 
@@ -53,7 +53,18 @@ export const runHelperWatch = async (
     ),
   );
 
-  await eventually(() => until(lines), 5000);
+  // A timeout still returns the lines that arrived, so the test's assertion on
+  // them shows which ones are missing.
+  await vi
+    .waitFor(
+      () => {
+        if (!until(lines)) {
+          throw new Error("The watch has not printed the lines yet");
+        }
+      },
+      { timeout: 5000, interval: 20 },
+    )
+    .catch(() => undefined);
 
   await Effect.runPromise(Fiber.interrupt(fiber));
 

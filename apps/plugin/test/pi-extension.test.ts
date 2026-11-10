@@ -1,7 +1,7 @@
 import { SessionNotFound } from "@tentacles/worker-api/errors";
 import { SessionRef, SessionStatuses } from "@tentacles/worker-api/session-state";
 import * as Schema from "effect/Schema";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Failure, Success } from "../src/core/helper-output.ts";
 import { LocalState } from "../src/core/local-state.ts";
@@ -14,7 +14,6 @@ import type {
   PiShutdownHandler,
   PiTool,
 } from "../src/pi/pi-api.ts";
-import { eventually } from "./eventually.ts";
 import { createFakeHelper, type FakeHelper } from "./fake-helper.ts";
 import { questionOf, sessionIdOf, Waiting } from "./values.ts";
 
@@ -108,7 +107,10 @@ describe("pi extension", () => {
     ]);
 
     pi.start();
-    await eventually(() => pi.messages.length > 0);
+    await vi.waitFor(() => expect(pi.messages).not.toHaveLength(0), {
+      timeout: 2000,
+      interval: 20,
+    });
 
     expect(helper.calls()).toEqual([
       ["list", JSON.stringify({ parent: { harness: "pi", sessionId: "pi-session" } })],
