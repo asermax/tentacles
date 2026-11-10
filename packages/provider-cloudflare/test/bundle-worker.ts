@@ -28,8 +28,6 @@ export const bundleWorker = async () => {
     resolve: {
       alias: {
         "node:child_process": path("../src/spawn-shim.ts"),
-        // core is merged into this branch later.
-        "@tentacles/core": path("./core-stand-in.ts"),
       },
     },
     plugins: [
@@ -39,6 +37,10 @@ export const bundleWorker = async () => {
       }),
     ],
     checks: { unresolvedImport: false, ineffectiveDynamicImport: false },
+    // Alchemy's own bundle defaults: runtime-only code paths, and .sql imported as text.
+    transform: { define: { "globalThis.__ALCHEMY_RUNTIME__": "true" } },
+    moduleTypes: { ".sql": "text" },
+    experimental: { lazyBarrel: true },
     output: { dir, entryFileNames: "worker.js", format: "esm" },
     logLevel: "warn",
   });

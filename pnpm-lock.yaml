@@ -207,6 +207,9 @@ importers:
       '@tentacles/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@tentacles/core':
+        specifier: workspace:*
+        version: link:../core
       '@tentacles/sql-registry':
         specifier: workspace:*
         version: link:../sql-registry

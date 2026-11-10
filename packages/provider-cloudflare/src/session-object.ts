@@ -16,6 +16,7 @@ import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 
 import { browserLayer } from "./browser.ts";
 import { claudeObjectName, ClaudeObject } from "./claude-object.ts";
@@ -25,7 +26,12 @@ import { loopback } from "./egress.ts";
 import { modelProvidersLayer } from "./model-providers.ts";
 import { CloudflarePreviewRouter } from "./preview-router.ts";
 import { RegistryObject, registryStoreLayer } from "./registry-object.ts";
-import { WorkspaceContainer, workspaceLayer, WorkspaceSettings } from "./workspace.ts";
+import {
+  defaultImage,
+  WorkspaceContainer,
+  workspaceLayer,
+  WorkspaceSettings,
+} from "./workspace.ts";
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
 export interface SessionOperations {
@@ -150,12 +156,24 @@ export const SessionObjectLive = SessionObject.make(
         codeSandboxLayer(codemodeSandboxes, sessionId),
       );
 
-      const handle = yield* Session.make({ sessionId }).pipe(Effect.provide(contracts));
+      // The harness lives as long as the object's instance, so its scope is never closed.
+      const handle = yield* Session.make(sessionId).pipe(
+        Effect.provide(contracts),
+        Scope.provide(Scope.makeUnsafe()),
+      );
 
       return {
         create: (request: CreateSession) =>
           Effect.gen(function* () {
-            const workspace = yield* decodeSettings(request.settings).pipe(Effect.orDie);
+            const workspace = yield* decodeSettings(request.settings).pipe(
+              Effect.mapError(
+                () =>
+                  new Error(
+                    `The workspace takes the image "${defaultImage}" and a Cloudflare instance type as its size; got image "${request.settings.image}" and size "${request.settings.size}"`,
+                  ),
+              ),
+              Effect.orDie,
+            );
 
             yield* Effect.sync(() => raw.storage.kv.put(workspaceSettingsKey, workspace));
             yield* handle.create(request);
@@ -166,7 +184,13 @@ export const SessionObjectLive = SessionObject.make(
         close: () => handle.close(),
         messages: (count: number) => handle.messages(count),
         status: () => handle.status(),
-        delete: () => handle.delete(),
+        // core stops the session; what the object stored, the harness and the workspace
+        // settings alike, is the provider's to remove.
+        delete: () =>
+          Effect.andThen(
+            handle.delete(),
+            Effect.promise(() => raw.storage.deleteAll()),
+          ),
         workspaceNeeded: (pendingWork: boolean) => handle.workspaceNeeded(pendingWork),
 
         fetch: Effect.gen(function* () {

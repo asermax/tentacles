@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as Cloudflare from "@alchemy.run/cloudflare";
+import { ALCHEMY_PHASE } from "alchemy";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, RemoteExecutionEnv } from "@earendil-works/pi-env";
 import { Workspace } from "@tentacles/contracts/workspace";
@@ -28,8 +29,12 @@ const InstanceTypes = {
   standard4: "standard-4",
 } as const;
 
+/** The one workspace image; custom images are not offered. */
+export const defaultImage = "default";
+
 /** What the session's settings say about its workspace, kept by the session object at create. */
 export const WorkspaceSettings = Schema.Struct({
+  image: Schema.Literal(defaultImage),
   size: Schema.Enum(InstanceTypes),
   lifetime: Schema.Int,
 });
@@ -37,8 +42,9 @@ export const WorkspaceSettings = Schema.Struct({
 export type WorkspaceSettings = typeof WorkspaceSettings.Type;
 
 // The daemon in the image comes from the same pi-env release the Worker bundles, so its client and
-// the daemon always speak the same protocol. Read at deploy time only.
-const piEnvVersion = Effect.promise(() =>
+// the daemon always speak the same protocol. Alchemy evaluates the container's props in the running
+// Worker too, where no package.json exists and the build arguments are not used.
+const readPiEnvVersion = Effect.promise(() =>
   readFile(
     join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-env"))), "../package.json"),
     "utf8",
@@ -49,6 +55,10 @@ const piEnvVersion = Effect.promise(() =>
   ),
   Effect.map((manifest) => manifest.version),
   Effect.orDie,
+);
+
+const piEnvVersion = Effect.flatMap(ALCHEMY_PHASE, (phase) =>
+  phase === "runtime" ? Effect.succeed("") : readPiEnvVersion,
 );
 
 /** The workspace image, attached to the session object's class. */

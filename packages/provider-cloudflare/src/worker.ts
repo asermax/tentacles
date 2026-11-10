@@ -72,7 +72,7 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
     const contracts = Layer.mergeAll(sessionHostLayer(sessions), registryStoreLayer(registries));
 
     yield* Effect.flatMap(Effect.service(Scheduler), (jobs) =>
-      jobs.daily(cleanup().pipe(Effect.provide(contracts))),
+      jobs.daily(cleanup.pipe(Effect.provide(contracts))),
     ).pipe(Effect.provide(scheduler));
 
     const api = HttpApiBuilder.layer(TentaclesApi).pipe(

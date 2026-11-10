@@ -2,7 +2,7 @@ import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
 import { bundleDir, bundleWorker, compatibility } from "./test/bundle-worker.ts";
-import { testSecrets } from "./test/secrets.ts";
+import { lifetimeSessionId, testSecrets } from "./test/secrets.ts";
 
 const workerName = "tentacles";
 
@@ -14,6 +14,44 @@ const echo = async (request: Request) =>
     method: request.method,
     headers: Object.fromEntries(request.headers),
   });
+
+// Workers AI through the gateway, as the model of every test session: one streamed answer that
+// ends the run without a tool call.
+interface CompletionChunk {
+  readonly id: string;
+  readonly object: string;
+  readonly choices: ReadonlyArray<{
+    readonly index: number;
+    readonly delta: { readonly role?: string; readonly content?: string };
+    readonly finish_reason: string | null;
+  }>;
+  readonly usage?: {
+    readonly prompt_tokens: number;
+    readonly completion_tokens: number;
+    readonly total_tokens: number;
+  };
+}
+
+const chunk = (body: CompletionChunk) => `data: ${JSON.stringify(body)}\n\n`;
+
+const model = async () =>
+  new Response(
+    [
+      chunk({
+        id: "test",
+        object: "chat.completion.chunk",
+        choices: [{ index: 0, delta: { role: "assistant", content: "done" }, finish_reason: null }],
+      }),
+      chunk({
+        id: "test",
+        object: "chat.completion.chunk",
+        choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      "data: [DONE]\n\n",
+    ].join(""),
+    { headers: { "content-type": "text/event-stream" } },
+  );
 
 const objects = ["SessionObject", "RegistryObject", "ClaudeObject"] as const;
 
@@ -29,8 +67,13 @@ export default defineConfig({
       return {
         miniflare: {
           compatibilityDate: compatibility.date,
-          compatibilityFlags: compatibility.flags,
-          serviceBindings: { TENTACLES: workerName },
+          // The cron test calls the Worker's scheduled handler through its service binding.
+          compatibilityFlags: [...compatibility.flags, "service_binding_extra_handlers"],
+          serviceBindings: {
+            TENTACLES: workerName,
+            // The containers' loopback to the Worker, with a session's egress props.
+            LIFETIME: { name: workerName, props: { sessionId: lifetimeSessionId } },
+          },
           durableObjects: Object.fromEntries(
             objects.map((name) => [name, { className: name, scriptName: workerName }]),
           ),
@@ -45,7 +88,7 @@ export default defineConfig({
               durableObjects: Object.fromEntries(
                 objects.map((name) => [name, { className: name, useSQLite: true }]),
               ),
-              serviceBindings: { AI: echo, BROWSER: echo },
+              serviceBindings: { AI: model, BROWSER: echo },
               outboundService: echo,
             },
           ],

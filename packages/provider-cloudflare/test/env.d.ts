@@ -1,5 +1,11 @@
 import type { Parent } from "@tentacles/worker-api/parent";
+import type { CreateSession } from "@tentacles/worker-api/sessions";
 import type { SessionRef, SessionStatus } from "@tentacles/worker-api/session-state";
+
+// The session object's RPC as a test calls it, the way the Worker's SessionHost does.
+interface SessionRpc extends Rpc.DurableObjectBranded {
+  create(request: CreateSession): void;
+}
 
 // The registry object's RPC as a test calls it from outside the Worker: each member of
 // RegistryStore, answered by the Alchemy bridge with its plain result.
@@ -12,7 +18,13 @@ interface RegistryRpc extends Rpc.DurableObjectBranded {
 declare global {
   namespace Cloudflare {
     interface Env {
-      readonly TENTACLES: Fetcher;
+      // The Worker's own handlers, reached through a service binding; the binding's type in
+      // workers-types leaves out the scheduled handler that service_binding_extra_handlers adds.
+      readonly TENTACLES: Fetcher & {
+        scheduled(options: { cron: string; scheduledTime: Date }): Promise<{ outcome: string }>;
+      };
+      readonly LIFETIME: Fetcher;
+      readonly SessionObject: DurableObjectNamespace<SessionRpc>;
       readonly RegistryObject: DurableObjectNamespace<RegistryRpc>;
     }
   }
