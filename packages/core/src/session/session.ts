@@ -196,11 +196,18 @@ const make = (sessionId: SessionId) =>
         Effect.gen(function* () {
           const found = yield* existing;
           const conversation = yield* root;
+          const state = yield* status.current;
+
+          // While a question waits, a prompt joins its run as a steer, which
+          // pi-durable places after the answer's tool round.
+          const steers =
+            request.mode === PromptModes.steer ||
+            (state != null && SessionState.guards.waiting(state));
 
           const draft: SubmissionDraft = {
             type: "input",
             content: request.text,
-            whenBusy: request.mode === PromptModes.steer ? "steer" : "followUp",
+            whenBusy: steers ? "steer" : "followUp",
           };
 
           yield* armActive;

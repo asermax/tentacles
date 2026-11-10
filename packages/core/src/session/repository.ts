@@ -19,7 +19,7 @@ const run = (env: ExecutionEnv, command: readonly string[]) =>
       BACKGROUND_CONTEXT,
     );
 
-    return { output: output.trim(), failed: !result.ok || result.value.exitCode !== 0 };
+    return { output: output.trimEnd(), failed: !result.ok || result.value.exitCode !== 0 };
   });
 
 /**
