@@ -23,20 +23,49 @@ const description =
 
 const json = (value: Schema.JsonObject) => `${JSON.stringify(value, null, 2)}\n`;
 
+const repository = "https://github.com/asermax/tentacles";
+
+const author = { name: "Agustín Carrasco" };
+
+const keywords = ["remote-agents", "subagents", "tentacles"];
+
 const piManifest = json({
-  name: "pi-tentacles",
+  name: "@asermax/pi-tentacles",
   version,
   description,
   type: "module",
-  private: true,
-  keywords: ["pi-package", "pi-extension"],
+  license: "MIT",
+  keywords: ["pi-package", "pi-extension", ...keywords],
+  repository: { type: "git", url: `git+${repository}.git`, directory: "apps/plugin" },
+  publishConfig: { access: "public" },
+  files: ["extension/", "skills/", "tentacles-helper", "README.md"],
   pi: {
     extensions: ["./extension/index.js"],
     skills: ["./skills"],
   },
 });
 
-const claudeManifest = json({ name: "tentacles", version, description });
+const claudeManifest = json({
+  name: "tentacles",
+  version,
+  description,
+  author,
+  repository,
+  homepage: repository,
+  license: "MIT",
+  keywords,
+});
+
+// The plugin tree doubles as a one-plugin marketplace: the claude-marketplace
+// branch holds it at its root, so the plugin's source is "./".
+const claudeMarketplace = json({
+  name: "tentacles",
+  description: "tentacles: remote coding agents for Claude Code.",
+  owner: { ...author, url: "https://github.com/asermax" },
+  plugins: [
+    { name: "tentacles", source: "./", description, version, category: "developer", keywords },
+  ],
+});
 
 const EmitFile = Schema.Union([
   Schema.TaggedStruct("copy", {
@@ -77,6 +106,7 @@ const filePlan = (harness: Harness): ReadonlyArray<EmitFile> =>
       ]
     : [
         text.make({ dest: ".claude-plugin/plugin.json", text: claudeManifest }),
+        text.make({ dest: ".claude-plugin/marketplace.json", text: claudeMarketplace }),
         copy.make({
           dest: "hooks/hooks.json",
           from: join(packageRoot, "src", "claude", "hooks.json"),
