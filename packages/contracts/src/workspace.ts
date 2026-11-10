@@ -9,6 +9,9 @@ import type * as Effect from "effect/Effect";
 // repository into /workspace; a null repository starts the container only.
 // Every tool, the clone and the git checks run through `connection`. There is
 // no lifetime member: keeping the container up is the provider's mechanism.
+/** Where the agent works; the Workspace implementation clones the repository here. */
+export const workspaceDirectory = "/workspace";
+
 export class Workspace extends Context.Service<
   Workspace,
   {
