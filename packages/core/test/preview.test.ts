@@ -9,7 +9,9 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { previewHandler } from "../src/index.ts";
+import { PreviewResult } from "../src/tools/preview-result.ts";
 import { eventually } from "./support/eventually.ts";
+import { script, scriptOutput } from "./support/codemode.ts";
 import { createRequest } from "./support/fixtures.ts";
 import { heldAnswer } from "./support/model.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
@@ -17,11 +19,19 @@ import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 const preview = (args: { action: "open"; port: number } | { action: "close" }) =>
   fauxAssistantMessage(fauxToolCall("preview", args), { stopReason: "toolUse" });
 
-const decodeOpened = Schema.decodeUnknownSync(
-  Schema.fromJsonString(
-    Schema.Struct({ action: Schema.Literal("open"), url: Schema.String, cdpUrl: Schema.String }),
-  ),
-);
+const decodeResult = Schema.decodeUnknownSync(Schema.fromJsonString(PreviewResult));
+
+const decodeResults = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(PreviewResult)));
+
+const decodeOpened = (output: string | undefined) => {
+  const result = decodeResult(output);
+
+  if (!PreviewResult.guards.open(result)) {
+    throw new Error(`not an open preview: ${output}`);
+  }
+
+  return result;
+};
 
 const decodeToken = Schema.decodeUnknownSync(PreviewToken);
 
@@ -29,7 +39,7 @@ const decodeToken = Schema.decodeUnknownSync(PreviewToken);
 const tokenOf = (url: string) => decodeToken(new URL(url).hostname.split(".")[0]);
 
 /** Starts a session that runs the given tool calls and then waits until released. */
-const runTools = (calls: ReturnType<typeof preview>[]) =>
+const runTools = (calls: ReturnType<typeof fauxAssistantMessage>[]) =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
     const sessionId = newSessionId();
@@ -51,6 +61,28 @@ const resolve = (token: PreviewToken) =>
   Effect.flatMap(RegistryStore, (registry) => registry.resolvePreview(token));
 
 describe("the preview tool", () => {
+  it.live("a script that opens and closes a preview gets the tagged results", () =>
+    Effect.gen(function* () {
+      const { results, release } = yield* runTools([
+        script(
+          "const opened = await tools.preview({ action: 'open', port: 3000 });\n" +
+            "const closed = await tools.preview({ action: 'close' });\n" +
+            "return JSON.stringify([opened, closed]);",
+        ),
+      ]);
+
+      const [opened, closed] = decodeResults(scriptOutput(results[0]?.output));
+
+      expect(opened != null && PreviewResult.guards.open(opened)).toBe(true);
+      expect(opened).toMatchObject({
+        url: expect.stringMatching(/^https:\/\/[0-9a-f-]+\.preview\.test\/$/),
+        cdpUrl: "wss://browser.test/2",
+      });
+      expect(closed).toEqual(PreviewResult.cases.close.make({}));
+      release();
+    }).pipe(Effect.provide(testWorld)),
+  );
+
   it.live("opens a preview and returns its URL and the browser's CDP URL", () =>
     Effect.gen(function* () {
       const { sessionId, results, records, release } = yield* runTools([
@@ -127,7 +159,7 @@ describe("the preview tool", () => {
 
       const opened = decodeOpened(results[0]?.output);
 
-      expect(results[1]?.output).toBe(JSON.stringify({ action: "close" }));
+      expect(decodeResult(results[1]?.output)).toEqual(PreviewResult.cases.close.make({}));
       expect(records.browser).toEqual(["close", "open", "close"]);
       expect(yield* resolve(tokenOf(opened.url))).toBeNull();
       release();
@@ -138,10 +170,8 @@ describe("the preview tool", () => {
     Effect.gen(function* () {
       const { results, release } = yield* runTools([preview({ action: "close" })]);
 
-      expect(results[0]).toMatchObject({
-        output: JSON.stringify({ action: "close" }),
-        isError: false,
-      });
+      expect(results[0]?.isError).toBe(false);
+      expect(decodeResult(results[0]?.output)).toEqual(PreviewResult.cases.close.make({}));
       release();
     }).pipe(Effect.provide(testWorld)),
   );

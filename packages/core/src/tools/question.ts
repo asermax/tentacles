@@ -3,22 +3,35 @@ import { defineTool, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 import { QuestionId, type SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
+import * as Match from "effect/Match";
 import * as Schema from "effect/Schema";
 
 import { QuestionsDoc, type StoredQuestion } from "../session/questions.ts";
 import { RecordDoc } from "../session/record.ts";
 import { pendingWork } from "../session/repository.ts";
+import { AskParentResult, askParentResultSchema } from "./ask-parent-result.ts";
 import { ToolNames } from "./tool-names.ts";
 
 const decodeQuestionId = Schema.decodeSync(QuestionId);
 
-const text = (value: string) => ({ output: [{ type: "text" as const, text: value }] });
+const encodeResult = Schema.encodeSync(AskParentResult);
 
-const refusal = (status: string) =>
-  text(
-    "PendingWork: the repository has work that is not committed and pushed. Commit and push it, " +
-      `drop the changes, or move them out of the repository, then ask again.\n\n${status}`,
-  );
+// The model reads text; programs that call the tool get the tagged value.
+const toolResult = (result: AskParentResult) => ({
+  output: [
+    {
+      type: "text" as const,
+      text: Match.valueTags(result, {
+        Answered: ({ answer }) => answer,
+        PendingWork: ({ status }) =>
+          "PendingWork: the repository has work that is not committed and pushed. Commit and " +
+          "push it, drop the changes, or move them out of the repository, then ask again." +
+          `\n\n${status}`,
+      }),
+    },
+  ],
+  structuredOutput: encodeResult(result),
+});
 
 const findQuestion = (questions: readonly StoredQuestion[], id: QuestionId) =>
   questions.find((question) => question.id === id);
@@ -71,6 +84,7 @@ export const askParentTool = (sessionId: SessionId) =>
         description: "The question, written for someone who has not seen this conversation.",
       }),
     }),
+    structuredOutputSchema: askParentResultSchema,
     replay: "safe",
     execute: async (args, api, context) => {
       const id = decodeQuestionId(String(api.taskId));
@@ -84,7 +98,7 @@ export const askParentTool = (sessionId: SessionId) =>
           const status = await Effect.runPromise(pendingWork(env));
 
           if (status != null) {
-            return refusal(status);
+            return toolResult(AskParentResult.cases.PendingWork.make({ status }));
           }
         }
 
@@ -97,6 +111,8 @@ export const askParentTool = (sessionId: SessionId) =>
         }, context);
       }
 
-      return text(await answerOf(api, id, context));
+      return toolResult(
+        AskParentResult.cases.Answered.make({ answer: await answerOf(api, id, context) }),
+      );
     },
   });

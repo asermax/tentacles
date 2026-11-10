@@ -5,7 +5,9 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore, type RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
+import { PreviewResult, previewResultSchema } from "./preview-result.ts";
 import { ToolNames } from "./tool-names.ts";
 
 /** Runs a preview step with the services the session holds. */
@@ -17,13 +19,17 @@ export type PreviewRunner = <A>(
   >,
 ) => Promise<A>;
 
-type PreviewResult =
-  | { readonly action: "open"; readonly url: string; readonly cdpUrl: string }
-  | { readonly action: "close" };
+const encodeResult = Schema.encodeSync(PreviewResult);
 
-const text = (result: PreviewResult) => ({
-  output: [{ type: "text" as const, text: JSON.stringify(result) }],
-});
+// The model reads the result as JSON; programs that call the tool get it as the value.
+const toolResult = (result: PreviewResult) => {
+  const encoded = encodeResult(result);
+
+  return {
+    output: [{ type: "text" as const, text: JSON.stringify(encoded) }],
+    structuredOutput: encoded,
+  };
+};
 
 // The browser opens before the preview is recorded, so a failed store closes
 // it and a failed browser leaves no token behind.
@@ -48,13 +54,10 @@ const open = (
       .openPreview(sessionId, port)
       .pipe(Effect.tapErrorTag("RegistryUnavailable", () => browser.close()));
 
-    const result: PreviewResult = {
-      action: "open",
+    return PreviewResult.cases.open.make({
       url: yield* router.url(preview.token),
       cdpUrl: opened.cdpUrl,
-    };
-
-    return result;
+    });
   });
 
 const close = (
@@ -64,9 +67,7 @@ const close = (
     yield* (yield* Browser).close();
     yield* (yield* RegistryStore).closePreview(sessionId);
 
-    const result: PreviewResult = { action: "close" };
-
-    return result;
+    return PreviewResult.cases.close.make({});
   });
 
 /** The preview tool: opens the session's one preview, replacing an open one, or closes it. */
@@ -85,6 +86,7 @@ export const previewTool = (sessionId: SessionId, run: PreviewRunner) =>
       }),
       obj({ action: lit("close") }),
     ]),
+    structuredOutputSchema: previewResultSchema,
     execute: async (args) =>
-      text(await run(args.action === "open" ? open(sessionId, args.port) : close(sessionId))),
+      toolResult(await run(args.action === "open" ? open(sessionId, args.port) : close(sessionId))),
   });
