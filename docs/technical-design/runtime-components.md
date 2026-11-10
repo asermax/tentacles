@@ -92,7 +92,7 @@ The scripts the agent writes with its codemode tool run in a sandbox Durable Obj
 
 Neither container holds a credential. The outbound handlers add the Claude subscription token to requests to Anthropic and the GitHub token to requests to github.com, on every request. Both tokens are Worker secrets, as is the API key.
 
-All containers run in North America.
+Containers are meant to run in North America (regions ENAM and WNAM), but nothing enforces it. Cloudflare offers no region setting for containers a Durable Object owns, so they run where Cloudflare places them; a container started from Buenos Aires ran in Miami.
 
 ## 🔌 Provider-neutral roles
 
