@@ -117,6 +117,8 @@ describe("the question tool", () => {
         bash("echo change >> README.md"),
         ask("Should I go on?"),
         fauxAssistantMessage("I will commit first."),
+        bash("git commit -qam 'save work' && git push -q origin main"),
+        fauxAssistantMessage("Pushed."),
       ]);
 
       const { sessionId, records } = yield* startSession(repositoryIn(world.shared));
@@ -140,6 +142,8 @@ describe("the question tool", () => {
         bash("git commit --allow-empty -m 'local only'"),
         ask("Should I go on?"),
         fauxAssistantMessage("I will push first."),
+        bash("git push -q origin main"),
+        fauxAssistantMessage("Pushed."),
       ]);
 
       const { sessionId, records } = yield* startSession(repositoryIn(world.shared));
