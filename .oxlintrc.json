@@ -68,6 +68,7 @@
         "apps/plugin/src/pi/extension.ts",
         "packages/provider-cloudflare/src/worker.ts",
         "packages/provider-cloudflare/src/codemode-worker.ts",
+        "packages/provider-cloudflare/src/spawn-shim.ts",
         "packages/provider-cloudflare/test/entry.js"
       ],
       "rules": {

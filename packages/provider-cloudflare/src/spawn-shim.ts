@@ -134,3 +134,18 @@ export const spawn = (program: string, args: ReadonlyArray<string>) => {
 
   return child;
 };
+
+// The alias replaces node:child_process for the whole bundle, and deploy-time code that the bundle
+// carries but the Worker never runs imports these too.
+const unavailable = (name: string) => () => {
+  throw new Error(`node:child_process ${name} is not available in the Worker`);
+};
+
+export const exec = unavailable("exec");
+export const execFile = unavailable("execFile");
+export const execSync = unavailable("execSync");
+export const execFileSync = unavailable("execFileSync");
+export const spawnSync = unavailable("spawnSync");
+export const fork = unavailable("fork");
+
+export default { spawn, exec, execFile, execSync, execFileSync, spawnSync, fork };

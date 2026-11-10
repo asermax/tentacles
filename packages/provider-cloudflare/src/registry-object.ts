@@ -1,6 +1,5 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
-import migrations from "@tentacles/sql-registry/migrations";
 import { sqlRegistryStore } from "@tentacles/sql-registry/registry-store";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
@@ -23,6 +22,12 @@ export const RegistryObjectLive = RegistryObject.make(
   Effect.map(Effect.service(Cloudflare.DurableObjectState), (state) =>
     Effect.gen(function* () {
       const db = drizzle(state.raw.storage);
+
+      // Imported here, not at the top: the deploy loads this module in Node, which cannot import
+      // the migrations' .sql files; the Worker bundle carries them as text.
+      const { default: migrations } = yield* Effect.promise(
+        () => import("@tentacles/sql-registry/migrations"),
+      );
 
       yield* Effect.promise(() => migrate(db, migrations));
 
