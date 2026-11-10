@@ -15,7 +15,7 @@ pi install npm:@asermax/pi-tentacles
 On Claude Code, add the marketplace and install the plugin:
 
 ```sh
-claude plugin marketplace add asermax/tentacles
+claude plugin marketplace add asermax/tentacles@claude-marketplace
 claude plugin install tentacles@tentacles
 ```
 

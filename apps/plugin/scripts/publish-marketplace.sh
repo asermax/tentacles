@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Claude plugin and force-pushes it as the root of the orphan
 # claude-marketplace branch, which `claude plugin marketplace add
-# asermax/tentacles` reads.
+# asermax/tentacles@claude-marketplace` reads.
 #
 # The commit is made from a separate index over build/out/claude, so the
 # checkout's own index, branch and working tree stay as they were. The remote
