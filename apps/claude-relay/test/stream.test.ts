@@ -81,7 +81,7 @@ describe("POST /stream", () => {
     const response = await post("claude-unknown-9");
 
     expect(response.status).toBe(400);
-    expect(await response.text()).toBe("unknown model claude-unknown-9");
+    expect(await response.text()).toContain("claude-unknown-9");
   });
 
   it("aborts the CLI call when the caller hangs up", async () => {

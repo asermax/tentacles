@@ -7,14 +7,14 @@ import * as tls from "node:tls";
  * Node reads once at startup, can miss it.
  */
 export const egressCaTrust = (path: string) => {
-  let trusted = false;
+  let isTrusted = false;
 
   return () => {
-    if (trusted || !existsSync(path)) {
+    if (isTrusted || !existsSync(path)) {
       return;
     }
 
     tls.setDefaultCACertificates([...tls.getCACertificates("default"), readFileSync(path, "utf8")]);
-    trusted = true;
+    isTrusted = true;
   };
 };
