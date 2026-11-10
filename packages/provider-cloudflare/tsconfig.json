@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "node"],
+    // core is merged into this branch later; until then its inbound surface typechecks against the
+    // stand-in, which the tests also load in its place.
+    "paths": {
+      "@tentacles/core": ["./test/core-stand-in.ts"]
+    }
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}

@@ -1,0 +1,173 @@
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import * as Cloudflare from "@alchemy.run/cloudflare";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { Connection, RemoteExecutionEnv } from "@earendil-works/pi-env";
+import { Workspace } from "@tentacles/contracts/workspace";
+import type { SessionId } from "@tentacles/worker-api/ids";
+import type { Repository } from "@tentacles/worker-api/settings";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
+
+import { credentialPlaceholder, EgressHosts, egressCaPath } from "./egress.ts";
+import { registerExec } from "./spawn-shim.ts";
+
+const workdir = "/workspace";
+
+const InstanceTypes = {
+  lite: "lite",
+  basic: "basic",
+  standard1: "standard-1",
+  standard2: "standard-2",
+  standard3: "standard-3",
+  standard4: "standard-4",
+} as const;
+
+/** What the session's settings say about its workspace, kept by the session object at create. */
+export const WorkspaceSettings = Schema.Struct({
+  size: Schema.Enum(InstanceTypes),
+  lifetime: Schema.Int,
+});
+
+export type WorkspaceSettings = typeof WorkspaceSettings.Type;
+
+// The daemon in the image comes from the same pi-env release the Worker bundles, so its client and
+// the daemon always speak the same protocol. Read at deploy time only.
+const piEnvVersion = Effect.promise(() =>
+  readFile(
+    join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-env"))), "../package.json"),
+    "utf8",
+  ),
+).pipe(
+  Effect.flatMap(
+    Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Struct({ version: Schema.String }))),
+  ),
+  Effect.map((manifest) => manifest.version),
+  Effect.orDie,
+);
+
+/** The workspace image, attached to the session object's class. */
+export class WorkspaceContainer extends Cloudflare.Container<WorkspaceContainer>()(
+  "WorkspaceContainer",
+  Effect.gen(function* () {
+    return {
+      schedulingPolicy: "durable_object" as const,
+      context: `${import.meta.dirname}/../images/workspace`,
+      build: {
+        args: {
+          PI_ENV_VERSION: yield* piEnvVersion,
+          EGRESS_CA_PATH: egressCaPath,
+          CREDENTIAL_PLACEHOLDER: credentialPlaceholder,
+        },
+      },
+    };
+  }),
+) {}
+
+const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
+const cloneCommand = (repository: Repository) =>
+  ["git clone", repository.shallow ? "--depth 1" : "", "--", shellQuote(repository.url), workdir]
+    .filter((part) => part !== "")
+    .join(" ");
+
+export interface WorkspaceHandles {
+  readonly sessionId: SessionId;
+  readonly container: () => Container;
+  /** The Worker's default entrypoint with this session's egress props. */
+  readonly egress: Fetcher;
+  readonly settings: Effect.Effect<WorkspaceSettings>;
+}
+
+/**
+ * One session's workspace on the session object's container. pi-env's daemon runs in it over
+ * ctx.container.exec, through the spawn shim.
+ */
+export const workspaceLayer = ({ sessionId, container, egress, settings }: WorkspaceHandles) => {
+  const program = `container-exec:${sessionId}`;
+
+  registerExec(program, (args) =>
+    container().exec(["/usr/local/bin/pi-env", ...args], { stdin: "pipe", cwd: workdir }),
+  );
+
+  const connection = new Connection({ command: [program] });
+  const env = new RemoteExecutionEnv({ connection, id: `workspace:${sessionId}`, cwd: workdir });
+
+  // Right after a deploy the container application can still be provisioning, and the first
+  // starts fail; the daemon answering is what ready means.
+  const daemonReady = Effect.tryPromise(() => connection.info()).pipe(
+    Effect.retry({ schedule: Schedule.spaced("2 seconds"), times: 15 }),
+    Effect.orDie,
+  );
+
+  const clone = (repository: Repository) =>
+    Effect.promise(() => env.exec(cloneCommand(repository), undefined, BACKGROUND_CONTEXT)).pipe(
+      Effect.flatMap((result) =>
+        result.ok && result.value.exitCode === 0
+          ? Effect.void
+          : Effect.die(new Error(`Cloning ${repository.url} into the workspace failed`)),
+      ),
+    );
+
+  // Concurrent tool calls share one start and one clone.
+  const starting = Semaphore.makeUnsafe(1);
+
+  const start = Effect.gen(function* () {
+    const { size, lifetime } = yield* settings;
+
+    yield* Effect.sync(() => container().start({ instance: size, enableInternet: true }));
+
+    // The interceptors do not survive a restart, so they are set after every start.
+    yield* Effect.promise(() =>
+      Promise.all([
+        container().setInactivityTimeout(lifetime * 60_000),
+        container().interceptOutboundHttps(EgressHosts.github, egress),
+        container().interceptOutboundHttp(EgressHosts.lifetime, egress),
+      ]),
+    );
+  });
+
+  return Layer.succeed(
+    Workspace,
+    Workspace.of({
+      ensure: (repository) =>
+        starting.withPermit(
+          Effect.gen(function* () {
+            if (container().running) {
+              return;
+            }
+
+            yield* start;
+            yield* daemonReady;
+
+            if (repository != null) {
+              yield* clone(repository);
+            }
+          }),
+        ),
+
+      connection: () => Effect.succeed(connection),
+
+      forward: (port, request) =>
+        Effect.tryPromise(() => container().getTcpPort(port).fetch(request)).pipe(
+          Effect.orElseSucceed(
+            () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
+          ),
+        ),
+
+      stop: () =>
+        Effect.promise(async () => {
+          connection.close();
+
+          if (container().running) {
+            await container().destroy();
+          }
+        }),
+    }),
+  );
+};

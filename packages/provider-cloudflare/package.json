@@ -1,0 +1,36 @@
+{
+  "name": "@tentacles/provider-cloudflare",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "@earendil-works/chord": "1.5.1",
+    "@earendil-works/pi-ai": "1.5.1",
+    "@earendil-works/pi-codemode": "1.5.1",
+    "@earendil-works/pi-durable": "1.5.1",
+    "@earendil-works/pi-env": "1.5.1",
+    "@tentacles/contracts": "workspace:*",
+    "@tentacles/sql-registry": "workspace:*",
+    "@tentacles/worker-api": "workspace:*",
+    "alchemy": "2.0.0-beta.85",
+    "drizzle-orm": "0.45.4",
+    "effect": "4.1.3"
+  },
+  "devDependencies": {
+    "@alchemy.run/cloudflare-runtime": "2.0.0-beta.85",
+    "@cloudflare/vitest-plugin": "1.6.0",
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@effect/platform-node": "4.1.3",
+    "@types/node": "24.19.2",
+    "rolldown": "1.2.13",
+    "ws": "8.22.2"
+  }
+}
