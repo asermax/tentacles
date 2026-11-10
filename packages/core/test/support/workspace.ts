@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { lstatSync, mkdirSync, readlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -22,6 +22,13 @@ export interface WorkspaceRecord {
   forward: (port: number, request: Request) => Response;
 }
 
+// Distributions point /lib64 at different places (usr/lib on Arch, usr/lib64
+// on Ubuntu), and the dynamic loader's path goes through it, so the sandbox
+// repeats the host's own links instead of assuming one layout.
+const mergedUsrLinks = ["/bin", "/lib", "/lib64"]
+  .filter((path) => lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink() === true)
+  .flatMap((path) => ["--symlink", readlinkSync(path), path]);
+
 // pi-env's published daemon, run locally in a bubblewrap sandbox whose
 // /workspace is the session's directory, so tools see the paths a container
 // gives them. `shared` holds the bare remotes and stays at its own path.
@@ -33,15 +40,7 @@ const sandboxed = (directory: string, shared: string) => {
     "--ro-bind",
     "/usr",
     "/usr",
-    "--symlink",
-    "usr/bin",
-    "/bin",
-    "--symlink",
-    "usr/lib",
-    "/lib",
-    "--symlink",
-    "usr/lib",
-    "/lib64",
+    ...mergedUsrLinks,
     "--ro-bind",
     "/etc",
     "/etc",
