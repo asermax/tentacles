@@ -13,6 +13,9 @@ import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 const bash = (command: string) =>
   fauxAssistantMessage(fauxToolCall("bash", { command }), { stopReason: "toolUse" });
 
+const write = (path: string, content: string) =>
+  fauxAssistantMessage(fauxToolCall("write", { path, content }), { stopReason: "toolUse" });
+
 /** Runs a session to its end and returns the results of its tool calls. */
 const runSession = (repository: Repository | null) =>
   Effect.gen(function* () {
@@ -111,6 +114,40 @@ describe("the workspace before each tool call", () => {
       expect(states.at(-1)).toEqual(
         SessionState.cases.idle.make({ lastEntry: Entry.cases.text.make({ text: "gave up" }) }),
       );
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("the write tool creates a file that does not exist yet", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+
+      world.faux.setResponses([
+        write("notes.md", "fresh"),
+        bash("cat /workspace/notes.md"),
+        fauxAssistantMessage("wrote it"),
+      ]);
+
+      const { results } = yield* runSession(null);
+
+      expect(results.map((result) => result.isError)).toEqual([false, false]);
+      expect(results[1]?.output).toContain("fresh");
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("the write tool creates a file in a directory that does not exist yet", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+
+      world.faux.setResponses([
+        write("docs/new/notes.md", "nested"),
+        bash("cat /workspace/docs/new/notes.md"),
+        fauxAssistantMessage("wrote it"),
+      ]);
+
+      const { results } = yield* runSession(null);
+
+      expect(results.map((result) => result.isError)).toEqual([false, false]);
+      expect(results[1]?.output).toContain("nested");
     }).pipe(Effect.provide(testWorld)),
   );
 });
