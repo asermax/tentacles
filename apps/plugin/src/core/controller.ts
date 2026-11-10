@@ -38,6 +38,8 @@ export interface Controller {
   readonly stop: () => void;
 }
 
+type EndpointToolName = EndpointToolEntry["name"];
+
 const SessionArguments = Schema.Struct({ sessionId: SessionId });
 
 const SpawnResult = Schema.Struct({ sessionId: SessionId });
@@ -45,6 +47,13 @@ const SpawnResult = Schema.Struct({ sessionId: SessionId });
 const NamedArguments = Schema.Struct({ name: Schema.String });
 
 const SessionRefs = Schema.Array(SessionRef);
+
+const targetOf = (args: Schema.JsonObject) =>
+  Option.map(Schema.decodeUnknownOption(SessionArguments)(args), (decoded) => decoded.sessionId);
+
+const ignoreSuccess = () => undefined;
+
+const passArguments = (args: Schema.JsonObject) => args;
 
 const decodeCommandResult = Schema.decodeUnknownOption(CommandResultJson);
 
@@ -199,51 +208,56 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
     );
   };
 
-  const afterSuccess = (
-    tool: EndpointToolEntry,
-    args: Schema.JsonObject,
-    success: typeof Success.Type,
-  ) => {
-    const target = Option.map(
-      Schema.decodeUnknownOption(SessionArguments)(args),
-      (decoded) => decoded.sessionId,
-    );
+  const afterSuccess: Record<
+    EndpointToolName,
+    (args: Schema.JsonObject, success: typeof Success.Type) => void
+  > = {
+    spawn: (args, success) => {
+      const created = Schema.decodeUnknownSync(SpawnResult)(success.result);
+      const { name } = Schema.decodeUnknownSync(NamedArguments)(args);
 
-    Match.value(tool.name).pipe(
-      Match.when(ToolNames.spawn, () => {
-        const created = Schema.decodeUnknownSync(SpawnResult)(success.result);
-        const { name } = Schema.decodeUnknownSync(NamedArguments)(args);
-
-        wakeKeys.set(created.sessionId, SessionStatuses.running);
-        save([
-          ...sessions,
-          SessionRef.make({ sessionId: created.sessionId, name, status: SessionStatuses.running }),
-        ]);
+      wakeKeys.set(created.sessionId, SessionStatuses.running);
+      save([
+        ...sessions,
+        SessionRef.make({ sessionId: created.sessionId, name, status: SessionStatuses.running }),
+      ]);
+      restartWatch();
+    },
+    close: (args) => {
+      Option.map(targetOf(args), (sessionId) => {
+        unwaited.delete(sessionId);
+        setStatus(sessionId, SessionStatuses.closed);
         restartWatch();
-      }),
-      Match.when(ToolNames.close, () => {
-        Option.map(target, (sessionId) => {
-          unwaited.delete(sessionId);
-          setStatus(sessionId, SessionStatuses.closed);
-          restartWatch();
-        });
-      }),
-      Match.when(ToolNames.prompt, () => {
-        const reopened = Option.filter(target, (sessionId) =>
-          sessions.some(
-            (session) =>
-              session.sessionId === sessionId && session.status === SessionStatuses.closed,
-          ),
-        );
+      });
+    },
+    prompt: (args) => {
+      const reopened = Option.filter(targetOf(args), (sessionId) =>
+        sessions.some(
+          (session) => session.sessionId === sessionId && session.status === SessionStatuses.closed,
+        ),
+      );
 
-        Option.map(reopened, (sessionId) => {
-          wakeKeys.set(sessionId, SessionStatuses.running);
-          setStatus(sessionId, SessionStatuses.running);
-          restartWatch();
-        });
-      }),
-      Match.orElse(() => undefined),
-    );
+      Option.map(reopened, (sessionId) => {
+        wakeKeys.set(sessionId, SessionStatuses.running);
+        setStatus(sessionId, SessionStatuses.running);
+        restartWatch();
+      });
+    },
+    messages: ignoreSuccess,
+    list: ignoreSuccess,
+    answer: ignoreSuccess,
+  };
+
+  const requestOf: Record<
+    EndpointToolName,
+    (args: Schema.JsonObject, current: Parent) => Schema.JsonObject
+  > = {
+    spawn: (args, current) => Object.assign({}, args, { parent: current }),
+    list: (_args, current) => ({ parent: current }),
+    prompt: passArguments,
+    messages: passArguments,
+    close: passArguments,
+    answer: passArguments,
   };
 
   const runEndpoint = async (
@@ -256,18 +270,12 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
       return { isError: true, text: "The tentacles plugin has not started for this session yet." };
     }
 
-    const request = Match.value(tool.name).pipe(
-      Match.when(ToolNames.spawn, () => Object.assign({}, args, { parent: current })),
-      Match.when(ToolNames.list, () => ({ parent: current })),
-      Match.orElse(() => args),
-    );
-
-    const result = await runCommand(tool.name, request);
+    const result = await runCommand(tool.name, requestOf[tool.name](args, current));
 
     return Match.value(result).pipe(
       Match.tagsExhaustive({
         Success: (success) => {
-          afterSuccess(tool, args, success);
+          afterSuccess[tool.name](args, success);
 
           return { isError: false, text: JSON.stringify(success.result ?? "Done.") };
         },
