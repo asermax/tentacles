@@ -23,7 +23,7 @@ import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
-import { SessionState } from "@tentacles/worker-api/session-state";
+import { isActive, SessionState } from "@tentacles/worker-api/session-state";
 import { PromptModes } from "@tentacles/worker-api/sessions";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -234,6 +234,10 @@ const make = (sessionId: SessionId) =>
             whenBusy: steers ? "steer" : "followUp",
           };
 
+          // Only a prompt that starts a run starts the commit prompts over; one
+          // sent into a run already going leaves that run's count.
+          const startsRun = state == null || !isActive(state);
+
           yield* armActive;
 
           // One commit admits the prompt, resets the commit prompts and clears
@@ -246,7 +250,10 @@ const make = (sessionId: SessionId) =>
               const draftRecord = await tx.doc(RecordDoc, sessionId, found);
 
               draftRecord.closed = false;
-              draftRecord.commitPrompts = 0;
+
+              if (startsRun) {
+                draftRecord.commitPrompts = 0;
+              }
             }, BACKGROUND_CONTEXT),
           );
         }),

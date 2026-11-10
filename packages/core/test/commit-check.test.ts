@@ -212,4 +212,27 @@ describe("the end-of-run commit check", () => {
       expect(yield* commitPrompts(sessionId)).toHaveLength(6);
     }).pipe(Effect.provide(testWorld)),
   );
+
+  it.live("a prompt into a run already going keeps the count", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const held = heldAnswer("no");
+
+      const { sessionId, handle } = yield* startSession([
+        leaveChange,
+        answer("done"),
+        held.response,
+        answer("no"),
+        answer("no"),
+        answer("never"),
+      ]);
+
+      yield* eventually(Effect.sync(() => expect(world.faux.state.callCount).toBe(3)));
+      yield* handle.prompt({ text: "keep going", mode: "followUp" });
+      held.release();
+
+      yield* stoppedWith(sessionId, idleAfter("never"));
+      expect(yield* commitPrompts(sessionId)).toHaveLength(3);
+    }).pipe(Effect.provide(testWorld)),
+  );
 });
