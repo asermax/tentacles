@@ -66,7 +66,8 @@ const closeQuietly = (browser: BrowserRun, browserSessionId: string) =>
 
 /**
  * One session's browser: a Browser Run session acquired through the binding, its id kept in the
- * session object's storage so close finds it after an eviction. Opening again replaces it.
+ * session object's storage so close finds it after an eviction. The caller closes the previous one
+ * before opening another.
  */
 export const browserLayer = (
   browser: BrowserRun,
@@ -88,16 +89,13 @@ export const browserLayer = (
     Browser,
     Browser.of({
       open: () =>
-        Effect.andThen(
-          close,
-          Effect.promise(async () => {
-            const { sessionId } = await browser.acquire({ keepAlive });
+        Effect.promise(async () => {
+          const { sessionId } = await browser.acquire({ keepAlive });
 
-            storage.kv.put(browserSessionKey, sessionId);
+          storage.kv.put(browserSessionKey, sessionId);
 
-            return { cdpUrl: `wss://${apiHost}/cdp/${await signToken(secret, sessionId)}` };
-          }),
-        ),
+          return { cdpUrl: `wss://${apiHost}/cdp/${await signToken(secret, sessionId)}` };
+        }),
       close: () => close,
     }),
   );
