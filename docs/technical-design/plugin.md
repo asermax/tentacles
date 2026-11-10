@@ -155,7 +155,7 @@ flowchart LR
     Source --> Build
     Build --> Pi
     Build --> Claude
-    Pi -->|"npm publish, by hand"| Npm
+    Pi -->|"npm publish, by CI on a version bump"| Npm
     Claude -->|"force-push, by CI on master"| Branch
     Npm --> PiUser
     Branch --> ClaudeUser
@@ -168,19 +168,19 @@ flowchart LR
     class Npm,Branch orange
 ```
 
-A maintainer publishes the pi package by hand: bump the version, build the plugin, and run `npm publish` from `apps/plugin/build/out/pi`. Its manifest marks the scoped package as public, names the extension and the skill pi loads, and limits the published files to the extension, the skill, the helper and the README. A user installs it with `pi install npm:@asermax/pi-tentacles`.
+A maintainer releases the pi package by bumping the version. The npm publish script builds the plugin and runs `npm publish` from `apps/plugin/build/out/pi` when npm has no package at that version yet, and otherwise publishes nothing. The package's manifest marks the scoped package as public, names the extension and the skill pi loads, and limits the published files to the extension, the skill, the helper and the README. A user installs it with `pi install npm:@asermax/pi-tentacles`.
 
-The Claude plugin tree is a marketplace. Its `.claude-plugin/marketplace.json` names the marketplace `tentacles` and lists one plugin, also `tentacles`, whose source is the tree's root. The publish script builds the plugin, commits the tree as a single commit with no parent, and force-pushes that commit to `claude-marketplace`. It stages the commit in a separate git index, so the checkout's index, branch and working tree stay as they were. Given a remote other than `origin`, such as the path of a bare repository, the script pushes there instead. A user adds the marketplace with `claude plugin marketplace add asermax/tentacles@claude-marketplace` and installs the plugin with `claude plugin install tentacles@tentacles`, the plugin's name followed by the marketplace's.
+The Claude plugin tree is a marketplace. Its `.claude-plugin/marketplace.json` names the marketplace `tentacles` and lists one plugin, also `tentacles`, whose source is the tree's root. The marketplace publish script builds the plugin, commits the tree as a single commit with no parent, and force-pushes that commit to `claude-marketplace`. It stages the commit in a separate git index, so the checkout's index, branch and working tree stay as they were. Given a remote other than `origin`, such as the path of a bare repository, the script pushes there instead. A user adds the marketplace with `claude plugin marketplace add asermax/tentacles@claude-marketplace` and installs the plugin with `claude plugin install tentacles@tentacles`, the plugin's name followed by the marketplace's.
 
 Either install works only against a deployed Worker, with its URL and API key set in `TENTACLES_URL` and `TENTACLES_API_KEY` (see Implementation details).
 
-CI runs on every push and pull request to `master`. Its first job installs bubblewrap and lifts Ubuntu's AppArmor restriction on unprivileged user namespaces, because the core tests' sandbox needs those namespaces. It then installs the dependencies from the frozen lockfile and runs `pnpm check` and `pnpm test`. On a push to `master`, once that job passes, a second job with write access to the repository's contents runs the publish script, so the marketplace branch holds the plugin as built from the latest `master`.
+CI runs on every push and pull request to `master`. Its first job installs bubblewrap and lifts Ubuntu's AppArmor restriction on unprivileged user namespaces, because the core tests' sandbox needs those namespaces. It then installs the dependencies from the frozen lockfile and runs `pnpm check` and `pnpm test`. On a push to `master`, once that job passes, a second job with write access to the repository's contents runs the marketplace publish script, so the marketplace branch holds the plugin as built from the latest `master`. A third job, also on a push to `master` once the first passes, runs the npm publish script. It authenticates with npm's trusted publishing, which exchanges the job's GitHub OIDC token for a publish token. When the package has no trusted publisher, the job uses the `NPM_TOKEN` repository secret instead. It publishes with a provenance attestation.
 
 > [!NOTE] Why the marketplace lives on its own branch
 > The marketplace has to be the built tree, with the bundled helper, hooks and skill, and `master` does not commit build output. An orphan branch holds only that tree, and each force-push replaces it whole, so the branch keeps no history of build output.
 
 > [!WARNING] One version number can name different code on the two harnesses
-> The marketplace republishes on every push to `master` whether or not the version changed, while the npm package changes only when someone publishes it. A Claude Code user can then run code that no pi user has under the same version, and no check detects the mismatch.
+> The marketplace republishes on every push to `master` whether or not the version changed, while CI publishes the npm package only when the version changes. A push that changes the plugin without bumping the version gives Claude Code users code that pi users do not have under the same version, and no check detects the mismatch.
 
 ## ⚙️ Implementation details
 
