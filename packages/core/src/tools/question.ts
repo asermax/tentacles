@@ -16,7 +16,7 @@ const decodeQuestionId = Schema.decodeSync(QuestionId);
 
 const encodeResult = Schema.encodeSync(AskParentResult);
 
-// The model reads text; programs that call the tool get the tagged value.
+// The model reads the text; the tagged value is kept as the call's structured output.
 const toolResult = (result: AskParentResult) => ({
   output: [
     {
@@ -85,6 +85,9 @@ export const askParentTool = (sessionId: SessionId) =>
       }),
     }),
     structuredOutputSchema: askParentResultSchema,
+    // A script's call runs as a nested task, which the session's status does
+    // not read: the session would never show waiting nor wake the parent.
+    callers: ["model"],
     replay: "safe",
     execute: async (args, api, context) => {
       const id = decodeQuestionId(String(api.taskId));

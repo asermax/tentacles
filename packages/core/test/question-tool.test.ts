@@ -7,9 +7,7 @@ import type { SessionId } from "@tentacles/worker-api/ids";
 import { SessionState } from "@tentacles/worker-api/session-state";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 
-import { AskParentResult } from "../src/tools/ask-parent-result.ts";
 import { post, serveApi } from "./support/api.ts";
 import { script, scriptOutput } from "./support/codemode.ts";
 import { eventually } from "./support/eventually.ts";
@@ -25,13 +23,6 @@ const ask = (question: string) => toolUse("ask_parent", { question });
 const bash = (command: string) => toolUse("bash", { command });
 
 const running = SessionState.cases.running.make({});
-
-const askFromScript = (question: string) =>
-  script(
-    `return JSON.stringify(await tools.ask_parent({ question: ${JSON.stringify(question)} }));`,
-  );
-
-const decodeResult = Schema.decodeUnknownSync(Schema.fromJsonString(AskParentResult));
 
 const startSession = (repository: Repository | null) =>
   Effect.gen(function* () {
@@ -145,26 +136,22 @@ describe("the question tool", () => {
     }).pipe(Effect.provide(testWorld)),
   );
 
-  it.live("a script that asks with changes not committed gets PendingWork with the status", () =>
+  it.live("a script cannot call ask_parent, so it never leaves the session waiting", () =>
     Effect.gen(function* () {
       const world = yield* TestWorld;
 
       world.faux.setResponses([
-        bash("echo change >> README.md"),
-        askFromScript("Should I go on?"),
-        fauxAssistantMessage("I will commit first."),
-        bash("git commit -qam 'save work' && git push -q origin main"),
-        fauxAssistantMessage("Pushed."),
+        script("return await tools.ask_parent({ question: 'Which?' });"),
+        fauxAssistantMessage("Done."),
       ]);
 
-      const { sessionId, records } = yield* startSession(repositoryIn(world.shared));
+      const { sessionId, records } = yield* startSession(null);
 
       yield* finished(sessionId);
 
-      const result = decodeResult(scriptOutput((yield* toolResults(sessionId))[1]?.output));
-
-      expect(AskParentResult.guards.PendingWork(result)).toBe(true);
-      expect(result).toMatchObject({ status: expect.stringContaining(" M README.md") });
+      expect(scriptOutput((yield* toolResults(sessionId))[0]?.output)).toContain(
+        "tools.ask_parent does not exist",
+      );
       expect(records.states.some(SessionState.guards.waiting)).toBe(false);
     }).pipe(Effect.provide(testWorld)),
   );

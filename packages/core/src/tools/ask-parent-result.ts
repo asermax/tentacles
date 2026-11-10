@@ -1,7 +1,7 @@
 import { lit, obj, str, union } from "@earendil-works/pi-schema";
 import * as Schema from "effect/Schema";
 
-/** What ask_parent gives a program that calls it: the parent's answer, or the repository's pending work. */
+/** What ask_parent returns: the parent's answer, or the repository's pending work. */
 export const AskParentResult = Schema.Union([
   Schema.TaggedStruct("Answered", { answer: Schema.String }),
   Schema.TaggedStruct("PendingWork", { status: Schema.String }),
