@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "node"],
+    "paths": {
+      "@tentacles/core": ["../../packages/provider-cloudflare/test/core-stand-in.ts"]
+    }
+  },
+  "include": ["alchemy.run.ts"]
+}
