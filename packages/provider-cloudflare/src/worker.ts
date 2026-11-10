@@ -14,6 +14,7 @@ import * as Option from "effect/Option";
 
 import { apiKeyLayer } from "./api-key.ts";
 import { cdpRelay } from "./browser.ts";
+import { ClaudeObject } from "./claude-object.ts";
 import { codemodeSandboxClass, codemodeWorkerName } from "./codemode-sandbox.ts";
 import { egress } from "./egress.ts";
 import { apiHost, zone } from "./hosts.ts";
@@ -63,6 +64,10 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
   Effect.gen(function* () {
     const sessions = yield* SessionObject;
     const registries = yield* RegistryObject;
+
+    // Only the session objects call the Claude object, but an isolate that wakes for the Claude
+    // object alone builds the Worker's init, which has to register its class.
+    yield* ClaudeObject;
     const browser = yield* Cloudflare.Browser("BROWSER");
     const apiKey = yield* Config.Redacted("TENTACLES_API_KEY");
     const cdpSecret = yield* Config.Redacted("TENTACLES_CDP_SECRET");
