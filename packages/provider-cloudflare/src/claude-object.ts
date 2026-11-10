@@ -15,11 +15,14 @@ const relayPort = 8080;
 // The container sleeps once no call has reached it for this long.
 const sleepAfter = 15 * 60_000;
 
+// The deploy publishes the class's image under the Container's id, and start names it.
+const claudeContainerId = "ClaudeContainer";
+
 /**
  * The Claude image. Its build context is apps/claude-relay after the relay's build, which leaves
  * the server as one file in dist/.
  */
-export class ClaudeContainer extends Cloudflare.Container<ClaudeContainer>()("ClaudeContainer", {
+export class ClaudeContainer extends Cloudflare.Container<ClaudeContainer>()(claudeContainerId, {
   schedulingPolicy: "durable_object",
   context: `${import.meta.dirname}/../../../apps/claude-relay`,
   dockerfile: `${import.meta.dirname}/../images/claude/Dockerfile`,
@@ -60,8 +63,14 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
         const starting = yield* Semaphore.make(1);
 
         const start = Effect.gen(function* () {
+          const image = yield* Effect.fromNullishOr(container.images[claudeContainerId]).pipe(
+            Effect.mapError(() => new Error("The deploy published no Claude image")),
+            Effect.orDie,
+          );
+
           yield* Effect.sync(() =>
             container.start({
+              image,
               instance: "standard-1",
               enableInternet: true,
               env: { PORT: String(relayPort) },

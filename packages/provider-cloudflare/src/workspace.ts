@@ -61,9 +61,13 @@ const piEnvVersion = Effect.flatMap(ALCHEMY_PHASE, (phase) =>
   phase === "runtime" ? Effect.succeed("") : readPiEnvVersion,
 );
 
+// The deploy publishes each class's images under their Container's id, and start names the one to
+// run.
+const workspaceContainerId = "WorkspaceContainer";
+
 /** The workspace image, attached to the session object's class. */
 export class WorkspaceContainer extends Cloudflare.Container<WorkspaceContainer>()(
-  "WorkspaceContainer",
+  workspaceContainerId,
   Effect.gen(function* () {
     return {
       schedulingPolicy: "durable_object" as const,
@@ -130,7 +134,18 @@ export const workspaceLayer = ({ sessionId, container, egress, settings }: Works
   const start = Effect.gen(function* () {
     const { size, lifetime } = yield* settings;
 
-    yield* Effect.sync(() => container().start({ instance: size, enableInternet: true }));
+    const image = yield* Effect.fromNullishOr(container().images[workspaceContainerId]).pipe(
+      Effect.mapError(() => new Error("The deploy published no workspace image")),
+      Effect.orDie,
+    );
+
+    yield* Effect.sync(() =>
+      container().start({
+        image,
+        instance: size,
+        enableInternet: true,
+      }),
+    );
 
     // The interceptors do not survive a restart, so they are set after every start.
     yield* Effect.promise(() =>
