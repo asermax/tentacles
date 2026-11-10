@@ -1,6 +1,6 @@
 ---
 title: "Plugin"
-summary: "The tentacles plugin for pi and Claude Code: its parts on the developer's machine, the tools the parent agent sees, the wake messages, and how the parent's local list of remote sessions stays in sync."
+summary: "The tentacles plugin for pi and Claude Code: its parts on the developer's machine, the tools the parent agent sees, the wake messages, how the parent's local list of remote sessions stays in sync, and how the plugin is published and installed."
 created: "2026-11-09"
 ---
 
@@ -8,7 +8,7 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-The tentacles plugin gives a parent agent on pi or Claude Code one tool per action on its remote sessions: spawn, prompt, messages, wait (pi only), list, close and answer. It is built from one source into a pi package and a Claude plugin. Each tool call runs a bundled helper CLI that calls the [Worker API](worker-api.md), and a long-running watch holds one socket per open session to update the status line and wake the parent when a session asks, finishes or fails. The plugin keeps a local list of the parent's remote sessions per harness session and syncs it with the Worker when the harness starts. It reaches tentacles only through the Worker API and the session sockets.
+The tentacles plugin gives a parent agent on pi or Claude Code one tool per action on its remote sessions: spawn, prompt, messages, wait (pi only), list, close and answer. It is built from one source into a pi package, published to npm, and a Claude plugin, published as a Claude Code marketplace. Each tool call runs a bundled helper CLI that calls the [Worker API](worker-api.md), and a long-running watch holds one socket per open session to update the status line and wake the parent when a session asks, finishes or fails. The plugin keeps a local list of the parent's remote sessions per harness session and syncs it with the Worker when the harness starts. It reaches tentacles only through the Worker API and the session sockets.
 
 ## 🏗️ Architecture
 
@@ -137,6 +137,50 @@ A deleted session leaves the list the first time the plugin learns of it: the st
 
 > [!WARNING] A deleted session lingers until the plugin learns of it
 > The daily cleanup deletes a session without telling its parent. The local list still names the session, and so does the status line if the session was open. This lasts until the next start-up sync, the next call on the session, or, for an open session, the watch's next connection to it.
+
+## 📦 Publishing and installing
+
+The build produces the plugin as two artifacts that ship separately. The pi package goes to npm as `@asermax/pi-tentacles`, and the Claude plugin goes to the repository's `claude-marketplace` branch, which Claude Code reads as a marketplace. Both carry one version, the `version` in `apps/plugin/package.json`. The build writes it into the pi package's manifest, into the Claude plugin's `plugin.json` and into the plugin's entry in `marketplace.json`.
+
+```mermaid
+flowchart LR
+    Source@{ shape: rect, label: "Plugin source<br/>version in package.json" }
+    Build@{ shape: rect, label: "Build<br/>writes the version into each manifest" }
+    Pi@{ shape: rect, label: "pi package<br/>@asermax/pi-tentacles" }
+    Claude@{ shape: rect, label: "Claude plugin tree<br/>plugin.json and marketplace.json" }
+    Npm@{ shape: cyl, label: "npm registry" }
+    Branch@{ shape: cyl, label: "claude-marketplace branch<br/>one orphan commit" }
+    PiUser@{ shape: stadium, label: "pi install" }
+    ClaudeUser@{ shape: stadium, label: "claude plugin marketplace add<br/>and plugin install" }
+    Source --> Build
+    Build --> Pi
+    Build --> Claude
+    Pi -->|"npm publish, by hand"| Npm
+    Claude -->|"force-push, by CI on master"| Branch
+    Npm --> PiUser
+    Branch --> ClaudeUser
+
+    classDef grey fill:#f3f4f6,stroke:#4b5563,color:#1f2937
+    classDef green fill:#dcfce7,stroke:#16a34a,color:#1f2937
+    classDef orange fill:#ffedd5,stroke:#ea580c,color:#1f2937
+    class PiUser,ClaudeUser grey
+    class Source,Build,Pi,Claude green
+    class Npm,Branch orange
+```
+
+A maintainer publishes the pi package by hand: bump the version, build the plugin, and run `npm publish` from `apps/plugin/build/out/pi`. Its manifest marks the scoped package as public, names the extension and the skill pi loads, and limits the published files to the extension, the skill, the helper and the README. A user installs it with `pi install npm:@asermax/pi-tentacles`.
+
+The Claude plugin tree is a marketplace. Its `.claude-plugin/marketplace.json` names the marketplace `tentacles` and lists one plugin, also `tentacles`, whose source is the tree's root. The publish script builds the plugin, commits the tree as a single commit with no parent, and force-pushes that commit to `claude-marketplace`. It stages the commit in a separate git index, so the checkout's index, branch and working tree stay as they were. Given a remote other than `origin`, such as the path of a bare repository, the script pushes there instead. A user adds the marketplace with `claude plugin marketplace add asermax/tentacles@claude-marketplace` and installs the plugin with `claude plugin install tentacles@tentacles`, the plugin's name followed by the marketplace's.
+
+Either install works only against a deployed Worker, with its URL and API key set in `TENTACLES_URL` and `TENTACLES_API_KEY` (see Implementation details).
+
+CI runs on every push and pull request to `master`. Its first job installs bubblewrap and lifts Ubuntu's AppArmor restriction on unprivileged user namespaces, because the core tests' sandbox needs those namespaces. It then installs the dependencies from the frozen lockfile and runs `pnpm check` and `pnpm test`. On a push to `master`, once that job passes, a second job with write access to the repository's contents runs the publish script, so the marketplace branch holds the plugin as built from the latest `master`.
+
+> [!NOTE] Why the marketplace lives on its own branch
+> The marketplace has to be the built tree, with the bundled helper, hooks and skill, and `master` does not commit build output. An orphan branch holds only that tree, and each force-push replaces it whole, so the branch keeps no history of build output.
+
+> [!WARNING] One version number can name different code on the two harnesses
+> The marketplace republishes on every push to `master` whether or not the version changed, while the npm package changes only when someone publishes it. A Claude Code user can then run code that no pi user has under the same version, and no check detects the mismatch.
 
 ## ⚙️ Implementation details
 

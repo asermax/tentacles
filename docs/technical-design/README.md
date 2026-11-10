@@ -18,4 +18,4 @@ One row per note, kept by hand: adding a note here is part of writing it.
 | [Worker API](worker-api.md) | The calls and the per-session socket the plugin uses, and the session state they return |
 | [Question round trip](question-round-trip.md) | How a remote agent's question reaches the parent and how the answer resumes the run |
 | [Workspace](workspace.md) | The per-session container: start, lifetime, pending work, the agent's tools, and the preview with a Browser Run browser |
-| [Plugin](plugin.md) | The pi and Claude Code plugin: its parts, tools, wake messages, and how the parent's local list stays in sync |
+| [Plugin](plugin.md) | The pi and Claude Code plugin: its parts, tools, wake messages, how the parent's local list stays in sync, and how it is published and installed |
