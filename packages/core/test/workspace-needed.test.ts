@@ -1,25 +1,32 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
 import type { SessionState } from "@tentacles/worker-api/session-state";
+import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
 import { later } from "./support/clock.ts";
 import { eventually } from "./support/eventually.ts";
 import { createRequest } from "./support/fixtures.ts";
 import { heldAnswer } from "./support/model.ts";
+import { bareRepository } from "./support/workspace.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
 const ask = fauxAssistantMessage(fauxToolCall("ask_parent", { question: "Which?" }), {
   stopReason: "toolUse",
 });
 
-const startSession = (prompt: string) =>
+const startSession = (prompt: string, repository: "managed" | "none" = "managed") =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
     const sessionId = newSessionId();
     const handle = yield* world.handle(sessionId);
 
-    yield* handle.create(createRequest(prompt));
+    const managed: Repository | null =
+      repository === "managed"
+        ? { url: bareRepository(world.shared, sessionId), shallow: false }
+        : null;
+
+    yield* handle.create(createRequest(prompt, managed));
 
     return { handle, records: world.records(sessionId) };
   });
@@ -91,6 +98,29 @@ describe("whether the workspace is still needed", () => {
 
       yield* reaching("idle", records);
       expect(yield* later("16 minutes")(handle.workspaceNeeded(true))).toBe(false);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("a session without a repository needs it only while running or waiting", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const held = heldAnswer("done");
+
+      world.faux.setResponses([held.response]);
+
+      const running = yield* startSession("work", "none");
+
+      expect(yield* running.handle.workspaceNeeded(true)).toBe(true);
+      held.release();
+      yield* reaching("idle", running.records);
+      expect(yield* later("1 minute")(running.handle.workspaceNeeded(true))).toBe(false);
+
+      world.faux.setResponses([ask]);
+
+      const waiting = yield* startSession("work", "none");
+
+      yield* reaching("waiting", waiting.records);
+      expect(yield* waiting.handle.workspaceNeeded(true)).toBe(true);
     }).pipe(Effect.provide(testWorld)),
   );
 

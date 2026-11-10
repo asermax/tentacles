@@ -1,5 +1,6 @@
 import { Parent } from "@tentacles/worker-api/parent";
 import { SessionState, SessionStatuses } from "@tentacles/worker-api/session-state";
+import type { Repository } from "@tentacles/worker-api/settings";
 import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
@@ -26,7 +27,7 @@ const isIdle = Schema.is(Schema.TaggedStruct(SessionStatuses.idle, {}));
  * Creates a session under a known id through its object, as the Worker's SessionHost does, and
  * waits until its first run has finished; the test model answers at once.
  */
-export const idleSession = async (sessionId: string) => {
+export const idleSession = async (sessionId: string, repository: Repository | null = null) => {
   await env.SessionObject.getByName(sessionId).create({
     name: "worker",
     parent,
@@ -38,7 +39,7 @@ export const idleSession = async (sessionId: string) => {
       image: "default",
       size: "basic",
       lifetime: 15,
-      repository: null,
+      repository,
     },
   });
 

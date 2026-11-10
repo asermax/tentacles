@@ -9,7 +9,10 @@ const ping = (isWorkPending: boolean) =>
 
 describe("the workspace's lifetime ping", () => {
   it("reaches the session named in the props, which keeps a workspace with pending work", async () => {
-    await idleSession(lifetimeSessionId);
+    await idleSession(lifetimeSessionId, {
+      url: "https://github.com/example/app.git",
+      shallow: true,
+    });
 
     const withPendingWork = await ping(true);
     const withoutPendingWork = await ping(false);

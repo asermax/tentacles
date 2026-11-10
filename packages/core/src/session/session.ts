@@ -376,7 +376,14 @@ const make = (sessionId: SessionId) =>
           return (
             found != null &&
             state != null &&
-            isWorkspaceNeeded(state, found.lastStopped, isWorkPending, now)
+            // tentacles manages only the repository its settings name, so
+            // pending work elsewhere in /workspace keeps nothing up.
+            isWorkspaceNeeded(
+              state,
+              found.lastStopped,
+              isWorkPending && found.settings.repository != null,
+              now,
+            )
           );
         }),
     };
