@@ -23,7 +23,7 @@ const read = (...path: ReadonlyArray<string>) => readFileSync(join(out, ...path)
 const readJson = <S extends Schema.ConstraintDecoder<unknown>>(
   schema: S,
   ...path: ReadonlyArray<string>
-) => Schema.decodeUnknownSync(Schema.fromJsonString(schema))(read(...path));
+) => Schema.decodeSync(Schema.fromJsonString(schema))(read(...path));
 
 const PiManifest = Schema.Struct({ pi: Schema.Unknown });
 

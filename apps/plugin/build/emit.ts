@@ -13,7 +13,7 @@ const distDir = join(packageRoot, "dist");
 
 export const outDir = join(packageRoot, "build", "out");
 
-const { version } = Schema.decodeUnknownSync(
+const { version } = Schema.decodeSync(
   Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
 )(readFileSync(join(packageRoot, "package.json"), "utf8"));
 
