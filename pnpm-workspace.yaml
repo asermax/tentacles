@@ -2,6 +2,16 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# Fail an install whose peer pins do not match, so two copies of a package
+# (such as a second pi-env through ws) cannot slip in.
+strictPeerDependencies: true
+
+# capnp-es (through miniflare) declares TypeScript 5 or 6 as a peer; it runs
+# with the repo's TypeScript 7.
+peerDependencyRules:
+  allowedVersions:
+    capnp-es>typescript: "7"
+
 allowBuilds:
   "@google/genai": false
   better-sqlite3: true
