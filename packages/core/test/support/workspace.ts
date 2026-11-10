@@ -1,0 +1,169 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
+import { Workspace } from "@tentacles/contracts/workspace";
+import type { Repository } from "@tentacles/worker-api/settings";
+import * as Effect from "effect/Effect";
+
+/** What the test reads back from one session's workspace. */
+export interface WorkspaceRecord {
+  /** Every ensure call, with its repository. */
+  readonly ensures: Array<Repository | null>;
+  /** The host directory mounted at /workspace. */
+  readonly directory: string;
+  /** Answers Workspace.forward. */
+  forward: (port: number, request: Request) => Response;
+}
+
+// pi-env's published daemon, run locally in a bubblewrap sandbox whose
+// /workspace is the session's directory, so tools see the paths a container
+// gives them. `shared` holds the bare remotes and stays at its own path.
+const sandboxed = (directory: string, shared: string) => {
+  const daemon = localDaemon();
+
+  return [
+    "bwrap",
+    "--ro-bind",
+    "/usr",
+    "/usr",
+    "--symlink",
+    "usr/bin",
+    "/bin",
+    "--symlink",
+    "usr/lib",
+    "/lib",
+    "--symlink",
+    "usr/lib",
+    "/lib64",
+    "--ro-bind",
+    "/etc",
+    "/etc",
+    "--proc",
+    "/proc",
+    "--dev",
+    "/dev",
+    "--tmpfs",
+    "/tmp",
+    "--bind",
+    directory,
+    "/workspace",
+    "--bind",
+    shared,
+    shared,
+    "--ro-bind",
+    dirname(daemon),
+    dirname(daemon),
+    "--setenv",
+    "HOME",
+    "/tmp",
+    "--setenv",
+    "GIT_AUTHOR_NAME",
+    "agent",
+    "--setenv",
+    "GIT_AUTHOR_EMAIL",
+    "agent@tentacles.test",
+    "--setenv",
+    "GIT_COMMITTER_NAME",
+    "agent",
+    "--setenv",
+    "GIT_COMMITTER_EMAIL",
+    "agent@tentacles.test",
+    "--die-with-parent",
+    daemon,
+  ];
+};
+
+/**
+ * A session's Workspace over a local sandboxed daemon. ensure starts the
+ * workspace on its first call and clones the repository then, as a container
+ * that just started would; a failed clone leaves it not started.
+ */
+export const testWorkspace = (root: string, shared: string) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const directory = join(root, "workspace");
+
+      mkdirSync(directory, { recursive: true });
+
+      const record: WorkspaceRecord = {
+        ensures: [],
+        directory,
+        forward: () => new Response("no app", { status: 502 }),
+      };
+
+      return {
+        record,
+        connection: new Connection({ command: sandboxed(directory, shared) }),
+      };
+    }),
+    ({ connection }) => Effect.sync(() => connection.close()),
+  ).pipe(
+    Effect.map(({ record, connection }) => {
+      let started = false;
+
+      const clone = (repository: Repository) =>
+        Effect.promise(async () => {
+          const env = new RemoteExecutionEnv({ connection, id: "clone", cwd: "/" });
+          const depth = repository.shallow ? ["--depth", "1"] : [];
+          let output = "";
+
+          const result = await env.exec(
+            ["git", "clone", ...depth, repository.url, "/workspace"],
+            { onOutput: (text) => (output += text) },
+            BACKGROUND_CONTEXT,
+          );
+
+          return result.ok && result.value.exitCode === 0 ? null : output;
+        }).pipe(
+          Effect.flatMap((failure) =>
+            failure == null ? Effect.void : Effect.die(new Error(`git clone failed: ${failure}`)),
+          ),
+        );
+
+      const workspace = Workspace.of({
+        ensure: (repository) =>
+          Effect.gen(function* () {
+            record.ensures.push(repository);
+
+            if (started) {
+              return;
+            }
+
+            if (repository != null) {
+              yield* clone(repository);
+            }
+
+            started = true;
+          }),
+        connection: () => Effect.succeed(connection),
+        forward: (port, request) => Effect.sync(() => record.forward(port, request)),
+        stop: () => Effect.void,
+      });
+
+      return { record, workspace };
+    }),
+  );
+
+const git = (cwd: string, ...args: string[]) =>
+  execFileSync("git", ["-c", "user.name=seed", "-c", "user.email=seed@tentacles.test", ...args], {
+    cwd,
+    stdio: "ignore",
+  });
+
+/** A bare repository with one commit on main, the remote a session clones. */
+export const bareRepository = (shared: string, name: string) => {
+  const bare = join(shared, `${name}.git`);
+  const seed = join(shared, `${name}-seed`);
+
+  git(shared, "init", "--bare", "-b", "main", bare);
+  git(shared, "init", "-b", "main", seed);
+  execFileSync("sh", ["-c", "echo '# app' > README.md"], { cwd: seed });
+  git(seed, "add", ".");
+  git(seed, "commit", "-m", "initial");
+  git(seed, "push", bare, "main");
+
+  return bare;
+};
