@@ -15,7 +15,7 @@ Each session has one workspace container, started at the first tool call that ne
 | Input | What it is | When absent |
 |---|---|---|
 | image | the container image | the default image |
-| size | the container size | a default size |
+| size | the container's instance type | basic |
 | lifetime | inactivity time before the container stops | 15 minutes |
 | repository | a repository URL and a shallow-or-full clone flag | nothing is cloned |
 
@@ -23,22 +23,24 @@ The plugin fills every absent value except the repository from its defaults, whi
 
 ## 📦 What the container holds
 
-The default image holds only what tentacles needs: pi-env's daemon, git and CA certificates, with git set up to authenticate through the token added at egress. It has no Node, no Chrome and no Docker. The agent installs anything else it needs, or a client builds its own image and names it in the settings.
+The default image holds only what tentacles needs: pi-env's daemon, git and CA certificates, with git set up to authenticate through the token added at egress, and a small process that pings the session with busybox `wget` to keep the container up while work is pending (see below). It has no Node, no Chrome and no Docker. The agent installs anything else it needs, or a client builds its own image and names it in the settings.
 
-The agent always works in `/workspace`. When the settings name a repository, tentacles clones it there, shallow or full as the setting says, on the repository's default branch, when the container starts and again after every restart. Without a repository setting, the agent clones whatever its prompt names. git reaches GitHub with the GitHub token added at egress; the container never holds it (see [runtime-components](runtime-components.md)).
+The agent always works in `/workspace`. Before every tool call, tentacles makes sure the workspace is up. When the container is not running, tentacles starts it and waits until it is ready. When the settings name a repository, tentacles then clones the repository's default branch there, shallow or full as the setting says. The first tool call and the first one after a restart, even in the middle of a run, find the repository in place. Without a repository setting, the agent clones whatever its prompt names. git reaches GitHub with the GitHub token added at egress; the container never holds it (see [runtime-components](runtime-components.md)).
 
 ## ⏱️ Lifetime and pending work
 
 The container starts at the first tool call that needs it and stays up while the session is working. Its lifetime is an inactivity time, 15 minutes by default, and every command run in the workspace resets it.
 
-Pending work is anything in the session's repository that is not committed and pushed. tentacles checks for it only when the settings name a repository, since that is the only repository it manages. The check runs at three points: when the question tool asks (see [question-round-trip](question-round-trip.md)), when a run finishes, and when the lifetime is about to run out.
+The workspace keeps itself up while it has pending work. A small process in the image checks `git status` in `/workspace` and, while work is pending, pings the session every minute; the session answers by the rule in the flowchart below, and answers no when the settings name no repository. Each ping that reaches the session renews the container. When the session answers no, the process stops pinging, and the inactivity time stops the container. The session schedules no check of its own, so pi-durable keeps sole use of the session's alarm. An image without the ping process, such as a client's own, stops after its inactivity time whatever is pending.
+
+Pending work is anything in the session's repository that is not committed and pushed. tentacles checks for it only when the settings name a repository, since that is the only repository it manages. The check runs at three points: when the question tool asks (see [question-round-trip](question-round-trip.md)), when a run finishes, and whenever the workspace pings while it has pending work.
 
 ```mermaid
 flowchart TD
-    A[Lifetime about to run out] --> B{"Repository set and work pending?"}
-    B -->|No| S((Container stops))
+    A["The workspace pings: work pending"] --> B{"Repository set and work pending?"}
+    B -->|No| S(("No: the pings stop,<br/>the container stops"))
     B -->|Yes| C{"Run still going?"}
-    C -->|Yes| K[Keep the container up, check again]
+    C -->|Yes| K["Yes: the ping renews the container"]
     K --> A
     C -->|"No: it finished, or close stopped it"| D{"15 minutes since the run stopped?"}
     D -->|No| K
@@ -63,11 +65,11 @@ Closing a session stops its run. Without pending work, the container then stops 
 | read, write, edit | work on files in `/workspace`, through pi-env |
 | bash | runs commands in the workspace; agent-browser runs through it |
 | codemode | runs a script that calls the other tools; scripts keep `models.*` (the model catalog, classify and generateImages) through the session's providers |
-| subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; subagents have no question tool |
+| subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; subagents have neither the question tool nor the subagent tool, so they do not nest |
 | question | asks the parent; root conversation only; refuses while the repository has pending work |
 | preview | returns a preview URL to a workspace port and a CDP URL to a browser, replacing the open preview if there is one |
 
-The coding tools run in the container through pi-env: the session object reaches pi-env's daemon over the container's exec stdio. codemode is pi-durable's own tool; on Cloudflare it runs in a RemoteCodemodeSandbox. pi-durable ships no subagent tool, so tentacles writes one following pi-durable's examples, and that tool leaves the question tool out of every subagent.
+The coding tools run in the container through pi-env: the session object reaches pi-env's daemon over the container's exec stdio. codemode is pi-durable's own tool; on Cloudflare it runs in a RemoteCodemodeSandbox. pi-durable ships no subagent tool, so tentacles writes one following pi-durable's examples, and that tool leaves the question tool and itself out of every subagent.
 
 agent-browser is not part of tentacles: it is in the image or the agent installs it, and the agent runs it through bash.
 
@@ -93,7 +95,7 @@ flowchart LR
   class inp,out payload
 ```
 
-A session has at most one preview, and only to validate the app in a browser. When the agent wants to check the app it started in the workspace, it calls the preview tool with the app's port. The Worker generates a token, records it and the port on the session's registry entry, opens a Browser Run browser through the binding, and returns two URLs: the preview URL, which carries only the token as a subdomain on a wildcard custom domain, and the browser's CDP URL. The agent points agent-browser at the CDP URL, opens the preview URL, validates what it built and closes the preview.
+A session has at most one preview, and only to validate the app in a browser. When the agent wants to check the app it started in the workspace, it calls the preview tool with the app's port. The Worker generates a token, records it and the port on the session's registry entry, opens a Browser Run browser through the binding, and returns two URLs: the preview URL, `https://<token>-tentacles-preview.asermax.com`, which carries only the token, and the browser's CDP URL, which carries a token the Worker signs. The agent points agent-browser at the CDP URL, opens the preview URL, validates what it built and closes the preview.
 
 When the agent calls the preview tool while a preview is open, the new preview replaces it: the previous token stops working and its browser closes.
 

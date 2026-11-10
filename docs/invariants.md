@@ -14,6 +14,7 @@ The sections below are the usual kinds of rule. Keep the ones this project has r
 - A prompt never answers or cancels a waiting question; it reaches the agent after the answer ([question-round-trip](technical-design/question-round-trip.md)).
 - Deletion never touches a running or waiting session ([sessions](technical-design/sessions.md)).
 - Before an action that pauses a session, asking a question or ending a run, tentacles checks the session's repository for work that is not committed and pushed ([question-round-trip](technical-design/question-round-trip.md), [workspace](technical-design/workspace.md)).
+- A session's status changes only in reaction to its pi-durable session ([sessions](technical-design/sessions.md)).
 
 ## 🖥️ Interface
 

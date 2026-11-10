@@ -42,7 +42,7 @@ The plugin fills every unset setting from its defaults, so create always carries
 
 ## 📡 Session state
 
-The session state carries the session's status (running, waiting, idle, failed or closed), the question while one waits (its id and text) and the failure when the last run failed. The socket sends the state when it connects and again on every change; status returns it too. [sessions](sessions.md) lists the states and the events that move a session between them.
+The session state carries the session's status (running, waiting, idle, failed or closed), the question while one waits (its id and text), and the failure when the last run failed. When a run just finished, the state also carries the run's last entry, so the finish wake needs no messages call. A session already idle when the socket connects sends its state without the last entry, and the helper fetches it with `messages`. The socket sends the state when it connects and again on every change; status returns it too. [sessions](sessions.md) lists the states and the events that move a session between them.
 
 > [!NOTE] Why the session state is one construct
 > The finish notice, a new question, the status line, a reconnecting parent and the status call all read the same state, so each of them sees the same session, and a parent that was not connected when something changed learns it from the state sent on connect.

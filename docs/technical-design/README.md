@@ -19,9 +19,3 @@ One row per note, kept by hand: adding a note here is part of writing it.
 | [Question round trip](question-round-trip.md) | How a remote agent's question reaches the parent and how the answer resumes the run |
 | [Workspace](workspace.md) | The per-session container: start, lifetime, pending work, the agent's tools, and the preview with a Browser Run browser |
 | [Plugin](plugin.md) | The pi and Claude Code plugin: its parts, tools, wake messages, and how the parent's local list stays in sync |
-
-## What has no note yet
-
-Honest gaps, so nobody assumes coverage that is not there. Name the part, and say where its behaviour is currently documented instead: in code comments, in a commit message, or nowhere.
-
-- How the provider contracts are written and how each setup declares its infrastructure: not decided, documented nowhere yet. [Runtime components](runtime-components.md) names each contract and its role; the definitions get added to that section once they are settled.

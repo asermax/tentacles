@@ -55,7 +55,7 @@ flowchart LR
 
 The **harness glue** is a pi extension on pi and a Claude mod on Claude Code. It registers the tools, turns each tool call into a helper command, keeps the parent's local state, updates the status line and delivers the wakes.
 
-The **helper CLI** runs as one process per command, and as a long-running watch that holds one socket per session in the local state and hands each state change back to the glue. It reads the Worker URL and the API key from environment variables, and the default session settings come from environment variables too.
+The **helper CLI** runs as one process per command, and as a long-running watch that holds one socket per session in the local state and hands each state change back to the glue. It reads the Worker URL and the API key from environment variables, and the default session settings come from environment variables too (see Implementation details).
 
 The **local state** is the parent's list of remote sessions, per harness session: a custom session entry on pi, a file under `CLAUDE_PLUGIN_DATA` on Claude Code. The glue reads it when the harness starts and writes it whenever the parent's sessions change.
 
@@ -132,6 +132,22 @@ A deleted session leaves the list the first time the plugin learns of it: the st
 
 > [!WARNING] A deleted session lingers until the plugin learns of it
 > The daily cleanup deletes a session without telling its parent. Until the next start-up sync or the next call on that session, the local list, and the status line if the session was open, still name it.
+
+## ⚙️ Implementation details
+
+| Variable | What it sets | Default |
+|---|---|---|
+| `TENTACLES_URL` | the Worker's URL | required |
+| `TENTACLES_API_KEY` | the API key | required |
+| `TENTACLES_HELPER` | the helper's path | the bundled helper |
+| `TENTACLES_SESSION_PROVIDER` | the model provider | the provider that serves glm-5.2 |
+| `TENTACLES_SESSION_MODEL` | the model | glm-5.2 |
+| `TENTACLES_SESSION_EFFORT` | the effort level | max |
+| `TENTACLES_WORKSPACE_IMAGE` | the workspace image | the default image |
+| `TENTACLES_WORKSPACE_SIZE` | the workspace container's instance type | basic |
+| `TENTACLES_WORKSPACE_LIFETIME` | the workspace's inactivity time, in minutes | 15 |
+
+The helper reads them where it runs, on the developer's machine; the deploy reads its own variables, apart from these.
 
 ---
 

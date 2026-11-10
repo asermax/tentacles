@@ -22,7 +22,7 @@ erDiagram
         string name
         string parent_harness
         string parent_session_id
-        string status
+        string status "nullable"
         datetime last_stopped "nullable"
         int preview_port "nullable"
         string preview_token "nullable"
@@ -33,9 +33,9 @@ erDiagram
         string parent_harness
         string parent_session_id
         json settings
-        string status
+        boolean closed
         datetime last_stopped "nullable"
-        text failure "nullable"
+        int commit_prompts
     }
     QUESTION {
         string id PK
@@ -47,11 +47,13 @@ pi-durable's conversations (the root, its forks and subagent conversations) live
 
 ### 🧠 Session
 
-SESSION is the record each session's Durable Object keeps next to pi-durable's history. `id` is the session id the object is keyed by. `name` is required and given by the parent at spawn; it is what the parent's status line shows. `parent_harness` (pi or claude) and `parent_session_id` identify the parent: its harness and that harness's session id. `settings` holds what the parent chose at spawn, with the plugin's defaults for anything the parent left out: provider, model, effort level, image, size and lifetime, and optionally the repository tentacles clones into the workspace. `status` holds the state described in the Lifecycle section below, closed included. `last_stopped` is the time the session's last run stopped, from which the month before deletion counts, and is empty while the first run is going. `failure` describes why the last run failed and is empty unless the session is failed.
+SESSION is the record each session's Durable Object keeps next to pi-durable's history. `id` is the session id the object is keyed by. `name` is required and given by the parent at spawn; it is what the parent's status line shows. `parent_harness` (pi or claude) and `parent_session_id` identify the parent: its harness and that harness's session id. `settings` holds what the parent chose at spawn, with the plugin's defaults for anything the parent left out: provider, model, effort level, image, size and lifetime, and optionally the repository tentacles clones into the workspace. close sets `closed`, and a prompt that reopens the session clears it. `last_stopped` is the time the session's last run stopped, from which the month before deletion counts, and is empty while the first run is going. `commit_prompts` counts the prompts to commit sent in the current run, so the limit of three survives an eviction; a run started by a prompt from the parent resets `commit_prompts` to zero.
+
+The session's status is not a field. The session object watches pi-durable's state and derives it: a run going is running, an unanswered question is waiting, no run with `closed` set is closed, no run with the last run's failure recorded is failed (pi-durable keeps why the run failed), and no run otherwise is idle. Each time the derived status changes, the session reports it to the registry and sends the session state to the parent, so a status always follows something the session did.
 
 ### 📒 Registry entry
 
-REGISTRY_ENTRY lives in the one registry Durable Object for the whole Worker, one entry per session: the session id, its name, the parent's harness and session id, the session's status (the same values as the session's own status, closed included) and `last_stopped`, the same stop time the session keeps. The session updates its entry on every state change, so the list call and the plugin's start-up sync get each session's status without asking each session. The daily cleanup job picks its candidates from `last_stopped`. The registry drops the entry when the session is deleted.
+REGISTRY_ENTRY lives in the one registry Durable Object for the whole Worker, one entry per session: the session id, its name, the parent's harness and session id, the session's status (the same values as the session's derived status, closed included, and empty until the session reports its first one) and `last_stopped`, the same stop time the session keeps. The session updates its entry on every state change, so the list call and the plugin's start-up sync get each session's status without asking each session. The daily cleanup job picks its candidates from `last_stopped`. The registry drops the entry when the session is deleted.
 
 `preview_port` and `preview_token` hold the session's preview while one is open, and are empty otherwise. A session has at most one preview, and only to validate the app in a Browser Run browser; the agent validates anything else, such as an API, inside the workspace with no preview. `preview_port` is the workspace port the preview exposes. `preview_token` is a random UUID the Worker generates when the preview tool asks for it, so a preview URL carries neither the API key nor the session id. Opening a preview while one is open replaces it: the previous token stops working and its browser closes. When the run stops, the registry clears both fields. [workspace](workspace.md) covers how the agent opens and uses a preview.
 
@@ -109,7 +111,7 @@ When the agent asks a question, after committing and pushing its work, the sessi
 
 A run ends in one of two ways. When it finishes, the session is idle. When the session's settings name a repository and that repository holds work not committed and pushed, tentacles first prompts the agent to commit and the run goes on, up to three times (see [workspace](workspace.md)). When the run fails on an error it cannot recover from, the session is failed: it behaves like idle and records why the last run failed. The plugin notifies the parent either way, and a prompt on either starts a new run. The session's preview, if one is open, closes when a run stops.
 
-close aborts whatever the session is doing and leaves it closed: kept in its Durable Object, where its history and state stay readable until it is deleted. A prompt on a closed session reopens it and starts a new run, whether sent as a follow-up or a steer, and the registry status leaves closed.
+close aborts whatever the session is doing and leaves it closed: kept in its Durable Object, where its history and state stay readable until it is deleted. close sets `closed` and aborts any run; the status turns closed once the session sees no run and `closed` set, at once for an idle or failed session. A prompt on a closed session clears `closed` and starts a new run, whether sent as a follow-up or a steer, and the status leaves closed once the run starts.
 
 The month before deletion counts from when the last run stops, by finishing, failing or close. A session is never deleted while a run is going, including while a question waits inside it, and reading a session (its messages, its status, a socket connecting) does not renew the month.
 
