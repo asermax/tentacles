@@ -56,10 +56,10 @@ describe("helper commands against the Worker", () => {
           prompt: "go",
           parent,
           settings: {
-            provider: "placeholder-session-provider",
+            provider: "cloudflare",
             model: "glm-5.2",
             effort: "max",
-            image: "placeholder-workspace-image",
+            image: "default",
             size: "basic",
             lifetime: 15,
             repository: null,
