@@ -1,15 +1,16 @@
 import { describe, expect, it } from "@effect/vitest";
 import { env } from "cloudflare:workers";
+import * as Schema from "effect/Schema";
 
 import { testSecrets } from "./secrets.ts";
 
 // What the images send in place of a credential; the egress replaces whatever arrives.
 const placeholder = "tentacles-egress-credential";
 
-interface Forwarded {
-  readonly url: string;
-  readonly headers: Record<string, string>;
-}
+const Forwarded = Schema.Struct({
+  url: Schema.String,
+  headers: Schema.Record(Schema.String, Schema.String),
+});
 
 describe("the containers' egress", () => {
   it("forwards a request to github.com with the GitHub token in place of the placeholder", async () => {
@@ -18,7 +19,7 @@ describe("the containers' egress", () => {
       { headers: { authorization: `Basic ${btoa(`x-access-token:${placeholder}`)}` } },
     );
 
-    const forwarded: Forwarded = await response.json();
+    const forwarded = Schema.decodeUnknownSync(Forwarded)(await response.json());
 
     expect(forwarded.url).toBe(
       "https://github.com/owner/repository.git/info/refs?service=git-upload-pack",
@@ -35,7 +36,7 @@ describe("the containers' egress", () => {
       body: "{}",
     });
 
-    const forwarded: Forwarded = await response.json();
+    const forwarded = Schema.decodeUnknownSync(Forwarded)(await response.json());
 
     expect(forwarded.url).toBe("https://api.anthropic.com/v1/messages");
     expect(forwarded.headers.authorization).toBe(`Bearer ${testSecrets.TENTACLES_CLAUDE_TOKEN}`);

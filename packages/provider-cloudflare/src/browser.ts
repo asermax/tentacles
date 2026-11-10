@@ -62,10 +62,7 @@ const verifyToken = async (secret: Redacted.Redacted, token: string) => {
 };
 
 const closeQuietly = (browser: BrowserRun, browserSessionId: string) =>
-  browser.closeSession(browserSessionId).then(
-    () => undefined,
-    () => undefined,
-  );
+  browser.closeSession(browserSessionId).catch(() => {});
 
 /**
  * One session's browser: a Browser Run session acquired through the binding, its id kept in the
@@ -106,6 +103,10 @@ export const browserLayer = (
   );
 };
 
+// 1005 means no code was sent, which close() does not accept.
+const forwardClose = (to: WebSocket) => (event: CloseEvent) =>
+  to.close(event.code === 1005 ? 1000 : event.code, event.reason);
+
 /**
  * The /cdp route: checks the token and bridges the caller's WebSocket to the Browser Run session it
  * names. agent-browser cannot trust the egress CA on its CDP connection, so the container reaches
@@ -141,13 +142,8 @@ export const cdpRelay = (browser: BrowserRun, secret: Redacted.Redacted) => (tok
     remote.addEventListener("message", (event) => local.send(event.data));
     local.addEventListener("message", (event) => remote.send(event.data));
 
-    // 1005 means no code was sent, which close() does not accept.
-    remote.addEventListener("close", (event) =>
-      local.close(event.code === 1005 ? 1000 : event.code, event.reason),
-    );
-    local.addEventListener("close", (event) =>
-      remote.close(event.code === 1005 ? 1000 : event.code, event.reason),
-    );
+    remote.addEventListener("close", forwardClose(local));
+    local.addEventListener("close", forwardClose(remote));
 
     return new Response(null, { status: 101, webSocket: client });
   });

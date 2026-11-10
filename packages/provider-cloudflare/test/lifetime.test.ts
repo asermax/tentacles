@@ -4,8 +4,8 @@ import { env } from "cloudflare:workers";
 import { lifetimeSessionId } from "./secrets.ts";
 import { idleSession } from "./sessions.ts";
 
-const ping = (pendingWork: boolean) =>
-  env.LIFETIME.fetch(`http://tentacles.internal/lifetime?pendingWork=${pendingWork}`);
+const ping = (isWorkPending: boolean) =>
+  env.LIFETIME.fetch(`http://tentacles.internal/lifetime?pendingWork=${isWorkPending}`);
 
 describe("the workspace's lifetime ping", () => {
   it("reaches the session named in the props, which keeps a workspace with pending work", async () => {

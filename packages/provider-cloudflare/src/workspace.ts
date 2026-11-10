@@ -6,7 +6,7 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import { ALCHEMY_PHASE } from "alchemy";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, RemoteExecutionEnv } from "@earendil-works/pi-env";
-import { Workspace } from "@tentacles/contracts/workspace";
+import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
@@ -17,8 +17,6 @@ import * as Semaphore from "effect/Semaphore";
 
 import { credentialPlaceholder, EgressHosts, egressCaPath } from "./egress.ts";
 import { registerExec } from "./spawn-shim.ts";
-
-const workdir = "/workspace";
 
 const InstanceTypes = {
   lite: "lite",
@@ -93,7 +91,7 @@ const cloneCommand = (repository: Repository) =>
     repository.shallow ? "--depth 1 --no-single-branch" : "",
     "--",
     shellQuote(repository.url),
-    workdir,
+    workspaceDirectory,
   ]
     .filter((part) => part !== "")
     .join(" ");
@@ -114,11 +112,19 @@ export const workspaceLayer = ({ sessionId, container, egress, settings }: Works
   const program = `container-exec:${sessionId}`;
 
   registerExec(program, (args) =>
-    container().exec(["/usr/local/bin/pi-env", ...args], { stdin: "pipe", cwd: workdir }),
+    container().exec(["/usr/local/bin/pi-env", ...args], {
+      stdin: "pipe",
+      cwd: workspaceDirectory,
+    }),
   );
 
   const connection = new Connection({ command: [program] });
-  const env = new RemoteExecutionEnv({ connection, id: `workspace:${sessionId}`, cwd: workdir });
+
+  const env = new RemoteExecutionEnv({
+    connection,
+    id: `workspace:${sessionId}`,
+    cwd: workspaceDirectory,
+  });
 
   // Right after a deploy the container application can still be provisioning, and the first
   // starts fail; the daemon answering is what ready means.

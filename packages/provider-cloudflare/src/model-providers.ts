@@ -126,13 +126,24 @@ const relayLines = async function* (body: ReadableStream<Uint8Array>) {
   let buffered = "";
 
   for await (const chunk of body) {
+    // Only the new text is searched, so a line arriving over many chunks is scanned once.
+    const searchFrom = buffered.length;
+
     buffered += decoder.decode(chunk, { stream: true });
 
-    const lines = buffered.split("\n");
+    for (
+      let newline = buffered.indexOf("\n", searchFrom);
+      newline >= 0;
+      newline = buffered.indexOf("\n")
+    ) {
+      const line = buffered.slice(0, newline);
 
-    buffered = lines.pop() ?? "";
+      buffered = buffered.slice(newline + 1);
 
-    yield* lines.filter((line) => line.length > 0);
+      if (line.length > 0) {
+        yield line;
+      }
+    }
   }
 
   if (buffered.length > 0) {
