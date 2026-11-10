@@ -14,7 +14,7 @@ import { eventually } from "./support/eventually.ts";
 import { script, scriptOutput } from "./support/codemode.ts";
 import { createRequest } from "./support/fixtures.ts";
 import { heldAnswer } from "./support/model.ts";
-import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { BrowserCalls, newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
 const preview = (args: { action: "open"; port: number } | { action: "close" }) =>
   fauxAssistantMessage(fauxToolCall("preview", args), { stopReason: "toolUse" });
@@ -94,7 +94,7 @@ describe("the preview tool", () => {
       expect(opened.cdpUrl).toBe("wss://browser.test/2");
       expect(opened.url).toMatch(/^https:\/\/[0-9a-f-]+\.preview\.test\/$/);
       expect(yield* resolve(tokenOf(opened.url))).toEqual({ sessionId, port: 3000 });
-      expect(records.browser).toEqual(["close", "open"]);
+      expect(records.browser).toEqual([BrowserCalls.close, BrowserCalls.open]);
       release();
     }).pipe(Effect.provide(testWorld)),
   );
@@ -111,7 +111,12 @@ describe("the preview tool", () => {
         const first = decodeOpened(results[0]?.output);
         const second = decodeOpened(results[1]?.output);
 
-        expect(records.browser).toEqual(["close", "open", "close", "open"]);
+        expect(records.browser).toEqual([
+          BrowserCalls.close,
+          BrowserCalls.open,
+          BrowserCalls.close,
+          BrowserCalls.open,
+        ]);
         expect(yield* resolve(tokenOf(first.url))).toBeNull();
         expect(yield* resolve(tokenOf(second.url))).toEqual({ sessionId, port: 4000 });
         release();
@@ -145,7 +150,7 @@ describe("the preview tool", () => {
       ]);
 
       expect(results[0]?.isError).toBe(true);
-      expect(records.browser).toEqual(["close", "open", "close"]);
+      expect(records.browser).toEqual([BrowserCalls.close, BrowserCalls.open, BrowserCalls.close]);
       release();
     }).pipe(Effect.provide(testWorld)),
   );
@@ -160,7 +165,7 @@ describe("the preview tool", () => {
       const opened = decodeOpened(results[0]?.output);
 
       expect(decodeResult(results[1]?.output)).toEqual(PreviewResult.cases.close.make({}));
-      expect(records.browser).toEqual(["close", "open", "close"]);
+      expect(records.browser).toEqual([BrowserCalls.close, BrowserCalls.open, BrowserCalls.close]);
       expect(yield* resolve(tokenOf(opened.url))).toBeNull();
       release();
     }).pipe(Effect.provide(testWorld)),

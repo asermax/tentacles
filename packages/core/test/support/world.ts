@@ -41,7 +41,13 @@ import { testWorkspace, type WorkspaceRecord } from "./workspace.ts";
 /** A WakeTimer call: the time it was set to, or null for a clear. */
 export type WakeCall = number | null;
 
-export type BrowserCall = "open" | "close";
+/** A Browser call, by the contract's method name. */
+export type BrowserCall = keyof Browser["Service"];
+
+export const BrowserCalls = {
+  open: "open",
+  close: "close",
+} as const satisfies { readonly [Call in BrowserCall]: Call };
 
 /** Everything a session did through its own contracts, in order. */
 export interface SessionRecords {
@@ -335,7 +341,7 @@ const makeWorld = Effect.gen(function* () {
         Browser.of({
           open: () =>
             Effect.gen(function* () {
-              record.browser.push("open");
+              record.browser.push(BrowserCalls.open);
 
               if (failures.browserOpen) {
                 return yield* new BrowserUnavailable({ message: "Browser.open failed" });
@@ -343,7 +349,7 @@ const makeWorld = Effect.gen(function* () {
 
               return { cdpUrl: `wss://browser.test/${record.browser.length}` };
             }),
-          close: () => Effect.sync(() => void record.browser.push("close")),
+          close: () => Effect.sync(() => void record.browser.push(BrowserCalls.close)),
         }),
       ),
       Context.add(Workspace, workspaceOf(sessionId)),

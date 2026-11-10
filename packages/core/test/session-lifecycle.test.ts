@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import { eventually } from "./support/eventually.ts";
 import { createRequest, parent } from "./support/fixtures.ts";
 import { heldAnswer } from "./support/model.ts";
-import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { BrowserCalls, newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
 const running = SessionState.cases.running.make({});
 
@@ -203,7 +203,7 @@ describe("a session's lifecycle and status", () => {
         expect(world.registryCalls.at(-1)).toBe(`idle ${sessionId}`);
         expect(yield* registry.stoppedBefore(yield* soon)).toEqual([sessionId]);
         expect(yield* registry.resolvePreview(preview.token)).toBeNull();
-        expect(records.browser).toEqual(["close"]);
+        expect(records.browser).toEqual([BrowserCalls.close]);
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -226,7 +226,7 @@ describe("a session's lifecycle and status", () => {
         ),
       );
       expect(world.registryCalls.at(-1)).toBe(`failed ${sessionId}`);
-      expect(records.browser).toEqual(["close"]);
+      expect(records.browser).toEqual([BrowserCalls.close]);
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -243,7 +243,7 @@ describe("a session's lifecycle and status", () => {
 
       yield* eventually(Effect.sync(() => expect(records.states).toEqual([running, closed])));
       expect(world.registryCalls.at(-1)).toBe(`closed ${sessionId}`);
-      expect(records.browser).toEqual(["close"]);
+      expect(records.browser).toEqual([BrowserCalls.close]);
       expect(yield* handle.status()).toEqual(closed);
     }).pipe(Effect.provide(testWorld)),
   );
@@ -268,7 +268,7 @@ describe("a session's lifecycle and status", () => {
       yield* eventually(
         Effect.sync(() => expect(records.states).toEqual([running, idleAfter("done"), closed])),
       );
-      expect(records.browser).toEqual(["close"]);
+      expect(records.browser).toEqual([BrowserCalls.close]);
       expect(world.faux.state.callCount).toBe(1);
       expect(yield* registry.stoppedBefore(stopTimeQuery)).toEqual([sessionId]);
     }).pipe(Effect.provide(testWorld)),
@@ -335,7 +335,7 @@ describe("a session's lifecycle and status", () => {
       yield* eventually(
         Effect.sync(() => expect(records.states).toEqual([running, idleAfter("resumed")])),
       );
-      expect(records.browser).toEqual(["close"]);
+      expect(records.browser).toEqual([BrowserCalls.close]);
     }).pipe(Effect.provide(testWorld)),
   );
 
