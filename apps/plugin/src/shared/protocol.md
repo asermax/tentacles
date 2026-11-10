@@ -1,6 +1,6 @@
 # Remote agents
 
-Remote agents are coding-agent sessions that run in tentacles, away from your machine. Each one has its own workspace with a repository checked out in it, and the agent keeps running after you close your session. You reach them only through the tentacles tools. You cannot read their screen, type into them, or see their files.
+Remote agents are coding-agent sessions that run in tentacles, away from your machine. Each one has its own workspace, with the repository you name in its settings cloned into it, and the agent keeps running after you close your session. You reach them only through the tentacles tools. You cannot read their screen, type into them, or see their files.
 
 {{invoke}}
 

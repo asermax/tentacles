@@ -1,1 +1,1 @@
-Use the tentacles tools: `spawn`, `prompt`, `messages`, `list`, `close` and `answer`. There is no wait tool.
+Use the tentacles tools: `mcp__tentacles__spawn`, `mcp__tentacles__prompt`, `mcp__tentacles__messages`, `mcp__tentacles__list`, `mcp__tentacles__close` and `mcp__tentacles__answer`. There is no wait tool.
