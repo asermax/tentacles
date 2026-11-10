@@ -173,7 +173,6 @@ describe("RegistryStore over SQLite", () => {
       const opened = yield* registry.openPreview(id, 3000);
 
       expect(opened.token).toMatch(uuidPattern);
-      expect(opened.replaced).toBeNull();
       expect(yield* registry.resolvePreview(opened.token)).toEqual({ sessionId: id, port: 3000 });
     }).pipe(Effect.provide(freshRegistry)),
   );
@@ -189,7 +188,6 @@ describe("RegistryStore over SQLite", () => {
       const second = yield* registry.openPreview(id, 5173);
 
       expect(second.token).not.toBe(first.token);
-      expect(second.replaced).toBe(first.token);
       expect(yield* registry.resolvePreview(first.token)).toBeNull();
       expect(yield* registry.resolvePreview(second.token)).toEqual({ sessionId: id, port: 5173 });
     }).pipe(Effect.provide(freshRegistry)),

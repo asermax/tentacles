@@ -8,7 +8,6 @@ import type { PreviewToken } from "./preview-router.ts";
 
 export interface OpenedPreview {
   readonly token: PreviewToken;
-  readonly replaced: PreviewToken | null;
 }
 
 export interface PreviewTarget {

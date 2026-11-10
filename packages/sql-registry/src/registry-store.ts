@@ -32,8 +32,6 @@ const decodeSessionIds = Schema.decodeUnknownEffect(Schema.Array(SessionId));
 
 const decodeToken = Schema.decodeUnknownEffect(PreviewToken);
 
-const decodeReplaced = Schema.decodeUnknownEffect(Schema.NullOr(PreviewToken));
-
 // The columns a status change writes. A stop that follows a run sets
 // lastStopped; a stop that follows a stop (idle or failed, then closed) keeps
 // it, which the update reads from the row's current status in the same
@@ -118,26 +116,14 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
           Effect.gen(function* () {
             const token = yield* random.uuidV4().pipe(Effect.flatMap(decodeToken), Effect.orDie);
 
-            // Read and write in one synchronous block, so no other call runs
-            // between the two.
-            const previous = yield* Effect.sync(() => {
-              const row = db
-                .select({ previewToken: registry.previewToken })
-                .from(registry)
-                .where(eq(registry.sessionId, sessionId))
-                .get();
-
+            yield* Effect.sync(() => {
               db.update(registry)
                 .set({ previewPort: port, previewToken: token })
                 .where(eq(registry.sessionId, sessionId))
                 .run();
-
-              return row?.previewToken ?? null;
             });
 
-            const replaced = yield* decodeReplaced(previous).pipe(Effect.orDie);
-
-            return { token, replaced };
+            return { token };
           }),
 
         resolvePreview: (token) =>

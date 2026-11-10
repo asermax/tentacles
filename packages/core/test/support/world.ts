@@ -172,7 +172,7 @@ export class TestWorld extends Context.Service<
     /** A directory the sandboxed workspaces also see, for bare remotes. */
     readonly shared: string;
     readonly failures: Failures;
-    /** RegistryStore's add and setStatus calls, as "add <id>" and "<status> <id>". */
+    /** RegistryStore's add, setStatus and openPreview calls, as "add <id>", "<status> <id>" and "openPreview <id>". */
     readonly registryCalls: string[];
     readonly records: (sessionId: SessionId) => SessionRecords;
     /** The running instance's handle, made on first use as a host makes one on a request. */
@@ -228,7 +228,11 @@ const makeWorld = Effect.gen(function* () {
         Effect.andThen(registry.setStatus(sessionId, status)),
       ),
     openPreview: (sessionId, port) =>
-      failures.openPreview ? crash("openPreview") : registry.openPreview(sessionId, port),
+      Effect.sync(() => void registryCalls.push(`openPreview ${sessionId}`)).pipe(
+        Effect.andThen(
+          failures.openPreview ? crash("openPreview") : registry.openPreview(sessionId, port),
+        ),
+      ),
     stoppedBefore: (before) =>
       failures.stoppedBefore ? crash("stoppedBefore") : registry.stoppedBefore(before),
   });

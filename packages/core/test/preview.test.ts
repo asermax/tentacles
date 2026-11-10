@@ -97,7 +97,7 @@ describe("the preview tool", () => {
       ]);
 
       expect(results[0]?.isError).toBe(true);
-      expect((yield* (yield* RegistryStore).openPreview(sessionId, 1)).replaced).toBeNull();
+      expect(world.registryCalls).not.toContain(`openPreview ${sessionId}`);
       release();
     }).pipe(Effect.provide(testWorld)),
   );
