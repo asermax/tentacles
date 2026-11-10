@@ -315,8 +315,14 @@ const make = (sessionId: SessionId) =>
 
       preview: (port, request) => existing.pipe(Effect.andThen(workspace.forward(port, request))),
 
+      // A session never created has nothing to stop; the provider clears its
+      // storage either way.
       delete: () =>
         Effect.gen(function* () {
+          if ((yield* record) == null) {
+            return;
+          }
+
           const conversation = yield* root;
 
           yield* promise(() => conversation.abort(BACKGROUND_CONTEXT, { background: true }));
