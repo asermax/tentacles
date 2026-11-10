@@ -45,5 +45,7 @@ A setting the agent passes to `spawn` wins over its variable.
 
 The version is the `version` in `apps/plugin/package.json`; the build writes it into both manifests and the marketplace entry.
 
-- **pi package**: `pnpm --filter @tentacles/plugin build && cd apps/plugin/build/out/pi && npm publish`.
+- **pi package**: CI runs `scripts/publish-npm.sh` on every push to `master`. The script builds the plugin and publishes `build/out/pi` to npm with provenance when npm has no `@asermax/pi-tentacles` at that version. To release, bump the version. The script authenticates with one of these, set up once:
+  - **Trusted publisher**: on npmjs.com, open the package's Settings, then Trusted publishing. Add GitHub Actions with user `asermax`, repository `tentacles`, workflow filename `ci.yml` and no environment. Allow both `npm publish` and `npm stage publish`. npm offers trusted publishing only for a package that already exists, so the first version needs the token below or a manual `npm publish` from `build/out/pi`.
+  - **Token**: a granular npm access token with publish rights on the package, stored as the repository secret `NPM_TOKEN`. When both are set up, npm uses the trusted publisher.
 - **Claude plugin**: CI runs `scripts/publish-marketplace.sh` on every push to `master`. The script builds the plugin and force-pushes it as the root of the orphan `claude-marketplace` branch. `scripts/publish-marketplace.sh /path/to/bare.git` pushes the same branch to a local bare repository instead of `origin`.
