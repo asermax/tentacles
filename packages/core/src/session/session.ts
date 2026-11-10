@@ -127,6 +127,9 @@ const make = (sessionId: SessionId) =>
                   cwd: workspaceDirectory,
                 });
               }),
+            onReport: (report) => {
+              fork(Effect.logError("pi-durable reported a failure", report.kind, report));
+            },
           },
           BACKGROUND_CONTEXT,
         ),
