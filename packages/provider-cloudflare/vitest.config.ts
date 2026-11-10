@@ -1,7 +1,7 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
-import { bundleDir, bundleWorker, compatibility } from "./test/bundle-worker.ts";
+import { bundleDir, compatibility } from "./test/bundle-worker.ts";
 import { lifetimeSessionId, testSecrets } from "./test/secrets.ts";
 
 const workerName = "tentacles";
@@ -61,42 +61,39 @@ const objects = ["SessionObject", "RegistryObject", "ClaudeObject"] as const;
 // every method through a Proxy.
 export default defineConfig({
   plugins: [
-    cloudflareTest(async () => {
-      const modules = await bundleWorker();
-
-      return {
-        miniflare: {
-          compatibilityDate: compatibility.date,
-          // The cron test calls the Worker's scheduled handler through its service binding.
-          compatibilityFlags: [...compatibility.flags, "service_binding_extra_handlers"],
-          serviceBindings: {
-            TENTACLES: workerName,
-            // The containers' loopback to the Worker, with a session's egress props.
-            LIFETIME: { name: workerName, props: { sessionId: lifetimeSessionId } },
-          },
-          durableObjects: Object.fromEntries(
-            objects.map((name) => [name, { className: name, scriptName: workerName }]),
-          ),
-          workers: [
-            {
-              name: workerName,
-              modules,
-              modulesRoot: bundleDir,
-              compatibilityDate: compatibility.date,
-              compatibilityFlags: compatibility.flags,
-              bindings: testSecrets,
-              durableObjects: Object.fromEntries(
-                objects.map((name) => [name, { className: name, useSQLite: true }]),
-              ),
-              serviceBindings: { AI: model, BROWSER: echo },
-              outboundService: echo,
-            },
-          ],
+    cloudflareTest(({ inject }) => ({
+      miniflare: {
+        compatibilityDate: compatibility.date,
+        // The cron test calls the Worker's scheduled handler through its service binding.
+        compatibilityFlags: [...compatibility.flags, "service_binding_extra_handlers"],
+        serviceBindings: {
+          TENTACLES: workerName,
+          // The containers' loopback to the Worker, with a session's egress props.
+          LIFETIME: { name: workerName, props: { sessionId: lifetimeSessionId } },
         },
-      };
-    }),
+        durableObjects: Object.fromEntries(
+          objects.map((name) => [name, { className: name, scriptName: workerName }]),
+        ),
+        workers: [
+          {
+            name: workerName,
+            modules: inject("workerModules"),
+            modulesRoot: bundleDir,
+            compatibilityDate: compatibility.date,
+            compatibilityFlags: compatibility.flags,
+            bindings: testSecrets,
+            durableObjects: Object.fromEntries(
+              objects.map((name) => [name, { className: name, useSQLite: true }]),
+            ),
+            serviceBindings: { AI: model, BROWSER: echo },
+            outboundService: echo,
+          },
+        ],
+      },
+    })),
   ],
   test: {
     include: ["test/**/*.test.ts"],
+    globalSetup: ["test/global-setup.ts"],
   },
 });
