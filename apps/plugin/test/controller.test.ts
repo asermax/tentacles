@@ -79,6 +79,33 @@ describe("parent controller at harness start", () => {
     expect(glue.watches).toEqual([]);
     expect(glue.wakes).toEqual([]);
   });
+
+  it("wakes the parent with the last message of a session that finished while it was away, once", async () => {
+    const finished = ref({ ...migrate, status: SessionStatuses.idle });
+    const glue = await started(local(migrate), { list: Success.make({ result: [finished] }) });
+
+    const line = {
+      sessionId: first,
+      state: Idle.make({ lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
+    };
+
+    glue.emit(line);
+    glue.emit(line);
+
+    expect(glue.wakes).toEqual([expect.stringContaining("Opened PR 12.")]);
+  });
+
+  it("does not wake the parent again for a session it already saw finish", async () => {
+    const finished = ref({ ...migrate, status: SessionStatuses.idle });
+    const glue = await started(local(finished), { list: Success.make({ result: [finished] }) });
+
+    glue.emit({
+      sessionId: first,
+      state: Idle.make({ lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
+    });
+
+    expect(glue.wakes).toEqual([]);
+  });
 });
 
 describe("parent controller on a tool result", () => {

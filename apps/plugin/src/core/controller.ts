@@ -317,6 +317,10 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
 
       sessions = local.sessions;
 
+      // Keyed by what the parent last saw, so a change it missed while away still wakes it once
+      // the watch connects.
+      sessions.forEach((session) => wakeKeys.set(session.sessionId, session.status));
+
       if (sessions.length > 0) {
         const listed = await runCommand(ToolNames.list, { parent });
 
@@ -327,7 +331,6 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
         save(sessions);
       }
 
-      sessions.forEach((session) => wakeKeys.set(session.sessionId, session.status));
       glue.status(renderStatusLine(sessions));
       restartWatch();
     },
