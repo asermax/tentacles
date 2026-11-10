@@ -7,7 +7,8 @@ import * as Effect from "effect/Effect";
 const monthMillis = 30 * 24 * 60 * 60_000;
 
 // A deletion that fails keeps the entry, so the next day tries it again; the
-// loop goes on with the other sessions.
+// loop goes on with the other sessions. SessionHost.delete fails only as a
+// defect, so the whole cause is caught.
 const remove = (sessionId: SessionId) =>
   Effect.gen(function* () {
     yield* (yield* SessionHost).delete(sessionId);
@@ -22,4 +23,8 @@ export const cleanup = Effect.gen(function* () {
   const candidates = yield* (yield* RegistryStore).stoppedBefore(now - monthMillis);
 
   yield* Effect.forEach(candidates, remove, { concurrency: 5, discard: true });
-}).pipe(Effect.catchCause((cause) => Effect.logError("The cleanup job failed", cause)));
+}).pipe(
+  Effect.catchTag("RegistryUnavailable", (error) =>
+    Effect.logError("The cleanup job failed", error),
+  ),
+);

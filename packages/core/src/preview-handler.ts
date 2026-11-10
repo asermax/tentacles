@@ -8,7 +8,7 @@ const notFound = () => new Response("No preview here", { status: 404 });
 /** The preview route's handler: the app's response for a known token, 404 otherwise. */
 export const previewHandler = (token: PreviewToken, request: Request) =>
   Effect.gen(function* () {
-    const target = yield* (yield* RegistryStore).resolvePreview(token);
+    const target = yield* (yield* RegistryStore).resolvePreview(token).pipe(Effect.orDie);
 
     if (target == null) {
       return notFound();

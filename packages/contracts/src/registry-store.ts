@@ -3,12 +3,19 @@ import type { Parent } from "@tentacles/worker-api/parent";
 import type { SessionRef, SessionStatus } from "@tentacles/worker-api/session-state";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 import type { PreviewToken } from "./preview-router.ts";
 
 export interface OpenedPreview {
   readonly token: PreviewToken;
 }
+
+/** The store could not be read or written. */
+export class RegistryUnavailable extends Schema.TaggedError<RegistryUnavailable>()(
+  "RegistryUnavailable",
+  { message: Schema.String },
+) {}
 
 export interface PreviewTarget {
   readonly sessionId: SessionId;
@@ -25,13 +32,29 @@ export interface PreviewTarget {
 export class RegistryStore extends Context.Service<
   RegistryStore,
   {
-    readonly add: (sessionId: SessionId, name: string, parent: Parent) => Effect.Effect<void>;
-    readonly setStatus: (sessionId: SessionId, status: SessionStatus) => Effect.Effect<void>;
-    readonly list: (parent: Parent) => Effect.Effect<ReadonlyArray<SessionRef>>;
-    readonly remove: (sessionId: SessionId) => Effect.Effect<void>;
-    readonly openPreview: (sessionId: SessionId, port: number) => Effect.Effect<OpenedPreview>;
-    readonly resolvePreview: (token: PreviewToken) => Effect.Effect<PreviewTarget | null>;
-    readonly closePreview: (sessionId: SessionId) => Effect.Effect<void>;
-    readonly stoppedBefore: (before: number) => Effect.Effect<ReadonlyArray<SessionId>>;
+    readonly add: (
+      sessionId: SessionId,
+      name: string,
+      parent: Parent,
+    ) => Effect.Effect<void, RegistryUnavailable>;
+    readonly setStatus: (
+      sessionId: SessionId,
+      status: SessionStatus,
+    ) => Effect.Effect<void, RegistryUnavailable>;
+    readonly list: (
+      parent: Parent,
+    ) => Effect.Effect<ReadonlyArray<SessionRef>, RegistryUnavailable>;
+    readonly remove: (sessionId: SessionId) => Effect.Effect<void, RegistryUnavailable>;
+    readonly openPreview: (
+      sessionId: SessionId,
+      port: number,
+    ) => Effect.Effect<OpenedPreview, RegistryUnavailable>;
+    readonly resolvePreview: (
+      token: PreviewToken,
+    ) => Effect.Effect<PreviewTarget | null, RegistryUnavailable>;
+    readonly closePreview: (sessionId: SessionId) => Effect.Effect<void, RegistryUnavailable>;
+    readonly stoppedBefore: (
+      before: number,
+    ) => Effect.Effect<ReadonlyArray<SessionId>, RegistryUnavailable>;
   }
 >()("tentacles/RegistryStore") {}

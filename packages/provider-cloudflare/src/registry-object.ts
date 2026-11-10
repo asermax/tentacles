@@ -1,5 +1,5 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
-import { RegistryStore } from "@tentacles/contracts/registry-store";
+import { RegistryStore, RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import { sqlRegistryStore } from "@tentacles/sql-registry/registry-store";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
@@ -13,7 +13,7 @@ const registryName = "registry";
 export class RegistryObject extends Cloudflare.DurableObject<
   RegistryObject,
   RegistryStore["Service"]
->()("RegistryObject") {}
+>()("RegistryObject", { errors: [RegistryUnavailable] }) {}
 
 // The instance Effect runs in the object's constructor inside blockConcurrencyWhile, so the
 // migrations finish before any call reaches the store. Its SQLite is reachable only from inside

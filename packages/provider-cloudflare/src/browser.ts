@@ -1,4 +1,4 @@
-import { Browser } from "@tentacles/contracts/browser";
+import { Browser, BrowserUnavailable } from "@tentacles/contracts/browser";
 import * as Effect from "effect/Effect";
 import { Base64Url } from "effect/encoding";
 import * as Layer from "effect/Layer";
@@ -89,12 +89,15 @@ export const browserLayer = (
     Browser,
     Browser.of({
       open: () =>
-        Effect.promise(async () => {
-          const { sessionId } = await browser.acquire({ keepAlive });
+        Effect.tryPromise({
+          try: async () => {
+            const { sessionId } = await browser.acquire({ keepAlive });
 
-          storage.kv.put(browserSessionKey, sessionId);
+            storage.kv.put(browserSessionKey, sessionId);
 
-          return { cdpUrl: `wss://${apiHost}/cdp/${await signToken(secret, sessionId)}` };
+            return { cdpUrl: `wss://${apiHost}/cdp/${await signToken(secret, sessionId)}` };
+          },
+          catch: (cause) => new BrowserUnavailable({ message: String(cause) }),
         }),
       close: () => close,
     }),

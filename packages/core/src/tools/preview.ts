@@ -1,17 +1,20 @@
 import { defineTool } from "@earendil-works/pi-durable";
 import { int, lit, obj, union } from "@earendil-works/pi-schema";
-import { Browser } from "@tentacles/contracts/browser";
+import { Browser, type BrowserUnavailable } from "@tentacles/contracts/browser";
 import { PreviewRouter } from "@tentacles/contracts/preview-router";
-import { RegistryStore } from "@tentacles/contracts/registry-store";
+import { RegistryStore, type RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 
 import { ToolNames } from "./tool-names.ts";
 
 /** Runs a preview step with the services the session holds. */
 export type PreviewRunner = <A>(
-  effect: Effect.Effect<A, never, Browser | PreviewRouter | RegistryStore>,
+  effect: Effect.Effect<
+    A,
+    BrowserUnavailable | RegistryUnavailable,
+    Browser | PreviewRouter | RegistryStore
+  >,
 ) => Promise<A>;
 
 type PreviewResult =
@@ -27,7 +30,11 @@ const text = (result: PreviewResult) => ({
 const open = (
   sessionId: SessionId,
   port: number,
-): Effect.Effect<PreviewResult, never, Browser | PreviewRouter | RegistryStore> =>
+): Effect.Effect<
+  PreviewResult,
+  BrowserUnavailable | RegistryUnavailable,
+  Browser | PreviewRouter | RegistryStore
+> =>
   Effect.gen(function* () {
     const browser = yield* Browser;
     const registry = yield* RegistryStore;
@@ -39,7 +46,7 @@ const open = (
 
     const preview = yield* registry
       .openPreview(sessionId, port)
-      .pipe(Effect.onExit((exit) => (Exit.isFailure(exit) ? browser.close() : Effect.void)));
+      .pipe(Effect.tapErrorTag("RegistryUnavailable", () => browser.close()));
 
     const result: PreviewResult = {
       action: "open",
@@ -52,7 +59,7 @@ const open = (
 
 const close = (
   sessionId: SessionId,
-): Effect.Effect<PreviewResult, never, Browser | RegistryStore> =>
+): Effect.Effect<PreviewResult, RegistryUnavailable, Browser | RegistryStore> =>
   Effect.gen(function* () {
     yield* (yield* Browser).close();
     yield* (yield* RegistryStore).closePreview(sessionId);

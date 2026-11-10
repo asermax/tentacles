@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { PreviewToken } from "@tentacles/contracts/preview-router";
-import { RegistryStore } from "@tentacles/contracts/registry-store";
+import { RegistryStore, RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import { ParentSessionId, SessionId } from "@tentacles/worker-api/ids";
 import { Harnesses, type Parent } from "@tentacles/worker-api/parent";
 import { SessionStatuses, type SessionStatus } from "@tentacles/worker-api/session-state";
@@ -8,7 +8,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { TestClock } from "effect/testing";
 
-import { freshRegistry } from "./fresh-registry.ts";
+import { closedRegistry, freshRegistry } from "./fresh-registry.ts";
 
 const day = 86_400_000;
 const now = Date.UTC(2026, 10, 10, 12);
@@ -191,6 +191,19 @@ describe("RegistryStore over SQLite", () => {
       expect(yield* registry.resolvePreview(first.token)).toBeNull();
       expect(yield* registry.resolvePreview(second.token)).toEqual({ sessionId: id, port: 5173 });
     }).pipe(Effect.provide(freshRegistry)),
+  );
+
+  it.effect("fails with RegistryUnavailable when the database throws", () =>
+    Effect.gen(function* () {
+      const registry = yield* RegistryStore;
+
+      expect(yield* registry.openPreview(sessionId(1), 3000).pipe(Effect.flip)).toBeInstanceOf(
+        RegistryUnavailable,
+      );
+      expect(yield* registry.stoppedBefore(now).pipe(Effect.flip)).toBeInstanceOf(
+        RegistryUnavailable,
+      );
+    }).pipe(Effect.provide(closedRegistry)),
   );
 
   it.effect("resolves an unknown token to nothing", () =>

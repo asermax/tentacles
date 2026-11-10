@@ -20,3 +20,14 @@ export const freshRegistry = Layer.unwrap(
     return sqlRegistryStore(db);
   }),
 );
+
+/** The store over a database that is already closed, so every call it makes throws. */
+export const closedRegistry = Layer.unwrap(
+  Effect.sync(() => {
+    const database = new Database(":memory:");
+
+    database.close();
+
+    return sqlRegistryStore(drizzle(database));
+  }),
+);

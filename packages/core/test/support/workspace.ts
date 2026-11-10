@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
-import { Workspace } from "@tentacles/contracts/workspace";
+import { Workspace, WorkspaceUnavailable } from "@tentacles/contracts/workspace";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
@@ -119,7 +119,9 @@ export const testWorkspace = (root: string, shared: string) =>
           return result.ok && result.value.exitCode === 0 ? null : output;
         }).pipe(
           Effect.flatMap((failure) =>
-            failure == null ? Effect.void : Effect.die(new Error(`git clone failed: ${failure}`)),
+            failure == null
+              ? Effect.void
+              : Effect.fail(new WorkspaceUnavailable({ message: `git clone failed: ${failure}` })),
           ),
         );
 

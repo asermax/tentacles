@@ -1,5 +1,5 @@
 import { PreviewToken } from "@tentacles/contracts/preview-router";
-import { RegistryStore } from "@tentacles/contracts/registry-store";
+import { RegistryStore, RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import { SessionId } from "@tentacles/worker-api/ids";
 import type { Parent } from "@tentacles/worker-api/parent";
 import {
@@ -31,6 +31,12 @@ const decodeTarget = Schema.decodeUnknownEffect(
 const decodeSessionIds = Schema.decodeUnknownEffect(Schema.Array(SessionId));
 
 const decodeToken = Schema.decodeUnknownEffect(PreviewToken);
+
+const unavailable = (cause: unknown) => new RegistryUnavailable({ message: String(cause) });
+
+// A database call that throws, or a row that does not decode, fails the call
+// with RegistryUnavailable instead of crashing the caller.
+const query = <A>(evaluate: () => A) => Effect.try({ try: evaluate, catch: unavailable });
 
 // The columns a status change writes. A stop that follows a run sets
 // lastStopped; a stop that follows a stop (idle or failed, then closed) keeps
@@ -71,7 +77,7 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
 
       return RegistryStore.of({
         add: (sessionId, name, parent) =>
-          Effect.sync(() => {
+          query(() => {
             db.insert(registry)
               .values({
                 sessionId,
@@ -84,7 +90,7 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
 
         setStatus: (sessionId, status) =>
           Effect.flatMap(Clock.currentTimeMillis, (now) =>
-            Effect.sync(() => {
+            query(() => {
               db.update(registry)
                 .set(changesFor(status, now))
                 .where(eq(registry.sessionId, sessionId))
@@ -95,7 +101,7 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
         // An entry with no status yet is left out: a parent lists only after
         // create answered, which waits for the first status.
         list: (parent) =>
-          Effect.sync(() =>
+          query(() =>
             db
               .select({
                 sessionId: registry.sessionId,
@@ -105,18 +111,20 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
               .from(registry)
               .where(and(ofParent(parent), isNotNull(registry.status)))
               .all(),
-          ).pipe(Effect.flatMap(decodeRefs), Effect.orDie),
+          ).pipe(Effect.flatMap(decodeRefs), Effect.mapError(unavailable)),
 
         remove: (sessionId) =>
-          Effect.sync(() => {
+          query(() => {
             db.delete(registry).where(eq(registry.sessionId, sessionId)).run();
           }),
 
         openPreview: (sessionId, port) =>
           Effect.gen(function* () {
-            const token = yield* random.uuidV4().pipe(Effect.flatMap(decodeToken), Effect.orDie);
+            const token = yield* random
+              .uuidV4()
+              .pipe(Effect.flatMap(decodeToken), Effect.mapError(unavailable));
 
-            yield* Effect.sync(() => {
+            yield* query(() => {
               db.update(registry)
                 .set({ previewPort: port, previewToken: token })
                 .where(eq(registry.sessionId, sessionId))
@@ -127,17 +135,17 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
           }),
 
         resolvePreview: (token) =>
-          Effect.sync(
+          query(
             () =>
               db
                 .select({ sessionId: registry.sessionId, port: registry.previewPort })
                 .from(registry)
                 .where(eq(registry.previewToken, token))
                 .get() ?? null,
-          ).pipe(Effect.flatMap(decodeTarget), Effect.orDie),
+          ).pipe(Effect.flatMap(decodeTarget), Effect.mapError(unavailable)),
 
         closePreview: (sessionId) =>
-          Effect.sync(() => {
+          query(() => {
             db.update(registry)
               .set({ previewPort: null, previewToken: null })
               .where(eq(registry.sessionId, sessionId))
@@ -145,14 +153,14 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
           }),
 
         stoppedBefore: (before) =>
-          Effect.sync(() =>
+          query(() =>
             db
               .select({ sessionId: registry.sessionId })
               .from(registry)
               .where(lt(registry.lastStopped, before))
               .all()
               .map((row) => row.sessionId),
-          ).pipe(Effect.flatMap(decodeSessionIds), Effect.orDie),
+          ).pipe(Effect.flatMap(decodeSessionIds), Effect.mapError(unavailable)),
       });
     }),
   ).pipe(Layer.provide(SecureRandom.layerWebCrypto));

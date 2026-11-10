@@ -2,6 +2,7 @@ import type { Connection } from "@earendil-works/pi-env";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 // One session's workspace container, started from the session's image, size
 // and lifetime. `ensure` runs before every tool use: when the container is not
@@ -12,10 +13,16 @@ import type * as Effect from "effect/Effect";
 /** Where the agent works; the Workspace implementation clones the repository here. */
 export const workspaceDirectory = "/workspace";
 
+/** The workspace could not be started or its repository cloned. */
+export class WorkspaceUnavailable extends Schema.TaggedError<WorkspaceUnavailable>()(
+  "WorkspaceUnavailable",
+  { message: Schema.String },
+) {}
+
 export class Workspace extends Context.Service<
   Workspace,
   {
-    readonly ensure: (repository: Repository | null) => Effect.Effect<void>;
+    readonly ensure: (repository: Repository | null) => Effect.Effect<void, WorkspaceUnavailable>;
     readonly connection: () => Effect.Effect<Connection>;
     readonly forward: (port: number, request: Request) => Effect.Effect<Response>;
     /** Whether the container is running now; never starts it. */

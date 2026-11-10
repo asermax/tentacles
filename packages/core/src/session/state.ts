@@ -146,7 +146,7 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
         yield* stopRun;
       }
 
-      yield* registry.setStatus(sessionId, statusOf(next));
+      yield* registry.setStatus(sessionId, statusOf(next)).pipe(Effect.orDie);
 
       if (isPreviouslyActive && SessionState.guards.idle(next)) {
         const entry = yield* lastEntry(harness);
@@ -203,7 +203,8 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
 
     return {
       /** RegistryStore.add, with no status until the first report. */
-      register: (name: string, parent: Parent) => registry.add(sessionId, name, parent),
+      register: (name: string, parent: Parent) =>
+        registry.add(sessionId, name, parent).pipe(Effect.orDie),
 
       /**
        * Start observing a session whose record exists. What it shows now is the

@@ -37,7 +37,7 @@ export const SessionsHandlersLive = HttpApiBuilder.group(TentaclesApi, "sessions
         .handle("close", ({ params }) => host.close(params.sessionId))
         .handle("messages", ({ params, query }) => host.messages(params.sessionId, query.count))
         .handle("status", ({ params }) => host.status(params.sessionId))
-        .handle("list", ({ query }) => registry.list(query))
+        .handle("list", ({ query }) => registry.list(query).pipe(Effect.orDie))
         // The session's own upgrade response goes out untouched: on a platform it
         // carries the socket itself.
         .handle("socket", ({ params, request }) =>

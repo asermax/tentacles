@@ -6,7 +6,11 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import { ALCHEMY_PHASE } from "alchemy";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, RemoteExecutionEnv } from "@earendil-works/pi-env";
-import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
+import {
+  Workspace,
+  WorkspaceUnavailable,
+  workspaceDirectory,
+} from "@tentacles/contracts/workspace";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
@@ -81,6 +85,8 @@ export class WorkspaceContainer extends Cloudflare.Container<WorkspaceContainer>
   }),
 ) {}
 
+const unavailable = (cause: unknown) => new WorkspaceUnavailable({ message: String(cause) });
+
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 // --depth alone implies --single-branch, which leaves a pushed new branch without a remote-tracking
@@ -128,17 +134,23 @@ export const workspaceLayer = ({ sessionId, container, egress, settings }: Works
 
   // Right after a deploy the container application can still be provisioning, and the first
   // starts fail; the daemon answering is what ready means.
-  const daemonReady = Effect.tryPromise(() => connection.info()).pipe(
+  const daemonReady = Effect.tryPromise({ try: () => connection.info(), catch: unavailable }).pipe(
     Effect.retry({ schedule: Schedule.spaced("2 seconds"), times: 15 }),
-    Effect.orDie,
   );
 
   const clone = (repository: Repository) =>
-    Effect.promise(() => env.exec(cloneCommand(repository), undefined, BACKGROUND_CONTEXT)).pipe(
+    Effect.tryPromise({
+      try: () => env.exec(cloneCommand(repository), undefined, BACKGROUND_CONTEXT),
+      catch: unavailable,
+    }).pipe(
       Effect.flatMap((result) =>
         result.ok && result.value.exitCode === 0
           ? Effect.void
-          : Effect.die(new Error(`Cloning ${repository.url} into the workspace failed`)),
+          : Effect.fail(
+              new WorkspaceUnavailable({
+                message: `Cloning ${repository.url} into the workspace failed`,
+              }),
+            ),
       ),
     );
 
@@ -149,26 +161,31 @@ export const workspaceLayer = ({ sessionId, container, egress, settings }: Works
     const { size, lifetime } = yield* settings;
 
     const image = yield* Effect.fromNullishOr(container().images[workspaceContainerId]).pipe(
-      Effect.mapError(() => new Error("The deploy published no workspace image")),
-      Effect.orDie,
+      Effect.mapError(
+        () => new WorkspaceUnavailable({ message: "The deploy published no workspace image" }),
+      ),
     );
 
-    yield* Effect.sync(() =>
-      container().start({
-        image,
-        instance: size,
-        enableInternet: true,
-      }),
-    );
+    yield* Effect.try({
+      try: () =>
+        container().start({
+          image,
+          instance: size,
+          enableInternet: true,
+        }),
+      catch: unavailable,
+    });
 
     // The interceptors do not survive a restart, so they are set after every start.
-    yield* Effect.promise(() =>
-      Promise.all([
-        container().setInactivityTimeout(lifetime * 60_000),
-        container().interceptOutboundHttps(EgressHosts.github, egress),
-        container().interceptOutboundHttp(EgressHosts.lifetime, egress),
-      ]),
-    );
+    yield* Effect.tryPromise({
+      try: () =>
+        Promise.all([
+          container().setInactivityTimeout(lifetime * 60_000),
+          container().interceptOutboundHttps(EgressHosts.github, egress),
+          container().interceptOutboundHttp(EgressHosts.lifetime, egress),
+        ]),
+      catch: unavailable,
+    });
   });
 
   return Layer.succeed(

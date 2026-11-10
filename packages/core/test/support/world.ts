@@ -13,12 +13,12 @@ import {
   MemoryStorage,
   type Storage,
 } from "@earendil-works/pi-durable";
-import { Browser } from "@tentacles/contracts/browser";
+import { Browser, BrowserUnavailable } from "@tentacles/contracts/browser";
 import { CodeSandbox } from "@tentacles/contracts/code-sandbox";
 import { ModelProviders } from "@tentacles/contracts/model-providers";
 import { ParentChannel } from "@tentacles/contracts/parent-channel";
 import { PreviewRouter } from "@tentacles/contracts/preview-router";
-import { RegistryStore } from "@tentacles/contracts/registry-store";
+import { RegistryStore, RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
@@ -51,7 +51,10 @@ export interface SessionRecords {
   readonly workspace: WorkspaceRecord;
 }
 
-/** Contract calls a test makes fail, each a defect as an implementation's crash would be. */
+/**
+ * Contract calls a test makes fail, each with the contract's own error;
+ * SessionHost.delete has none and fails as a defect.
+ */
 export interface Failures {
   browserOpen: boolean;
   openPreview: boolean;
@@ -192,6 +195,9 @@ export class TestWorld extends Context.Service<
 
 const crash = (what: string) => Effect.die(new Error(`${what} failed`));
 
+const unavailable = (what: string) =>
+  Effect.fail(new RegistryUnavailable({ message: `${what} failed` }));
+
 const makeWorld = Effect.gen(function* () {
   const root = yield* Effect.acquireRelease(
     Effect.sync(() => mkdtempSync(join(tmpdir(), "tentacles-core-"))),
@@ -230,11 +236,11 @@ const makeWorld = Effect.gen(function* () {
     openPreview: (sessionId, port) =>
       Effect.sync(() => void registryCalls.push(`openPreview ${sessionId}`)).pipe(
         Effect.andThen(
-          failures.openPreview ? crash("openPreview") : registry.openPreview(sessionId, port),
+          failures.openPreview ? unavailable("openPreview") : registry.openPreview(sessionId, port),
         ),
       ),
     stoppedBefore: (before) =>
-      failures.stoppedBefore ? crash("stoppedBefore") : registry.stoppedBefore(before),
+      failures.stoppedBefore ? unavailable("stoppedBefore") : registry.stoppedBefore(before),
   });
 
   const shareds = Context.make(RegistryStore, failing).pipe(
@@ -332,7 +338,7 @@ const makeWorld = Effect.gen(function* () {
               record.browser.push("open");
 
               if (failures.browserOpen) {
-                return yield* crash("Browser.open");
+                return yield* new BrowserUnavailable({ message: "Browser.open failed" });
               }
 
               return { cdpUrl: `wss://browser.test/${record.browser.length}` };
