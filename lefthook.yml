@@ -1,0 +1,5 @@
+# The tests run by hand with `pnpm test`, not on each commit.
+pre-commit:
+  commands:
+    check:
+      run: pnpm check

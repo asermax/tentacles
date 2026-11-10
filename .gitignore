@@ -1,2 +1,11 @@
 # Obsidian's config is per person: workspace layout, open panes, plugin state.
 docs/.obsidian/
+
+node_modules/
+dist/
+.turbo/
+.alchemy/
+
+# varlock: local values stay out of git; .env.schema is checked in.
+.env.local
+.env.*.local
