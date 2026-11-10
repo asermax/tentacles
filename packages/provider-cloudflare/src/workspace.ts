@@ -85,8 +85,16 @@ export class WorkspaceContainer extends Cloudflare.Container<WorkspaceContainer>
 
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
+// --depth alone implies --single-branch, which leaves a pushed new branch without a remote-tracking
+// ref, so the pending-work check would count its commits as not pushed.
 const cloneCommand = (repository: Repository) =>
-  ["git clone", repository.shallow ? "--depth 1" : "", "--", shellQuote(repository.url), workdir]
+  [
+    "git clone",
+    repository.shallow ? "--depth 1 --no-single-branch" : "",
+    "--",
+    shellQuote(repository.url),
+    workdir,
+  ]
     .filter((part) => part !== "")
     .join(" ");
 
