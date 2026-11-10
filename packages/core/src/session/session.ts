@@ -34,7 +34,7 @@ import * as Semaphore from "effect/Semaphore";
 import { remoteAgentExtensions } from "../tools/extension.ts";
 import { toEntries } from "./entries.ts";
 import { QuestionsDoc } from "./questions.ts";
-import { RecordDoc } from "./record.ts";
+import { RecordDoc, type SessionRecord } from "./record.ts";
 import { trackStatus } from "./state.ts";
 import { workspaceEnv } from "./workspace-env.ts";
 import { isWorkspaceNeeded } from "./workspace-needed.ts";
@@ -171,6 +171,16 @@ const make = (sessionId: SessionId) =>
       ),
     );
 
+    // The record and the state come from one read, so a state is never paired
+    // with a record from before the commit that produced it.
+    const existingWithState = status.currentWithRecord.pipe(
+      Effect.filterOrFail(
+        (current): current is { state: SessionState; record: SessionRecord } =>
+          current.state != null && current.record != null,
+        () => new SessionNotFound({ sessionId }),
+      ),
+    );
+
     const root = promise(() => harness.root(BACKGROUND_CONTEXT));
 
     // Armed before any call that can start work: onWake only follows the
@@ -224,15 +234,12 @@ const make = (sessionId: SessionId) =>
 
       prompt: (request) =>
         Effect.gen(function* () {
-          const found = yield* existing;
+          const { state, record: found } = yield* existingWithState;
           const conversation = yield* root;
-          const state = yield* status.current;
 
           // While a question waits, a prompt joins its run as a steer, which
           // pi-durable places after the answer's tool round.
-          const steers =
-            request.mode === PromptModes.steer ||
-            (state != null && SessionState.guards.waiting(state));
+          const steers = request.mode === PromptModes.steer || SessionState.guards.waiting(state);
 
           const draft: SubmissionDraft = {
             type: "input",
@@ -242,7 +249,7 @@ const make = (sessionId: SessionId) =>
 
           // Only a prompt that starts a run starts the commit prompts over; one
           // sent into a run already going leaves that run's count.
-          const startsRun = state == null || !isActive(state);
+          const startsRun = !isActive(state);
 
           yield* armActive;
 
@@ -266,14 +273,10 @@ const make = (sessionId: SessionId) =>
 
       answer: (request) =>
         Effect.gen(function* () {
-          yield* existing;
-
-          yield* status.current.pipe(
+          yield* existingWithState.pipe(
             Effect.filterOrFail(
-              (state) =>
-                state != null &&
-                SessionState.guards.waiting(state) &&
-                state.question.id === request.questionId,
+              ({ state }) =>
+                SessionState.guards.waiting(state) && state.question.id === request.questionId,
               () => new QuestionNotWaiting({ questionId: request.questionId }),
             ),
           );
@@ -375,8 +378,7 @@ const make = (sessionId: SessionId) =>
 
       workspaceNeeded: (isWorkPending) =>
         Effect.gen(function* () {
-          const found = yield* record;
-          const state = yield* status.current;
+          const { state, record: found } = yield* status.currentWithRecord;
           const now = yield* Clock.currentTimeMillis;
 
           return (

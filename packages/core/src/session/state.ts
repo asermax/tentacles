@@ -245,5 +245,10 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
 
       /** The state as the documents show it now, without a run's last entry. */
       current: readObserved(harness, sessionId).pipe(Effect.map(deriveState)),
+
+      /** The state as `current` gives it, with the record it was derived from, both from one read. */
+      currentWithRecord: readObserved(harness, sessionId).pipe(
+        Effect.map((read) => ({ state: deriveState(read), record: read.record })),
+      ),
     };
   });
