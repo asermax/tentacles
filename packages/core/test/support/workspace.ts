@@ -4,14 +4,18 @@ import { dirname, join } from "node:path";
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
-import { Workspace, WorkspaceUnavailable } from "@tentacles/contracts/workspace";
+import {
+  Workspace,
+  type WorkspaceSettings,
+  WorkspaceUnavailable,
+} from "@tentacles/contracts/workspace";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
 /** What the test reads back from one session's workspace. */
 export interface WorkspaceRecord {
-  /** Every ensure call, with its repository. */
-  readonly ensures: Array<Repository | null>;
+  /** Every ensure call, with its settings. */
+  readonly ensures: WorkspaceSettings[];
   /** The host directory mounted at /workspace. */
   readonly directory: string;
   /** Answers Workspace.forward. */
@@ -126,16 +130,16 @@ export const testWorkspace = (root: string, shared: string) =>
         );
 
       const workspace = Workspace.of({
-        ensure: (repository) =>
+        ensure: (settings) =>
           Effect.gen(function* () {
-            record.ensures.push(repository);
+            record.ensures.push(settings);
 
             if (isStarted) {
               return;
             }
 
-            if (repository != null) {
-              yield* clone(repository);
+            if (settings.repository != null) {
+              yield* clone(settings.repository);
             }
 
             isStarted = true;

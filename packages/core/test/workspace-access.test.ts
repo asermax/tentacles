@@ -27,7 +27,12 @@ const runSession = (repository: Repository | null) =>
 
     const records = world.records(sessionId);
 
-    return { results, ensures: records.workspace.ensures, states: records.states };
+    return {
+      results,
+      ensures: records.workspace.ensures.map((ensured) => ensured.repository),
+      settings: records.workspace.ensures,
+      states: records.states,
+    };
   });
 
 describe("the workspace before each tool call", () => {
@@ -38,9 +43,9 @@ describe("the workspace before each tool call", () => {
 
       world.faux.setResponses([bash("cat /workspace/README.md"), fauxAssistantMessage("read it")]);
 
-      const { results, ensures } = yield* runSession(repository);
+      const { results, settings } = yield* runSession(repository);
 
-      expect(ensures[0]).toEqual(repository);
+      expect(settings[0]).toEqual({ repository, image: "default", size: "basic", lifetime: 15 });
       expect(results).toHaveLength(1);
       expect(results[0]?.isError).toBe(false);
       expect(results[0]?.output).toContain("# app");

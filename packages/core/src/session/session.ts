@@ -134,7 +134,13 @@ const make = (sessionId: SessionId) =>
               workspaceEnv(envId, workspaceDirectory, async () => {
                 const record = await target.read.snapshot(RecordDoc, sessionId, BACKGROUND_CONTEXT);
 
-                await run(workspace.ensure(record?.settings.repository ?? null));
+                if (record == null) {
+                  throw new Error("The session has no record to start its workspace from");
+                }
+
+                const { repository, image, size, lifetime } = record.settings;
+
+                await run(workspace.ensure({ repository, image, size, lifetime }));
 
                 return new RemoteExecutionEnv({
                   connection: await run(workspace.connection()),

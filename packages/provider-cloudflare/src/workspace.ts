@@ -8,6 +8,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, RemoteExecutionEnv } from "@earendil-works/pi-env";
 import {
   Workspace,
+  type WorkspaceSettings,
   WorkspaceUnavailable,
   workspaceDirectory,
 } from "@tentacles/contracts/workspace";
@@ -34,14 +35,18 @@ const InstanceTypes = {
 /** The one workspace image; custom images are not offered. */
 export const defaultImage = "default";
 
-/** What the session's settings say about its workspace, kept by the session object at create. */
-export const WorkspaceSettings = Schema.Struct({
+/** The container the session's settings ask for: the one image and a Cloudflare instance type. */
+export const ContainerSettings = Schema.Struct({
   image: Schema.Literal(defaultImage),
   size: Schema.Enum(InstanceTypes),
   lifetime: Schema.Int,
 });
 
-export type WorkspaceSettings = typeof WorkspaceSettings.Type;
+const decodeContainerSettings = Schema.decodeUnknownEffect(ContainerSettings);
+
+/** Why a session's settings name no container this setup can start. */
+export const unsupportedSettings = (settings: Pick<WorkspaceSettings, "image" | "size">) =>
+  `The workspace takes the image "${defaultImage}" and a Cloudflare instance type as its size; got image "${settings.image}" and size "${settings.size}"`;
 
 // The daemon in the image comes from the same pi-env release the Worker bundles, so its client and
 // the daemon always speak the same protocol. Alchemy evaluates the container's props in the running
@@ -107,14 +112,13 @@ export interface WorkspaceHandles {
   readonly container: () => Container;
   /** The Worker's default entrypoint with this session's egress props. */
   readonly egress: Fetcher;
-  readonly settings: Effect.Effect<WorkspaceSettings>;
 }
 
 /**
  * One session's workspace on the session object's container. pi-env's daemon runs in it over
  * ctx.container.exec, through the spawn shim.
  */
-export const workspaceLayer = ({ sessionId, container, egress, settings }: WorkspaceHandles) => {
+export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandles) => {
   const program = `container-exec:${sessionId}`;
 
   registerExec(program, (args) =>
@@ -157,52 +161,55 @@ export const workspaceLayer = ({ sessionId, container, egress, settings }: Works
   // Concurrent tool calls share one start and one clone.
   const starting = Semaphore.makeUnsafe(1);
 
-  const start = Effect.gen(function* () {
-    const { size, lifetime } = yield* settings;
+  const start = (settings: WorkspaceSettings) =>
+    Effect.gen(function* () {
+      const { size, lifetime } = yield* decodeContainerSettings(settings).pipe(
+        Effect.mapError(() => new WorkspaceUnavailable({ message: unsupportedSettings(settings) })),
+      );
 
-    const image = yield* Effect.fromNullishOr(container().images[workspaceContainerId]).pipe(
-      Effect.mapError(
-        () => new WorkspaceUnavailable({ message: "The deploy published no workspace image" }),
-      ),
-    );
+      const image = yield* Effect.fromNullishOr(container().images[workspaceContainerId]).pipe(
+        Effect.mapError(
+          () => new WorkspaceUnavailable({ message: "The deploy published no workspace image" }),
+        ),
+      );
 
-    yield* Effect.try({
-      try: () =>
-        container().start({
-          image,
-          instance: size,
-          enableInternet: true,
-        }),
-      catch: unavailable,
+      yield* Effect.try({
+        try: () =>
+          container().start({
+            image,
+            instance: size,
+            enableInternet: true,
+          }),
+        catch: unavailable,
+      });
+
+      // The interceptors do not survive a restart, so they are set after every start.
+      yield* Effect.tryPromise({
+        try: () =>
+          Promise.all([
+            container().setInactivityTimeout(lifetime * 60_000),
+            container().interceptOutboundHttps(EgressHosts.github, egress),
+            container().interceptOutboundHttp(EgressHosts.lifetime, egress),
+          ]),
+        catch: unavailable,
+      });
     });
-
-    // The interceptors do not survive a restart, so they are set after every start.
-    yield* Effect.tryPromise({
-      try: () =>
-        Promise.all([
-          container().setInactivityTimeout(lifetime * 60_000),
-          container().interceptOutboundHttps(EgressHosts.github, egress),
-          container().interceptOutboundHttp(EgressHosts.lifetime, egress),
-        ]),
-      catch: unavailable,
-    });
-  });
 
   return Layer.succeed(
     Workspace,
     Workspace.of({
-      ensure: (repository) =>
+      ensure: (settings) =>
         starting.withPermit(
           Effect.gen(function* () {
             if (container().running) {
               return;
             }
 
-            yield* start;
+            yield* start(settings);
             yield* daemonReady;
 
-            if (repository != null) {
-              yield* clone(repository);
+            if (settings.repository != null) {
+              yield* clone(settings.repository);
             }
           }),
         ),

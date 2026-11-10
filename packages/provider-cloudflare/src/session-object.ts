@@ -27,10 +27,10 @@ import { modelProvidersLayer } from "./model-providers.ts";
 import { CloudflarePreviewRouter } from "./preview-router.ts";
 import { RegistryObject, registryStoreLayer } from "./registry-object.ts";
 import {
-  defaultImage,
+  ContainerSettings,
+  unsupportedSettings,
   WorkspaceContainer,
   workspaceLayer,
-  WorkspaceSettings,
 } from "./workspace.ts";
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
@@ -62,12 +62,10 @@ const FetchRoutes = {
   preview: "preview",
 } as const;
 
-const workspaceSettingsKey = "workspace-settings";
-
 const encodeState = (state: SessionState) =>
   Schema.encodeEffect(SessionState)(state).pipe(Effect.map(JSON.stringify), Effect.orDie);
 
-const decodeSettings = Schema.decodeUnknownEffect(WorkspaceSettings);
+const decodeContainerSettings = Schema.decodeUnknownEffect(ContainerSettings);
 
 const notFound = () =>
   HttpServerResponse.text("Session not found", { status: 404, headers: { [notFoundHeader]: "1" } });
@@ -117,11 +115,6 @@ export const SessionObjectLive = SessionObject.make(
       const claudeObjects: DurableObjectNamespace = env[claude.name];
       const codemodeSandboxes: DurableObjectNamespace<CodemodeSandbox> = env[codemodeSandboxClass];
 
-      const settings = Effect.sync(() => raw.storage.kv.get(workspaceSettingsKey)).pipe(
-        Effect.flatMap(decodeSettings),
-        Effect.orDie,
-      );
-
       const contracts = Layer.mergeAll(
         Layer.succeed(
           SessionStorage,
@@ -148,7 +141,7 @@ export const SessionObjectLive = SessionObject.make(
               }),
           }),
         ),
-        workspaceLayer({ sessionId, container, egress, settings }),
+        workspaceLayer({ sessionId, container, egress }),
         browserLayer(yield* browser.raw, cdpSecret, raw.storage),
         CloudflarePreviewRouter,
         registryStoreLayer(registries),
@@ -165,17 +158,10 @@ export const SessionObjectLive = SessionObject.make(
       return {
         create: (request: CreateSession) =>
           Effect.gen(function* () {
-            const workspace = yield* decodeSettings(request.settings).pipe(
-              Effect.mapError(
-                () =>
-                  new Error(
-                    `The workspace takes the image "${defaultImage}" and a Cloudflare instance type as its size; got image "${request.settings.image}" and size "${request.settings.size}"`,
-                  ),
-              ),
+            yield* decodeContainerSettings(request.settings).pipe(
+              Effect.mapError(() => new Error(unsupportedSettings(request.settings))),
               Effect.orDie,
             );
-
-            yield* Effect.sync(() => raw.storage.kv.put(workspaceSettingsKey, workspace));
             yield* handle.create(request);
           }),
 
@@ -184,8 +170,7 @@ export const SessionObjectLive = SessionObject.make(
         close: () => handle.close(),
         messages: (count: number) => handle.messages(count),
         status: () => handle.status(),
-        // core stops the session; what the object stored, the harness and the workspace
-        // settings alike, is the provider's to remove.
+        // core stops the session; what the object stored is the provider's to remove.
         delete: () =>
           Effect.andThen(
             handle.delete(),
