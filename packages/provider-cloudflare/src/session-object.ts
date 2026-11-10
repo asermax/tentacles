@@ -22,6 +22,7 @@ import { browserLayer } from "./browser.ts";
 import { claudeObjectName, ClaudeObject } from "./claude-object.ts";
 import { codemodeSandboxClass, codeSandboxLayer } from "./codemode-sandbox.ts";
 import type { CodemodeSandbox } from "./codemode-worker.ts";
+import { sendableCode } from "./close-code.ts";
 import { loopback } from "./egress.ts";
 import { modelProvidersLayer } from "./model-providers.ts";
 import { CloudflarePreviewRouter } from "./preview-router.ts";
@@ -69,9 +70,6 @@ const decodeContainerSettings = Schema.decodeUnknownEffect(ContainerSettings);
 
 const notFound = () =>
   HttpServerResponse.text("Session not found", { status: 404, headers: { [notFoundHeader]: "1" } });
-
-// A close code the runtime reports but a socket cannot send.
-const sendableCode = (code: number) => (code === 1005 || code === 1006 ? 1000 : code);
 
 const objectDependencies = Effect.gen(function* () {
   yield* WorkspaceContainer;

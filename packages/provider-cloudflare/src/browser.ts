@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 
+import { sendableCode } from "./close-code.ts";
 import { apiHost } from "./hosts.ts";
 
 // Browser Run's maximum: the session closes after 20 minutes without a CDP message.
@@ -104,9 +105,8 @@ export const browserLayer = (
   );
 };
 
-// 1005 means no code was sent, which close() does not accept.
 const forwardClose = (to: WebSocket) => (event: CloseEvent) =>
-  to.close(event.code === 1005 ? 1000 : event.code, event.reason);
+  to.close(sendableCode(event.code), event.reason);
 
 /**
  * The /cdp route: checks the token and bridges the caller's WebSocket to the Browser Run session it
