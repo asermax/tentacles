@@ -1,0 +1,20 @@
+{
+  "name": "@tentacles/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.5.1",
+    "@earendil-works/pi-codemode": "1.5.1",
+    "@earendil-works/pi-durable": "1.5.1",
+    "@earendil-works/pi-env": "1.5.1",
+    "@tentacles/worker-api": "workspace:*",
+    "effect": "4.1.3"
+  }
+}
