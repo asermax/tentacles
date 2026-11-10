@@ -45,7 +45,7 @@ export type Answer = typeof Answer.Type;
 
 const sessionParams = { sessionId: SessionId };
 
-const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
+export const MessageCount = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
 
 export class SessionsGroup extends HttpApiGroup.make("sessions")
   .add(
@@ -72,7 +72,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     }),
     HttpApiEndpoint.get("messages", "/sessions/:sessionId/messages", {
       params: sessionParams,
-      query: { count: Count.pipe(Schema.withDecodingDefaultKey(Effect.succeed(1))) },
+      query: { count: MessageCount.pipe(Schema.withDecodingDefaultKey(Effect.succeed(1))) },
       success: Schema.Array(Entry),
       error: SessionNotFound,
     }),
