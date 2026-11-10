@@ -192,6 +192,8 @@ export const workspaceLayer = ({ sessionId, container, egress, settings }: Works
 
       connection: () => Effect.succeed(connection),
 
+      isRunning: () => Effect.sync(() => container().running),
+
       // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
       // plain HTTP.
       forward: (port, request) =>

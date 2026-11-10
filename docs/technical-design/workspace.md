@@ -47,7 +47,7 @@ flowchart TD
     D -->|Yes| L((Container stops, pending work lost))
 ```
 
-When a run finishes with pending work, tentacles prompts the agent to commit before the run ends, and the run goes on. It does so up to three times; after the third, the run finishes with the work still pending.
+When a run finishes with pending work, tentacles prompts the agent to commit before the run ends, and the run goes on. It does so up to three times; after the third, the run finishes with the work still pending. When the container is not running as a run finishes, tentacles skips the check and does not start the container: a stopped container's disk holds no work.
 
 When the lifetime runs out with pending work during a run, tentacles keeps the container up and checks again. Once the run has finished, pending work keeps the container up for 15 more minutes only; then the container stops.
 

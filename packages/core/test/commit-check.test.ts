@@ -126,6 +126,16 @@ describe("the end-of-run commit check", () => {
     }).pipe(Effect.provide(testWorld)),
   );
 
+  it.live("a run that never used the workspace finishes idle without starting it", () =>
+    Effect.gen(function* () {
+      const { sessionId, records } = yield* startSession([answer("ok")]);
+
+      yield* stoppedWith(sessionId, idleAfter("ok"));
+      expect(records.workspace.ensures).toEqual([]);
+      expect(yield* commitPrompts(sessionId)).toEqual([]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
   it.live("without a repository nothing is checked", () =>
     Effect.gen(function* () {
       const { sessionId } = yield* startSession([leaveChange, answer("done")], "none");

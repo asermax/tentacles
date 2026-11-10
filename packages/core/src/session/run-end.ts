@@ -26,7 +26,7 @@ const commitPrompt = (status: string) =>
  * commit and push, at most three times per run. A failed or aborted run never
  * reaches it.
  */
-export const commitCheckExtension = (sessionId: SessionId) => {
+export const commitCheckExtension = (sessionId: SessionId, isRunning: Effect.Effect<boolean>) => {
   const CommitCheck = defineTask<null, { phase: "check" }, null>({
     name: "tentacles.commit-check",
     version: 1,
@@ -36,8 +36,13 @@ export const commitCheckExtension = (sessionId: SessionId) => {
         const record = await runtime.snapshot(RecordDoc, sessionId, context);
         const env = await runtime.env(context);
 
+        // A stopped container holds no work, and the env would start it and clone just to find
+        // nothing pending.
         const status =
-          record == null || env == null || record.commitPrompts >= commitPromptCap
+          record == null ||
+          env == null ||
+          record.commitPrompts >= commitPromptCap ||
+          !(await Effect.runPromise(isRunning))
             ? null
             : await Effect.runPromise(pendingWork(env));
 

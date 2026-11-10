@@ -5,6 +5,7 @@ import type { Browser } from "@tentacles/contracts/browser";
 import { CodeSandbox } from "@tentacles/contracts/code-sandbox";
 import type { PreviewRouter } from "@tentacles/contracts/preview-router";
 import type { RegistryStore } from "@tentacles/contracts/registry-store";
+import { Workspace } from "@tentacles/contracts/workspace";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
@@ -27,6 +28,7 @@ export const remoteAgentExtensions = (sessionId: SessionId) =>
     );
 
     const sandbox = yield* (yield* CodeSandbox).sandbox();
+    const workspace = yield* Workspace;
 
     const rootAgent: Extension = defineExtension({
       name: "tentacles-root-agent",
@@ -38,7 +40,7 @@ export const remoteAgentExtensions = (sessionId: SessionId) =>
     return [
       CodingTools,
       createCodemodeExtension({ sandbox }),
-      commitCheckExtension(sessionId),
+      commitCheckExtension(sessionId, workspace.isRunning()),
       defineExtension({ name: "tentacles", tools: [previewTool(sessionId, run)] }),
       rootAgent,
     ] satisfies readonly Extension[];
