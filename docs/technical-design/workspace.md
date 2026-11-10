@@ -64,14 +64,14 @@ Closing a session stops its run. Without pending work, the container then stops 
 |---|---|
 | read, write, edit | work on files in `/workspace`, through pi-env |
 | bash | runs commands in the workspace; agent-browser runs through it |
-| codemode | runs a script that calls the other tools; scripts keep `models.*` (the model catalog, classify and generateImages) through the session's providers |
+| codemode | runs a script that calls the other tools except `ask_parent`; scripts keep `models.*` (the model catalog, classify and generateImages) through the session's providers |
 | subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; subagents have neither `ask_parent` nor the subagent tool, so they do not nest |
-| ask_parent | asks the parent; root conversation only; while the repository has pending work, returns a refusal with the repository's status |
+| ask_parent | asks the parent; root conversation only, and only the model calls it; while the repository has pending work, returns a refusal with the repository's status |
 | preview | opens a preview, returning a preview URL to a workspace port and a CDP URL to a browser and replacing the open preview if there is one; or closes the open preview |
 
 The coding tools run in the container through pi-env: the session object reaches pi-env's daemon over the container's exec stdio. codemode is pi-durable's own tool; on Cloudflare it runs in a RemoteCodemodeSandbox. pi-durable ships no subagent tool, so tentacles writes one following pi-durable's examples, and that tool leaves `ask_parent` and itself out of every subagent.
 
-The model reads each tool's result as text. `ask_parent` and preview also return a tagged structured result to a program that calls them, such as a codemode script: `ask_parent` returns `Answered` with the answer or `PendingWork` with the repository's status, and preview returns `open` with the preview URL and the CDP URL, or `close`.
+The model reads each tool's result as text. Only the model calls `ask_parent`: a script's tool call runs as a nested task, which the session does not watch when it derives its status, so a question asked from a script would never show the session as waiting. preview also returns a tagged structured result to a program that calls it, such as a codemode script: `open` with the preview URL and the CDP URL, or `close`.
 
 agent-browser is not part of tentacles: the agent installs it and runs it through bash.
 
