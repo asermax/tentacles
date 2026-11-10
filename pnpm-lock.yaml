@@ -48,6 +48,12 @@ importers:
         specifier: 5.1.0
         version: 5.1.0(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))
 
+  packages/worker-api:
+    dependencies:
+      effect:
+        specifier: 4.1.3
+        version: 4.1.3
+
 packages:
 
   '@effect/tsgo-darwin-arm64@0.67.5':
