@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Harness } from "@tentacles/worker-api/parent";
+import * as Match from "effect/Match";
 import * as Schema from "effect/Schema";
 
 import { skillSources, skillText } from "./skill.ts";
@@ -37,37 +38,50 @@ const piManifest = json({
 
 const claudeManifest = json({ name: "tentacles", version, description });
 
-type EmitFile =
-  | { readonly dest: string; readonly from: string; readonly isExecutable?: boolean }
-  | { readonly dest: string; readonly text: string };
+const EmitFile = Schema.Union([
+  Schema.TaggedStruct("copy", {
+    dest: Schema.String,
+    from: Schema.String,
+    isExecutable: Schema.optionalKey(Schema.Boolean),
+  }),
+  Schema.TaggedStruct("text", { dest: Schema.String, text: Schema.String }),
+]).pipe(Schema.toTaggedUnion("_tag"));
 
-const helper = (dest: string): EmitFile => ({
-  dest,
-  from: join(distDir, "helper", "tentacles-helper.js"),
-  isExecutable: true,
-});
+type EmitFile = typeof EmitFile.Type;
 
-const readme: EmitFile = { dest: "README.md", from: join(packageRoot, "README.md") };
+const { copy, text } = EmitFile.cases;
+
+const helper = (dest: string): EmitFile =>
+  copy.make({
+    dest,
+    from: join(distDir, "helper", "tentacles-helper.js"),
+    isExecutable: true,
+  });
+
+const readme = copy.make({ dest: "README.md", from: join(packageRoot, "README.md") });
 
 const skillFile = (harness: Harness): EmitFile => {
   const { protocol, map } = skillSources(harness);
 
-  return { dest: "skills/tentacles/SKILL.md", text: skillText(protocol, map) };
+  return text.make({ dest: "skills/tentacles/SKILL.md", text: skillText(protocol, map) });
 };
 
 const filePlan = (harness: Harness): ReadonlyArray<EmitFile> =>
   harness === "pi"
     ? [
-        { dest: "package.json", text: piManifest },
-        { dest: "extension/index.js", from: join(distDir, "pi", "extension.js") },
+        text.make({ dest: "package.json", text: piManifest }),
+        copy.make({ dest: "extension/index.js", from: join(distDir, "pi", "extension.js") }),
         helper("tentacles-helper"),
         skillFile(harness),
         readme,
       ]
     : [
-        { dest: ".claude-plugin/plugin.json", text: claudeManifest },
-        { dest: "hooks/hooks.json", from: join(packageRoot, "src", "claude", "hooks.json") },
-        { dest: "hooks/register.js", from: join(distDir, "claude", "register.js") },
+        text.make({ dest: ".claude-plugin/plugin.json", text: claudeManifest }),
+        copy.make({
+          dest: "hooks/hooks.json",
+          from: join(packageRoot, "src", "claude", "hooks.json"),
+        }),
+        copy.make({ dest: "hooks/register.js", from: join(distDir, "claude", "register.js") }),
         helper("bin/tentacles-helper"),
         skillFile(harness),
         readme,
@@ -84,15 +98,16 @@ export const emitPlugin = (harness: Harness, root: string): void => {
 
     mkdirSync(dirname(dest), { recursive: true });
 
-    if ("text" in file) {
-      writeFileSync(dest, file.text);
-    } else {
-      copyFileSync(file.from, dest);
+    Match.valueTags(file, {
+      text: ({ text: contents }) => writeFileSync(dest, contents),
+      copy: ({ from, isExecutable }) => {
+        copyFileSync(from, dest);
 
-      if (file.isExecutable === true) {
-        chmodSync(dest, 0o755);
-      }
-    }
+        if (isExecutable === true) {
+          chmodSync(dest, 0o755);
+        }
+      },
+    });
   }
 };
 
