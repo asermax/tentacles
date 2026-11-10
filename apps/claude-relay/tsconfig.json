@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // pi-claude-code ships its TypeScript source, which does not compile under this repository's
+    // stricter options; the typecheck reads declarations of the modules the relay imports instead.
+    "paths": {
+      "@earendil-works/pi-claude-code/src/*.ts": ["./types/pi-claude-code/*.d.ts"]
+    }
+  },
+  "include": ["src", "test", "types", "vite.config.ts", "vitest.config.ts"]
+}

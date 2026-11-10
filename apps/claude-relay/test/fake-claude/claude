@@ -1,0 +1,56 @@
+#!/usr/bin/env node
+// Stands in for the claude CLI on PATH. It answers the login check and the model catalog request the way
+// Claude Code does, and answers each user turn by replaying the stream-json recording at
+// FAKE_CLAUDE_RECORDING, one line every FAKE_CLAUDE_DELAY_MS. Each turn process appends its pid to
+// FAKE_CLAUDE_PIDS.
+import { appendFileSync, readFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+import { setTimeout as sleep } from "node:timers/promises";
+
+const write = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
+
+if (process.argv.includes("auth") && process.argv.includes("status")) {
+  write({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" });
+  process.exit(0);
+}
+
+const cliModels = [
+  { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet", description: "Sonnet 5.5" },
+  { value: "claude-sonnet-4-6", resolvedModel: "claude-sonnet-4-6", displayName: "Sonnet 4.6", description: "Sonnet 4.6" },
+];
+
+const recording = readFileSync(process.env.FAKE_CLAUDE_RECORDING, "utf8").split("\n").filter((line) => line !== "");
+const delay = Number(process.env.FAKE_CLAUDE_DELAY_MS ?? "0");
+
+for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
+  const frame = JSON.parse(line);
+
+  if (frame.type === "control_request" && frame.request?.subtype === "initialize") {
+    write({ type: "control_response", response: { subtype: "success", request_id: frame.request_id, response: { models: cliModels } } });
+    continue;
+  }
+
+  // Claude Code echoes a turn's uuid on that turn's result.
+  const echo = frame.uuid == null ? {} : { user_message_uuids: [frame.uuid] };
+
+  if (frame.shouldQuery === false) {
+    write({ type: "result", num_turns: 0, ...echo });
+    continue;
+  }
+
+  if (frame.type !== "user") {
+    continue;
+  }
+
+  if (process.env.FAKE_CLAUDE_PIDS != null) {
+    appendFileSync(process.env.FAKE_CLAUDE_PIDS, `${process.pid}\n`);
+  }
+
+  for (const recorded of recording) {
+    await sleep(delay);
+
+    const event = JSON.parse(recorded);
+
+    write(event.type === "result" ? { ...event, ...echo } : event);
+  }
+}
