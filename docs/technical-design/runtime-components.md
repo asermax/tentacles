@@ -103,7 +103,7 @@ Each component above plays a role that any provider has to fill. Several roles a
 | Session storage | Durable Object SQLite | `SessionStorage` | pi-durable's storage for one session | pi-durable's storage adapter |
 | Wake-up timer | the object's alarm | `WakeTimer` | set or clear the one timer that resumes a run after an eviction | pi-durable's `onWake`; the host writes the timer |
 | Parent socket | Durable Object WebSocket | `ParentChannel` | send the session state to every socket the parent holds open | none |
-| Registry of sessions and their preview | registry Durable Object | `RegistryStore` | add an entry, record a status, list one parent's sessions, open and resolve a preview, remove an entry, find the sessions stopped before a given time | none |
+| Registry of sessions and their preview | registry Durable Object | `RegistryStore` | add an entry, record a status and the time a run stops, list one parent's sessions, open, resolve and clear a preview, remove an entry, find the sessions stopped before a given time | none |
 | Workspace: a container with exec | container started by the session object | `Workspace` | make sure the container is up, cloning the repository on a fresh start; the connection pi-env runs its tools over; forward a request to a port; stop | pi-env's `RemoteExecutionEnv` over a connection |
 | Browser | Browser Run through the binding | `Browser` | open a browser for the session's preview, returning its CDP address, and close it | agent-browser speaks CDP to any URL |
 | Preview routing | Worker preview route and registry | `PreviewRouter` | the public URL a preview token is served on | none |

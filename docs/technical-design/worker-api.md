@@ -14,7 +14,7 @@ The Worker's API is the plugin's only way to reach tentacles: seven calls (creat
 
 | Member | Takes | Answers | Who asks |
 |---|---|---|---|
-| `create` | the name, the parent, the settings and the first prompt (see below) | starts the session and returns its session id; the first run starts at once | the spawn tool |
+| `create` | the name, the parent, the settings and the first prompt (see below) | starts the session, waits until its first run has started and returns its session id | the spawn tool |
 | `prompt` | the session id, the text, and a mode: follow-up or steer | sends the text to the session; on an idle, failed or closed session it starts a new run, reopening a closed one; a steer sent while a question waits queues until the answer | the prompt tool |
 | `answer` | the session id, the question id and the answer text | resolves the waiting question, and the run continues | the answer tool |
 | `close` | the session id | aborts whatever the session is doing and closes it | the close tool |
@@ -27,7 +27,7 @@ A message is any entry in the root conversation's history: a user prompt, the ag
 
 The registry entry carries each session's name and status, so `list` answers without a call per session.
 
-A deleted or unknown session, or an answer to a question that is not waiting, returns an error with a message. The plugin hands that message to the parent agent as a tool failure.
+A call or a socket on a deleted or unknown session, or an answer to a question that is not waiting, returns an error with a message. The plugin hands that message to the parent agent as a tool failure.
 
 ## 🚀 What create takes
 

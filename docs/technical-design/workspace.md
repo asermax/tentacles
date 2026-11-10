@@ -67,7 +67,7 @@ Closing a session stops its run. Without pending work, the container then stops 
 | codemode | runs a script that calls the other tools; scripts keep `models.*` (the model catalog, classify and generateImages) through the session's providers |
 | subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; subagents have neither the question tool nor the subagent tool, so they do not nest |
 | question | asks the parent; root conversation only; refuses while the repository has pending work |
-| preview | returns a preview URL to a workspace port and a CDP URL to a browser, replacing the open preview if there is one |
+| preview | opens a preview, returning a preview URL to a workspace port and a CDP URL to a browser and replacing the open preview if there is one; or closes the open preview |
 
 The coding tools run in the container through pi-env: the session object reaches pi-env's daemon over the container's exec stdio. codemode is pi-durable's own tool; on Cloudflare it runs in a RemoteCodemodeSandbox. pi-durable ships no subagent tool, so tentacles writes one following pi-durable's examples, and that tool leaves the question tool and itself out of every subagent.
 
@@ -95,7 +95,7 @@ flowchart LR
   class inp,out payload
 ```
 
-A session has at most one preview, and only to validate the app in a browser. When the agent wants to check the app it started in the workspace, it calls the preview tool with the app's port. The Worker generates a token, records it and the port on the session's registry entry, opens a Browser Run browser through the binding, and returns two URLs: the preview URL, `https://<token>-tentacles-preview.asermax.com`, which carries only the token, and the browser's CDP URL, which carries a token the Worker signs. The agent points agent-browser at the CDP URL, opens the preview URL, validates what it built and closes the preview.
+A session has at most one preview, and only to validate the app in a browser. When the agent wants to check the app it started in the workspace, it calls the preview tool with the app's port. The Worker generates a token, records it and the port on the session's registry entry, opens a Browser Run browser through the binding, and returns two URLs: the preview URL, `https://<token>-tentacles-preview.asermax.com`, which carries only the token, and the browser's CDP URL, which carries a token the Worker signs. The agent points agent-browser at the CDP URL, opens the preview URL, validates what it built and closes the preview. Closing the preview clears its token, so the preview URL stops working. It also closes the preview's browser.
 
 When the agent calls the preview tool while a preview is open, the new preview replaces it: the previous token stops working and its browser closes.
 

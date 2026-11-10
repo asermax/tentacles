@@ -73,7 +73,7 @@ The **skill** teaches the parent agent the tools with the same protocol it follo
 | close | `mcp__tentacles__close` | `tentacles_close` | close |
 | answer | `mcp__tentacles__answer` | `tentacles_answer` | answer |
 
-Each tool takes the arguments of its Worker API call and returns its result. A Worker error, such as a deleted or unknown session or an answer to a question that is not waiting, reaches the agent as a tool failure carrying the Worker's message. On Claude Code the plugin registers the tools by their bare names and the model sees them under the plugin's MCP prefix; on pi they carry the `tentacles_` prefix themselves.
+Each tool takes the arguments of its Worker API call and returns its result, except where the plugin fills in the parent itself. spawn takes the name, the first prompt and any settings the agent sets; the plugin fills every other setting from its defaults (see Implementation details). list takes no arguments. A Worker error, such as a deleted or unknown session or an answer to a question that is not waiting, reaches the agent as a tool failure carrying the Worker's message. When the plugin gets no usable answer from the Worker, the tool fails with an error naming the cause: the Worker did not answer at its URL, it answered with an unexpected status, or a required variable is unset. On Claude Code the plugin registers the tools by their bare names and the model sees them under the plugin's MCP prefix; on pi they carry the `tentacles_` prefix themselves.
 
 ## ⏰ Wake messages
 
@@ -125,13 +125,13 @@ spawn adds a session, close marks it closed, and a prompt that reopens a closed 
 
 Closed sessions stay in the list and in the list tool's result, so the parent can reopen one. The status line shows only the open sessions (12); a sync that returns a closed session brings it back as closed, hidden from the status line.
 
-A deleted session leaves the list the first time the plugin learns of it: the start-up sync omits it (1 to 3), or any call on it (prompt, messages, close or answer) returns that the session does not exist (8 to 11).
+A deleted session leaves the list the first time the plugin learns of it: the start-up sync omits it (1 to 3), or any call on it (prompt, messages, close or answer) returns that the session does not exist (8 to 11), or the watch's socket for the session reports that the session does not exist.
 
 > [!NOTE] Why the list is kept both locally and in the Worker
 > The local list lets a harness that has never spawned a remote session start without calling the Worker. The Worker's copy lets a harness that does have sessions recover their current status, including changes it missed while it was closed.
 
 > [!WARNING] A deleted session lingers until the plugin learns of it
-> The daily cleanup deletes a session without telling its parent. Until the next start-up sync or the next call on that session, the local list, and the status line if the session was open, still name it.
+> The daily cleanup deletes a session without telling its parent. Until the next start-up sync, the next call on that session or the watch's next connection to it, the local list, and the status line if the session was open, still name it.
 
 ## ⚙️ Implementation details
 

@@ -113,14 +113,14 @@ A run ends in one of two ways. When it finishes, the session is idle. When the s
 
 close aborts whatever the session is doing and leaves it closed: kept in its Durable Object, where its history and state stay readable until it is deleted. close sets `closed` and aborts any run; the status turns closed once the session sees no run and `closed` set, at once for an idle or failed session. A prompt on a closed session clears `closed` and starts a new run, whether sent as a follow-up or a steer, and the status leaves closed once the run starts.
 
-The month before deletion counts from when the last run stops, by finishing, failing or close. A session is never deleted while a run is going, including while a question waits inside it, and reading a session (its messages, its status, a socket connecting) does not renew the month.
+The month before deletion counts from when the last run stops: when it finishes, fails or is aborted by close. Closing a session that is already idle or failed aborts no run, so its month keeps counting from when its last run stopped. A session is never deleted while a run is going, including while a question waits inside it, and reading a session (its messages, its status, a socket connecting) does not renew the month.
 
 ## 🧹 Daily cleanup
 
 ```mermaid
 flowchart LR
     P@{ shape: rect, label: "Parent" }
-    R@{ shape: rect, label: "Session run stops<br/>finish, fail or close" }
+    R@{ shape: rect, label: "Session run stops<br/>finish, fail or<br/>aborted by close" }
     Reg@{ shape: cyl, label: "Registry<br/>status and time<br/>the last run stopped" }
     W@{ shape: delay, label: "Daily" }
     J@{ shape: st-rect, label: "Job: delete sessions<br/>stopped over a month ago" }
