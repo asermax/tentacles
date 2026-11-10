@@ -186,8 +186,16 @@ export const workspaceLayer = ({ sessionId, container, egress, settings }: Works
 
       connection: () => Effect.succeed(connection),
 
+      // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
+      // plain HTTP.
       forward: (port, request) =>
-        Effect.tryPromise(() => container().getTcpPort(port).fetch(request)).pipe(
+        Effect.tryPromise(() => {
+          const url = new URL(request.url);
+
+          url.protocol = "http:";
+
+          return container().getTcpPort(port).fetch(new Request(url, request));
+        }).pipe(
           Effect.orElseSucceed(
             () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
           ),
