@@ -6,6 +6,7 @@ import {
   SessionStatuses,
   type SessionState,
   type SessionStatus,
+  statusOf,
 } from "@tentacles/worker-api/session-state";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
@@ -22,14 +23,14 @@ import {
   type WatchLine,
 } from "./helper-output.ts";
 import { LocalState } from "./local-state.ts";
-import { createLineSplitter, renderStatusLine } from "./status-line.ts";
+import { createLineSplitter, isOpen, renderStatusLine } from "./status-line.ts";
 import { ToolEntry, ToolNames, toolsFor, type EndpointToolEntry } from "./tool-table.ts";
 import { failureWake, finishWake, questionWake } from "./wake-texts.ts";
 
 export interface StartOptions {
   readonly parentSessionId: string;
   /** A headless parent (`claude -p`, pi's print mode) gets no watch and no wake. */
-  readonly interactive: boolean;
+  readonly isInteractive: boolean;
 }
 
 export interface Controller {
@@ -58,16 +59,6 @@ const failureText = Match.type<TentaclesError>().pipe(
   }),
 );
 
-const statusOf = Match.type<SessionState>().pipe(
-  Match.tagsExhaustive({
-    running: (): SessionStatus => SessionStatuses.running,
-    waiting: (): SessionStatus => SessionStatuses.waiting,
-    idle: (): SessionStatus => SessionStatuses.idle,
-    failed: (): SessionStatus => SessionStatuses.failed,
-    closed: (): SessionStatus => SessionStatuses.closed,
-  }),
-);
-
 // What the parent was last woken with per session: a watch restart reconnects
 // every socket and each sends its current state, which must not wake again.
 const wakeKeyOf = (state: SessionState) =>
@@ -82,7 +73,7 @@ const wakeKeyOf = (state: SessionState) =>
 /** Holds the local-state transitions, which states wake the parent and when the watch restarts; both glues run it. */
 export const createController = (glue: Glue, harness: Harness): Controller => {
   let parent: Parent | undefined;
-  let interactive = false;
+  let isInteractive = false;
   let sessions: ReadonlyArray<SessionRef> = [];
   let watchProcess: WatchProcess | undefined;
   let waiters: Array<(text: string) => void> = [];
@@ -99,12 +90,21 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
     void glue.writeState(LocalState.make({ sessions })).catch(() => undefined);
   };
 
-  const setStatus = (sessionId: SessionId, status: SessionStatus) =>
+  const setStatus = (sessionId: SessionId, status: SessionStatus) => {
+    const isUnchanged = sessions.some(
+      (session) => session.sessionId === sessionId && session.status === status,
+    );
+
+    if (isUnchanged) {
+      return;
+    }
+
     save(
       sessions.map((session) =>
         session.sessionId === sessionId ? { ...session, status } : session,
       ),
     );
+  };
 
   const drop = (sessionId: SessionId) => {
     wakeKeys.delete(sessionId);
@@ -174,9 +174,9 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
     watchProcess?.stop();
     watchProcess = undefined;
 
-    const open = sessions.filter((session) => session.status !== SessionStatuses.closed);
+    const open = sessions.filter(isOpen);
 
-    if (!interactive || open.length === 0) {
+    if (!isInteractive || open.length === 0) {
       return;
     }
 
@@ -285,9 +285,9 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
   };
 
   const runWait: ToolRun = (_args, signal) => {
-    const open = sessions.some((session) => session.status !== SessionStatuses.closed);
+    const isAnyOpen = sessions.some(isOpen);
 
-    if (!open || !interactive) {
+    if (!isAnyOpen || !isInteractive) {
       return Promise.resolve({
         isError: false,
         text: "No remote agent is open, so there is nothing to wait for.",
@@ -334,7 +334,7 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
       waiters = [];
       wakeKeys.clear();
       unwaited.clear();
-      interactive = options.interactive;
+      isInteractive = options.isInteractive;
 
       const local = await glue.readState();
 

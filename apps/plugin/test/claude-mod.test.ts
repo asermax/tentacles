@@ -21,7 +21,7 @@ import type {
   ToolCallResult,
 } from "../src/claude/engine.ts";
 import { register } from "../src/claude/register.ts";
-import { eventually } from "./fake-helper.ts";
+import { eventually } from "./eventually.ts";
 import { Failed, sessionIdOf } from "./values.ts";
 
 const sessionId = sessionIdOf(1);

@@ -28,7 +28,7 @@ const withLastEntry = (sessionId: SessionId, state: SessionState) =>
 
     return Option.match(Option.fromNullishOr(entries.at(-1)), {
       onNone: () => state,
-      onSome: (lastEntry) => SessionState.members[2].make({ lastEntry }),
+      onSome: (lastEntry) => SessionState.cases.idle.make({ lastEntry }),
     });
   });
 
@@ -36,7 +36,7 @@ const connection = (sessionId: SessionId, print: (line: WatchLine) => Effect.Eff
   Effect.gen(function* () {
     const socket = yield* openSessionSocket(sessionId);
     const reader = yield* socket.reader;
-    let connected = false;
+    let isConnected = false;
 
     while (true) {
       for (const chunk of yield* reader.pull) {
@@ -44,9 +44,9 @@ const connection = (sessionId: SessionId, print: (line: WatchLine) => Effect.Eff
           Predicate.isString(chunk) ? chunk : textDecoder.decode(chunk),
         );
 
-        const state = connected ? received : yield* withLastEntry(sessionId, received);
+        const state = isConnected ? received : yield* withLastEntry(sessionId, received);
 
-        connected = true;
+        isConnected = true;
         yield* print(StateLine.make({ sessionId, state }));
       }
     }
@@ -78,10 +78,7 @@ const watchSession = (sessionId: SessionId, print: (line: WatchLine) => Effect.E
 
       yield* Effect.sleep(reconnectAfter);
     }
-  }).pipe(
-    Effect.provide(TentaclesClientLive),
-    Effect.orElseSucceed(() => undefined),
-  );
+  }).pipe(Effect.orElseSucceed(() => undefined));
 
 /** One socket per session, each printing its own lines; the other sockets go on when one ends. */
 export const watchSessions = (
@@ -91,4 +88,7 @@ export const watchSessions = (
   Effect.forEach(sessionIds, (sessionId) => watchSession(sessionId, print), {
     concurrency: "unbounded",
     discard: true,
-  });
+  }).pipe(
+    Effect.provide(TentaclesClientLive),
+    Effect.orElseSucceed(() => undefined),
+  );

@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 
-import { assertCoverage, tokenPattern, type TokenMap } from "./coverage.ts";
+import type { Harness } from "@tentacles/worker-api/parent";
 
-export type Harness = "pi" | "claude";
+import { assertCoverage, tokenPattern, type TokenMap } from "./coverage.ts";
 
 const sharedDir = new URL("../src/shared/", import.meta.url);
 

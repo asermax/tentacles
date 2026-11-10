@@ -15,6 +15,3 @@ export const SettingsDefaults = Config.all({
   size: Config.String("TENTACLES_WORKSPACE_SIZE").pipe(Config.withDefault("basic")),
   lifetime: Config.Int("TENTACLES_WORKSPACE_LIFETIME").pipe(Config.withDefault(15)),
 });
-
-/** Read by the glues, not the helper: overrides the bundled helper's path. */
-export const HelperPathVariable = "TENTACLES_HELPER";

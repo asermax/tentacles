@@ -20,6 +20,17 @@ const out = mkdtempSync(join(tmpdir(), "tentacles-plugin-build-"));
 
 const read = (...path: ReadonlyArray<string>) => readFileSync(join(out, ...path), "utf8");
 
+const readJson = <S extends Schema.ConstraintDecoder<unknown>>(
+  schema: S,
+  ...path: ReadonlyArray<string>
+) => Schema.decodeUnknownSync(Schema.fromJsonString(schema))(read(...path));
+
+const PiManifest = Schema.Struct({ pi: Schema.Unknown });
+
+const ClaudeManifest = Schema.Struct({ name: Schema.String });
+
+const HooksFile = Schema.Struct({ modules: Schema.Unknown });
+
 const isExecutable = (...path: ReadonlyArray<string>) => {
   try {
     accessSync(join(out, ...path), constants.X_OK);
@@ -45,7 +56,7 @@ afterAll(() => rmSync(out, { recursive: true, force: true }));
 
 describe("plugin build", () => {
   it("emits the pi package with its manifest, the extension, the helper and the skill with pi's fragment", () => {
-    const manifest = JSON.parse(read("pi", "package.json"));
+    const manifest = readJson(PiManifest, "pi", "package.json");
     const skill = read("pi", "skills", "tentacles", "SKILL.md");
 
     expect(manifest.pi).toEqual({ extensions: ["./extension/index.js"], skills: ["./skills"] });
@@ -58,8 +69,8 @@ describe("plugin build", () => {
   });
 
   it("emits the Claude plugin with its manifest, the mod, the helper and the skill with Claude's fragment", () => {
-    const manifest = JSON.parse(read("claude", ".claude-plugin", "plugin.json"));
-    const hooks = JSON.parse(read("claude", "hooks", "hooks.json"));
+    const manifest = readJson(ClaudeManifest, "claude", ".claude-plugin", "plugin.json");
+    const hooks = readJson(HooksFile, "claude", "hooks", "hooks.json");
     const mod = read("claude", "hooks", "register.js");
     const skill = read("claude", "skills", "tentacles", "SKILL.md");
 

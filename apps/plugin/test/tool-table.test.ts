@@ -8,7 +8,16 @@ describe("tool table arguments", () => {
   it("gives prompt its path params with its payload", () => {
     expect(ToolTable.prompt.arguments).toMatchObject({
       type: "object",
-      properties: { sessionId: uuid, text: { type: "string" }, mode: expect.anything() },
+      properties: {
+        sessionId: uuid,
+        text: { type: "string" },
+        mode: {
+          anyOf: [
+            expect.objectContaining({ type: "string", enum: ["followUp"] }),
+            expect.objectContaining({ type: "string", enum: ["steer"] }),
+          ],
+        },
+      },
       required: ["sessionId", "text", "mode"],
     });
   });
@@ -54,7 +63,16 @@ describe("tool table arguments", () => {
         image: { type: "string" },
         size: { type: "string" },
         lifetime: expect.objectContaining({ type: "integer" }),
-        repository: expect.anything(),
+        repository: {
+          anyOf: [
+            expect.objectContaining({
+              type: "object",
+              properties: { url: { type: "string" }, shallow: { type: "boolean" } },
+              required: expect.arrayContaining(["url"]),
+            }),
+            { type: "null" },
+          ],
+        },
       },
     });
   });

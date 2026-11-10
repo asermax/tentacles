@@ -22,12 +22,12 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 const started = async (
   initial: LocalState,
   results: Partial<Record<string, CommandResult>> = {},
-  interactive = true,
+  isInteractive = true,
 ) => {
   const glue = createFakeGlue(initial, results);
   const controller = createController(glue, Harnesses.pi);
 
-  await controller.start({ parentSessionId: "parent-session", interactive });
+  await controller.start({ parentSessionId: "parent-session", isInteractive });
 
   return glue;
 };

@@ -14,7 +14,8 @@ import type {
   PiShutdownHandler,
   PiTool,
 } from "../src/pi/pi-api.ts";
-import { createFakeHelper, eventually, type FakeHelper } from "./fake-helper.ts";
+import { eventually } from "./eventually.ts";
+import { createFakeHelper, type FakeHelper } from "./fake-helper.ts";
 import { questionOf, sessionIdOf, Waiting } from "./values.ts";
 
 const sessionId = sessionIdOf(1);

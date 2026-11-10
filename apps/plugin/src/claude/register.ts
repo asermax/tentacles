@@ -1,8 +1,9 @@
 import { Harnesses } from "@tentacles/worker-api/parent";
-import type * as Schema from "effect/Schema";
+import * as Schema from "effect/Schema";
 
 import { createController, type Controller } from "../core/controller.ts";
 import type { Glue, ToolRun } from "../core/glue.ts";
+import { HelperPathVariable } from "../core/helper-path-variable.ts";
 import { ToolEntry } from "../core/tool-table.ts";
 import type { Engine, On, ToolCall } from "./engine.ts";
 import { readStateFile, stateFilePath, writeStateFile } from "./state-file.ts";
@@ -17,8 +18,12 @@ import { createWakeQueue } from "./wake-queue.ts";
 // its workspace, so a helper run gets the engine's ceiling.
 const helperTimeoutMs = 10 * 60 * 1000;
 
+function isJson(value: unknown): value is Schema.Json {
+  return Schema.is(Schema.Json)(value);
+}
+
 async function helperOf($: Engine): Promise<string> {
-  return (await $.env.get("TENTACLES_HELPER")) ?? `${$.plugin.root}/bin/tentacles-helper`;
+  return (await $.env.get(HelperPathVariable)) ?? `${$.plugin.root}/bin/tentacles-helper`;
 }
 
 function watchOf($: Engine, helper: string): Glue["watch"] {
@@ -86,7 +91,9 @@ function argumentsOf(event: ToolCall): Schema.JsonObject {
   } = event;
 
   return Object.fromEntries(
-    Object.entries(args).filter((entry): entry is [string, Schema.Json] => entry[1] != null),
+    Object.entries(args).filter(
+      (entry): entry is [string, Schema.Json] => entry[1] != null && isJson(entry[1]),
+    ),
   );
 }
 
@@ -96,8 +103,7 @@ export function register(on: On): void {
 
   on("session.start", async ($, event, next) => {
     const started = await next(event);
-    const sessionId = await $.session.id();
-    const helper = await helperOf($);
+    const [sessionId, helper] = await Promise.all([$.session.id(), helperOf($)]);
     const statePath = await stateFilePath($, sessionId);
 
     controller?.stop();
@@ -105,7 +111,7 @@ export function register(on: On): void {
     controller = createController(glueOf($, helper, statePath, runs), Harnesses.claude);
     // The start-up sync calls the Worker, which must not hold up the session.
     void controller
-      .start({ parentSessionId: sessionId, interactive: event.isInteractive })
+      .start({ parentSessionId: sessionId, isInteractive: event.isInteractive })
       .catch(() => undefined);
 
     return started;

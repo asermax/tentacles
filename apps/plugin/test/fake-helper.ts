@@ -74,10 +74,3 @@ export const createFakeHelper = (
     },
   };
 };
-
-/** Polls until `check` holds or a second passes. */
-export const eventually = async (check: () => boolean) => {
-  for (let waited = 0; !check() && waited < 2000; waited += 20) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-};

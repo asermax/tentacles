@@ -57,7 +57,7 @@ export const tentaclesExtension = (pi: PiExtensionApi): void => {
     context = ctx;
     // The start-up sync calls the Worker, which must not hold up the session.
     void controller
-      .start({ parentSessionId: ctx.sessionManager.getSessionId(), interactive: ctx.hasUI })
+      .start({ parentSessionId: ctx.sessionManager.getSessionId(), isInteractive: ctx.hasUI })
       .catch(() => undefined);
   });
 

@@ -134,7 +134,7 @@ describe("helper commands against the Worker", () => {
   it("answers Failure QuestionNotWaiting when the question no longer waits", async () => {
     const stub = await startWorker({
       sessions: new Map([[sessionId, scriptedSession]]),
-      questionWaiting: false,
+      isQuestionWaiting: false,
     });
 
     const result = await runHelperCommand(
@@ -174,7 +174,7 @@ describe("helper commands against the Worker", () => {
   });
 
   it("explains which status the Worker answered when it fails", async () => {
-    const stub = await startWorker({ failing: true });
+    const stub = await startWorker({ isFailing: true });
 
     const result = await runHelperCommand("list", { parent }, variablesFor(stub.url));
 

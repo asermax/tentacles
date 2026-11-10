@@ -1,4 +1,4 @@
-import type { TentaclesError } from "@tentacles/worker-api/errors";
+import { TentaclesError } from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
 import { Parent } from "@tentacles/worker-api/parent";
 import { Answer, MessageCount, Prompt } from "@tentacles/worker-api/sessions";
@@ -43,6 +43,22 @@ type Command = (
   json: string,
 ) => Effect.Effect<unknown, CommandError, TentaclesClient | HttpClient.HttpClient>;
 
+const withClient =
+  <S extends Schema.ConstraintDecoder<unknown>>(
+    schema: S,
+    call: (
+      client: TentaclesClient["Service"],
+      request: S["Type"],
+    ) => Effect.Effect<unknown, CommandError, HttpClient.HttpClient>,
+  ): Command =>
+  (json) =>
+    Effect.gen(function* () {
+      const request = yield* decodeArguments(schema, json);
+      const client = yield* TentaclesClient;
+
+      return yield* call(client, request);
+    });
+
 /** One endpoint call per tool: the arguments split into the endpoint's path params and payload or query. */
 const commands: Record<EndpointToolEntry["name"], Command> = {
   spawn: (json: string) =>
@@ -60,41 +76,17 @@ const commands: Record<EndpointToolEntry["name"], Command> = {
         },
       });
     }),
-  prompt: (json: string) =>
-    Effect.gen(function* () {
-      const { sessionId, ...payload } = yield* decodeArguments(PromptRequest, json);
-      const client = yield* TentaclesClient;
-
-      return yield* client.sessions.prompt({ params: { sessionId }, payload });
-    }),
-  answer: (json: string) =>
-    Effect.gen(function* () {
-      const { sessionId, ...payload } = yield* decodeArguments(AnswerRequest, json);
-      const client = yield* TentaclesClient;
-
-      return yield* client.sessions.answer({ params: { sessionId }, payload });
-    }),
-  close: (json: string) =>
-    Effect.gen(function* () {
-      const params = yield* decodeArguments(SessionRequest, json);
-      const client = yield* TentaclesClient;
-
-      return yield* client.sessions.close({ params });
-    }),
-  messages: (json: string) =>
-    Effect.gen(function* () {
-      const { sessionId, count = 1 } = yield* decodeArguments(MessagesRequest, json);
-      const client = yield* TentaclesClient;
-
-      return yield* client.sessions.messages({ params: { sessionId }, query: { count } });
-    }),
-  list: (json: string) =>
-    Effect.gen(function* () {
-      const { parent } = yield* decodeArguments(ListRequest, json);
-      const client = yield* TentaclesClient;
-
-      return yield* client.sessions.list({ query: parent });
-    }),
+  prompt: withClient(PromptRequest, (client, { sessionId, ...payload }) =>
+    client.sessions.prompt({ params: { sessionId }, payload }),
+  ),
+  answer: withClient(AnswerRequest, (client, { sessionId, ...payload }) =>
+    client.sessions.answer({ params: { sessionId }, payload }),
+  ),
+  close: withClient(SessionRequest, (client, params) => client.sessions.close({ params })),
+  messages: withClient(MessagesRequest, (client, { sessionId, count = 1 }) =>
+    client.sessions.messages({ params: { sessionId }, query: { count } }),
+  ),
+  list: withClient(ListRequest, (client, { parent }) => client.sessions.list({ query: parent })),
 };
 
 export type CommandName = EndpointToolEntry["name"];
@@ -121,10 +113,10 @@ export const runCommand = (
     Effect.catch((error) =>
       Effect.succeed(
         Match.value(error).pipe(
+          Match.when(Schema.is(TentaclesError), (tentaclesError) =>
+            Failure.make({ error: tentaclesError }),
+          ),
           Match.tags({
-            SessionNotFound: (tentaclesError) => Failure.make({ error: tentaclesError }),
-            QuestionNotWaiting: (tentaclesError) => Failure.make({ error: tentaclesError }),
-            Unauthorized: (tentaclesError) => Failure.make({ error: tentaclesError }),
             HttpClientError: (httpError) =>
               HelperError.make({ message: describeHttpError(httpError) }),
             ConfigError: (configError) =>

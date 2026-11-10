@@ -2,9 +2,10 @@ import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type * as Schema from "effect/Schema";
+import type { Harness } from "@tentacles/worker-api/parent";
+import * as Schema from "effect/Schema";
 
-import { skillSources, skillText, type Harness } from "./skill.ts";
+import { skillSources, skillText } from "./skill.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -12,7 +13,9 @@ const distDir = join(packageRoot, "dist");
 
 export const outDir = join(packageRoot, "build", "out");
 
-const { version } = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+const { version } = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
+)(readFileSync(join(packageRoot, "package.json"), "utf8"));
 
 const description =
   "Spawn, steer, question and collect remote coding agents that run in tentacles.";
@@ -35,13 +38,13 @@ const piManifest = json({
 const claudeManifest = json({ name: "tentacles", version, description });
 
 type EmitFile =
-  | { readonly dest: string; readonly from: string; readonly executable?: boolean }
+  | { readonly dest: string; readonly from: string; readonly isExecutable?: boolean }
   | { readonly dest: string; readonly text: string };
 
 const helper = (dest: string): EmitFile => ({
   dest,
   from: join(distDir, "helper", "tentacles-helper.js"),
-  executable: true,
+  isExecutable: true,
 });
 
 const readme: EmitFile = { dest: "README.md", from: join(packageRoot, "README.md") };
@@ -86,7 +89,7 @@ export const emitPlugin = (harness: Harness, root: string): void => {
     } else {
       copyFileSync(file.from, dest);
 
-      if (file.executable === true) {
+      if (file.isExecutable === true) {
         chmodSync(dest, 0o755);
       }
     }

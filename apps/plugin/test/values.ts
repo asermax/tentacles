@@ -6,9 +6,14 @@ import * as Schema from "effect/Schema";
 
 import type { CommandResult } from "../src/core/helper-output.ts";
 
-export const [Running, Waiting, Idle, Failed] = SessionState.members;
+export const {
+  running: Running,
+  waiting: Waiting,
+  idle: Idle,
+  failed: Failed,
+} = SessionState.cases;
 
-export const [, TextEntry] = Entry.members;
+export const { text: TextEntry } = Entry.cases;
 
 export const sessionIdOf = (index: number) =>
   Schema.decodeSync(SessionId)(`00000000-0000-4000-8000-${String(index).padStart(12, "0")}`);

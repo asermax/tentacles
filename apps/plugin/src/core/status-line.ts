@@ -1,8 +1,10 @@
 import { SessionStatuses, type SessionRef } from "@tentacles/worker-api/session-state";
 
+export const isOpen = (session: SessionRef) => session.status !== SessionStatuses.closed;
+
 /** The open sessions as `name: status`, or undefined when none is open so the glue clears the line. */
 export const renderStatusLine = (sessions: ReadonlyArray<SessionRef>): string | undefined => {
-  const open = sessions.filter((session) => session.status !== SessionStatuses.closed);
+  const open = sessions.filter(isOpen);
 
   if (open.length === 0) {
     return undefined;

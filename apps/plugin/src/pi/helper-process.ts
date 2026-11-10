@@ -3,11 +3,12 @@ import { execFile, spawn } from "node:child_process";
 import type { SessionId } from "@tentacles/worker-api/ids";
 
 import type { WatchProcess } from "../core/glue.ts";
+import { HelperPathVariable } from "../core/helper-path-variable.ts";
 
 // The helper lives at the package root, one level above the bundled
 // extension; TENTACLES_HELPER points elsewhere when set.
 export const helperPath = () =>
-  process.env.TENTACLES_HELPER ?? new URL("../tentacles-helper", import.meta.url).pathname;
+  process.env[HelperPathVariable] ?? new URL("../tentacles-helper", import.meta.url).pathname;
 
 /** Runs one helper command; its result line is on stdout even when the command fails. */
 export const runHelperProcess = (argv: ReadonlyArray<string>) =>

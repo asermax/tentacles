@@ -37,9 +37,9 @@ export interface StubScript {
   readonly createdId?: SessionId;
   readonly sessions?: ReadonlyMap<SessionId, ScriptedSession>;
   readonly listed?: ReadonlyArray<SessionRef>;
-  readonly questionWaiting?: boolean;
+  readonly isQuestionWaiting?: boolean;
   /** Every endpoint answers 500. */
-  readonly failing?: boolean;
+  readonly isFailing?: boolean;
 }
 
 /** One request the stub received, after the API decoded it. */
@@ -68,7 +68,7 @@ const stubLayer = (script: StubScript, requests: Array<ReceivedRequest>) => {
   };
 
   const answering = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
-    script.failing ? Effect.die("the stub fails") : effect;
+    script.isFailing ? Effect.die("the stub fails") : effect;
 
   const handlers = HttpApiBuilder.group(TentaclesApi, "sessions", (group) =>
     group
@@ -92,7 +92,7 @@ const stubLayer = (script: StubScript, requests: Array<ReceivedRequest>) => {
         return answering(
           sessionOf(params.sessionId).pipe(
             Effect.flatMap(() =>
-              script.questionWaiting === false
+              script.isQuestionWaiting === false
                 ? Effect.fail(new QuestionNotWaiting({ questionId: payload.questionId }))
                 : Effect.void,
             ),
@@ -119,7 +119,7 @@ const stubLayer = (script: StubScript, requests: Array<ReceivedRequest>) => {
         return answering(
           sessionOf(params.sessionId).pipe(
             Effect.map(
-              (session) => session.states.at(-1)?.state ?? SessionState.members[0].make({}),
+              (session) => session.states.at(-1)?.state ?? SessionState.cases.running.make({}),
             ),
           ),
         );

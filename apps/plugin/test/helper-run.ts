@@ -10,6 +10,7 @@ import { runCommand, type CommandName } from "../src/helper/command.ts";
 import { NodeWebSocketConstructor } from "../src/helper/client.ts";
 import { watchSessions } from "../src/helper/watch.ts";
 import { stubApiKey } from "./stub-worker.ts";
+import { eventually } from "./eventually.ts";
 
 export type Variables = Record<string, string>;
 
@@ -52,9 +53,7 @@ export const runHelperWatch = async (
     ),
   );
 
-  for (let waited = 0; !until(lines) && waited < 5000; waited += 20) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await eventually(() => until(lines), 5000);
 
   await Effect.runPromise(Fiber.interrupt(fiber));
 
