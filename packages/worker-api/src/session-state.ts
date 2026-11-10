@@ -34,6 +34,19 @@ export const SessionState = Schema.Union([
 
 export type SessionState = typeof SessionState.Type;
 
+/** The registry's status for a state. */
+export const statusOf = (state: SessionState): SessionStatus =>
+  SessionState.match(state, {
+    running: () => SessionStatuses.running,
+    waiting: () => SessionStatuses.waiting,
+    idle: () => SessionStatuses.idle,
+    failed: () => SessionStatuses.failed,
+    closed: () => SessionStatuses.closed,
+  });
+
+/** A session is active while it runs or waits on a question. */
+export const isActive = SessionState.isAnyOf([SessionStatuses.running, SessionStatuses.waiting]);
+
 export const SessionRef = Schema.Struct({
   sessionId: SessionId,
   name: Schema.String,
