@@ -21,5 +21,5 @@ export const cleanup = Effect.gen(function* () {
   const now = yield* Clock.currentTimeMillis;
   const candidates = yield* (yield* RegistryStore).stoppedBefore(now - monthMillis);
 
-  yield* Effect.forEach(candidates, remove, { discard: true });
+  yield* Effect.forEach(candidates, remove, { concurrency: 5, discard: true });
 }).pipe(Effect.catchCause((cause) => Effect.logError("The cleanup job failed", cause)));

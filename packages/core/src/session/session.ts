@@ -19,7 +19,7 @@ import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
-import { Workspace } from "@tentacles/contracts/workspace";
+import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
@@ -36,7 +36,6 @@ import { toEntries } from "./entries.ts";
 import { QuestionsDoc } from "./questions.ts";
 import { RecordDoc } from "./record.ts";
 import { trackStatus } from "./state.ts";
-import { workspaceDirectory } from "./workspace-directory.ts";
 import { workspaceEnv } from "./workspace-env.ts";
 import { isWorkspaceNeeded } from "./workspace-needed.ts";
 
@@ -64,7 +63,7 @@ export type SessionHandle = {
   /** The host's WakeTimer fired: resume the harness. */
   readonly wake: () => Effect.Effect<void>;
   /** Whether the workspace should stay up; the ping reports whether git shows pending work. */
-  readonly workspaceNeeded: (pendingWork: boolean) => Effect.Effect<boolean>;
+  readonly workspaceNeeded: (isWorkPending: boolean) => Effect.Effect<boolean>;
 };
 
 const promise = <A>(evaluate: () => Promise<A>) => Effect.promise(evaluate);
@@ -361,7 +360,7 @@ const make = (sessionId: SessionId) =>
           yield* arm(harness.wake());
         }),
 
-      workspaceNeeded: (pendingWork) =>
+      workspaceNeeded: (isWorkPending) =>
         Effect.gen(function* () {
           const found = yield* record;
           const state = yield* status.current;
@@ -370,7 +369,7 @@ const make = (sessionId: SessionId) =>
           return (
             found != null &&
             state != null &&
-            isWorkspaceNeeded(state, found.lastStopped, pendingWork, now)
+            isWorkspaceNeeded(state, found.lastStopped, isWorkPending, now)
           );
         }),
     };

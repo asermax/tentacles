@@ -47,8 +47,13 @@ const fromMessage = (kind: string, message: Message): Entry[] => {
               isError: message.isError,
             }),
           ];
-    default:
+    case "system":
       return [];
+    default: {
+      const exhaustive: never = message;
+
+      return exhaustive;
+    }
   }
 };
 

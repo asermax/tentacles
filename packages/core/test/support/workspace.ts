@@ -102,7 +102,7 @@ export const testWorkspace = (root: string, shared: string) =>
     ({ connection }) => Effect.sync(() => connection.close()),
   ).pipe(
     Effect.map(({ record, connection }) => {
-      let started = false;
+      let isStarted = false;
 
       const clone = (repository: Repository) =>
         Effect.promise(async () => {
@@ -128,7 +128,7 @@ export const testWorkspace = (root: string, shared: string) =>
           Effect.gen(function* () {
             record.ensures.push(repository);
 
-            if (started) {
+            if (isStarted) {
               return;
             }
 
@@ -136,7 +136,7 @@ export const testWorkspace = (root: string, shared: string) =>
               yield* clone(repository);
             }
 
-            started = true;
+            isStarted = true;
           }),
         connection: () => Effect.succeed(connection),
         forward: (port, request) => Effect.sync(() => record.forward(port, request)),

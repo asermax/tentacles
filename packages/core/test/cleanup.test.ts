@@ -17,7 +17,7 @@ import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 const afterAMonth = later("31 days");
 
 /** A session whose run has stopped with the given state. */
-const stoppedSession = (reaches: (state: SessionState | undefined) => boolean, close = false) =>
+const stoppedSession = (reaches: (state: SessionState | undefined) => boolean, isClosed = false) =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
     const sessionId = newSessionId();
@@ -28,7 +28,7 @@ const stoppedSession = (reaches: (state: SessionState | undefined) => boolean, c
       Effect.sync(() => expect(reaches(world.records(sessionId).states.at(-1))).toBe(true)),
     );
 
-    if (close) {
+    if (isClosed) {
       yield* handle.close();
     }
 

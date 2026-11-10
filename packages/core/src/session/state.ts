@@ -13,11 +13,7 @@ import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Parent } from "@tentacles/worker-api/parent";
-import {
-  SessionState,
-  type SessionStatus,
-  SessionStatuses,
-} from "@tentacles/worker-api/session-state";
+import { isActive, SessionState, statusOf } from "@tentacles/worker-api/session-state";
 import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -74,18 +70,6 @@ export const deriveState = (observed: Observed): SessionState | null => {
     : SessionState.cases.failed.make({ failure: describeFailure(failure) });
 };
 
-/** The registry's status for a state. */
-export const statusOf = (state: SessionState): SessionStatus =>
-  SessionState.match(state, {
-    running: () => SessionStatuses.running,
-    waiting: () => SessionStatuses.waiting,
-    idle: () => SessionStatuses.idle,
-    failed: () => SessionStatuses.failed,
-    closed: () => SessionStatuses.closed,
-  });
-
-const isActive = SessionState.isAnyOf([SessionStatuses.running, SessionStatuses.waiting]);
-
 // Two states are the same change when their status is, and, while waiting,
 // their question too.
 const changeKey = (state: SessionState) =>
@@ -127,8 +111,8 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
 
     const observed: Observed = { live: undefined, questions: [], record: undefined };
     let current: SessionState | null = null;
-    let scheduled = false;
-    let attached = false;
+    let isScheduled = false;
+    let isAttached = false;
 
     const stopRun = Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis;
@@ -147,24 +131,24 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
       const next = deriveState(observed);
 
       if (
-        !attached ||
+        !isAttached ||
         next == null ||
         (current != null && changeKey(current) === changeKey(next))
       ) {
         return;
       }
 
-      const wasActive = current != null && isActive(current);
+      const isPreviouslyActive = current != null && isActive(current);
 
       current = next;
 
-      if (wasActive && !isActive(next)) {
+      if (isPreviouslyActive && !isActive(next)) {
         yield* stopRun;
       }
 
       yield* registry.setStatus(sessionId, statusOf(next));
 
-      if (wasActive && SessionState.guards.idle(next)) {
+      if (isPreviouslyActive && SessionState.guards.idle(next)) {
         const entry = yield* lastEntry(harness);
 
         yield* channel.send(entry == null ? next : { ...next, lastEntry: entry });
@@ -178,13 +162,13 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
     // A commit advances each observer it touches synchronously, one after the
     // other; deriving once they all ran sees the commit whole.
     const changed = () => {
-      if (scheduled) {
+      if (isScheduled) {
         return;
       }
 
-      scheduled = true;
+      isScheduled = true;
       queueMicrotask(() => {
-        scheduled = false;
+        isScheduled = false;
         Effect.runForkWith(services)(report);
       });
     };
@@ -246,7 +230,7 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
         );
 
         current = deriveState(observed);
-        attached = true;
+        isAttached = true;
       }),
 
       /** Resolves once a status was reported since attach. */

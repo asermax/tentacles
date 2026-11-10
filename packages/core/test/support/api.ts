@@ -40,5 +40,4 @@ export const serveApi = Effect.gen(function* () {
     );
 });
 
-/** A POST with a JSON body. */
 export const post = (json: string): RequestInit => ({ method: "POST", body: json });

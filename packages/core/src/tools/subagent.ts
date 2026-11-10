@@ -13,6 +13,7 @@ import {
   type LiveState,
   type TaskId,
   type ToolExecutionApi,
+  type Tx,
 } from "@earendil-works/pi-durable";
 import { lit, obj, oneOf, str, union } from "@earendil-works/pi-schema";
 import * as Option from "effect/Option";
@@ -55,15 +56,11 @@ const textOf = (message: Message | undefined) =>
     ? message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
     : "";
 
-const answerText = async (
-  api: Pick<ToolExecutionApi, "commit">,
-  answer: EntryId,
-  context: Context,
-) => {
-  const entry = await api.commit((tx) => tx.entry(AssistantEntry, answer), context);
+const answerOf = async (tx: Pick<Tx, "entry">, answer: EntryId) =>
+  textOf((await tx.entry(AssistantEntry, answer))?.model?.[0]);
 
-  return textOf(entry?.model?.[0]);
-};
+const answerText = (api: Pick<ToolExecutionApi, "commit">, answer: EntryId, context: Context) =>
+  api.commit((tx) => answerOf(tx, answer), context);
 
 const childStatus = (live: Readonly<LiveState> | undefined) => {
   if (live?.run != null) {
@@ -148,7 +145,7 @@ const Reporter = defineTask<ReporterInput, ReporterState, string | null>({
           return toReport(null, null);
         }
 
-        const answer = textOf((await tx.entry(AssistantEntry, settled.answer))?.model?.[0]);
+        const answer = await answerOf(tx, settled.answer);
 
         const state = await tx.doc(Subagents, runtime.conversationId);
         const known = state.children.find((each) => each.conversationId === conversationId);

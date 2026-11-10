@@ -1,8 +1,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import { workspaceDirectory } from "@tentacles/contracts/workspace";
 import * as Effect from "effect/Effect";
-
-import { workspaceDirectory } from "./workspace-directory.ts";
 
 const run = (env: ExecutionEnv, command: readonly string[]) =>
   Effect.promise(async () => {
@@ -31,16 +30,13 @@ const run = (env: ExecutionEnv, command: readonly string[]) =>
  */
 export const pendingWork = (env: ExecutionEnv) =>
   Effect.gen(function* () {
-    const status = yield* run(env, ["git", "status", "--short"]);
-
-    const unpushed = yield* run(env, [
-      "git",
-      "log",
-      "--branches",
-      "--not",
-      "--remotes",
-      "--oneline",
-    ]);
+    const [status, unpushed] = yield* Effect.all(
+      [
+        run(env, ["git", "status", "--short"]),
+        run(env, ["git", "log", "--branches", "--not", "--remotes", "--oneline"]),
+      ],
+      { concurrency: 2 },
+    );
 
     if (status.failed || unpushed.failed) {
       return [status.output, unpushed.output].filter((text) => text !== "").join("\n");

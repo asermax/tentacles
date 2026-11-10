@@ -74,18 +74,18 @@ const never = <T>() => new Promise<T>(() => {});
  */
 class ProcessStorage implements Storage {
   readonly #storage: ReopenableStorage;
-  #dead = false;
+  #isDead = false;
 
   constructor(storage: ReopenableStorage) {
     this.#storage = storage;
   }
 
   kill() {
-    this.#dead = true;
+    this.#isDead = true;
   }
 
   #answer<T>(call: () => Promise<T>) {
-    return this.#dead ? never<T>() : call();
+    return this.#isDead ? never<T>() : call();
   }
 
   commit(...args: Parameters<Storage["commit"]>) {
@@ -283,6 +283,16 @@ const makeWorld = Effect.gen(function* () {
       return record;
     });
 
+  const workspaceOf = (sessionId: SessionId) => {
+    const found = workspaces.get(sessionId);
+
+    if (found == null) {
+      throw new Error(`No workspace was created for session ${sessionId}`);
+    }
+
+    return found;
+  };
+
   const storageOf = (sessionId: SessionId) => {
     const found = storages.get(sessionId);
 
@@ -326,7 +336,7 @@ const makeWorld = Effect.gen(function* () {
           close: () => Effect.sync(() => void record.browser.push("close")),
         }),
       ),
-      Context.add(Workspace, workspaces.get(sessionId)!),
+      Context.add(Workspace, workspaceOf(sessionId)),
       Context.merge(shareds),
     );
 
