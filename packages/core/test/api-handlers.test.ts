@@ -1,4 +1,4 @@
-import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
 import { Entry } from "@tentacles/worker-api/entries";
 import { SessionNotFound } from "@tentacles/worker-api/errors";
@@ -10,7 +10,7 @@ import * as Schema from "effect/Schema";
 import { post, serveApi } from "./support/api.ts";
 import { eventually } from "./support/eventually.ts";
 import { createRequest, parent } from "./support/fixtures.ts";
-import { heldAnswer } from "./support/model.ts";
+import { heldAnswer, routedModel } from "./support/model.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
 const decodeCreated = Schema.decodeUnknownSync(Schema.Struct({ sessionId: SessionId }));
@@ -116,6 +116,71 @@ describe("the sessions API", () => {
       expect(decodeEntries(yield* json(yield* api(`/sessions/${sessionId}/messages`)))).toEqual([
         Entry.cases.text.make({ text: long }),
       ]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("messages with a count returns the last entries in order, without a subagent's own", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const api = yield* serveApi;
+      let rootTurns = 0;
+
+      world.faux.setResponses(
+        routedModel((request) => {
+          if (!request.tools.has("subagent")) {
+            return fauxAssistantMessage("4");
+          }
+
+          rootTurns += 1;
+
+          switch (rootTurns) {
+            case 1:
+              return fauxAssistantMessage(
+                fauxToolCall("bash", { command: "echo checked" }, { id: "bash-1" }),
+                {
+                  stopReason: "toolUse",
+                },
+              );
+            case 2:
+              return fauxAssistantMessage(
+                fauxToolCall(
+                  "subagent",
+                  { action: "run", task: "add 2 and 2" },
+                  { id: "subagent-1" },
+                ),
+                { stopReason: "toolUse" },
+              );
+            default:
+              return fauxAssistantMessage("done");
+          }
+        }),
+      );
+
+      const sessionId = yield* createOver(api, "go");
+
+      yield* eventually(Effect.sync(() => expect(world.records(sessionId).states).toHaveLength(2)));
+
+      const all = decodeEntries(yield* json(yield* api(`/sessions/${sessionId}/messages?count=6`)));
+
+      expect(all).toEqual([
+        Entry.cases.prompt.make({ text: "go" }),
+        Entry.cases.toolCall.make({
+          toolCallId: "bash-1",
+          name: "bash",
+          arguments: { command: "echo checked" },
+        }),
+        Entry.cases.toolResult.make({ toolCallId: "bash-1", output: "checked\n", isError: false }),
+        Entry.cases.toolCall.make({
+          toolCallId: "subagent-1",
+          name: "subagent",
+          arguments: { action: "run", task: "add 2 and 2" },
+        }),
+        Entry.cases.subagentResult.make({ text: "4" }),
+        Entry.cases.text.make({ text: "done" }),
+      ]);
+      expect(
+        decodeEntries(yield* json(yield* api(`/sessions/${sessionId}/messages?count=3`))),
+      ).toEqual(all.slice(3));
     }).pipe(Effect.provide(testWorld)),
   );
 

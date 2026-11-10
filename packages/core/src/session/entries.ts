@@ -3,6 +3,7 @@ import type { EntryRecord } from "@earendil-works/pi-durable";
 import { Entry } from "@tentacles/worker-api/entries";
 import * as Predicate from "effect/Predicate";
 
+import { isForegroundAnswer } from "../tools/subagent.ts";
 import { subagentReportKind, ToolNames } from "../tools/tool-names.ts";
 
 type Part = { readonly type: string; readonly text?: string };
@@ -37,7 +38,7 @@ const fromMessage = (kind: string, message: Message): Entry[] => {
     }
 
     case "toolResult":
-      return message.toolName === ToolNames.subagent && !message.isError
+      return message.toolName === ToolNames.subagent && isForegroundAnswer(message.details)
         ? [Entry.cases.subagentResult.make({ text: textOf(message.content) })]
         : [
             Entry.cases.toolResult.make({
