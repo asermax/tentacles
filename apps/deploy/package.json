@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "deploy": "pnpm --filter @tentacles/claude-relay build && alchemy deploy --yes --no-input"
+    "deploy": "pnpm --filter @tentacles/claude-relay build && alchemy deploy --stage prod --yes --no-input"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.85",
