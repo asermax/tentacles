@@ -18,6 +18,5 @@ export class Workspace extends Context.Service<
     readonly ensure: (repository: Repository | null) => Effect.Effect<void>;
     readonly connection: () => Effect.Effect<Connection>;
     readonly forward: (port: number, request: Request) => Effect.Effect<Response>;
-    readonly stop: () => Effect.Effect<void>;
   }
 >()("tentacles/Workspace") {}

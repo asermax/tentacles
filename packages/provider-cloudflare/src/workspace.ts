@@ -206,15 +206,6 @@ export const workspaceLayer = ({ sessionId, container, egress, settings }: Works
             () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
           ),
         ),
-
-      stop: () =>
-        Effect.promise(async () => {
-          connection.close();
-
-          if (container().running) {
-            await container().destroy();
-          }
-        }),
     }),
   );
 };

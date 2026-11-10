@@ -140,7 +140,6 @@ export const testWorkspace = (root: string, shared: string) =>
           }),
         connection: () => Effect.succeed(connection),
         forward: (port, request) => Effect.sync(() => record.forward(port, request)),
-        stop: () => Effect.void,
       });
 
       return { record, workspace };
