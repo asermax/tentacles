@@ -1,21 +1,15 @@
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-
-const attempts = 1000;
+import * as Schedule from "effect/Schedule";
 
 /**
  * Runs an assertion every 10 ms until it passes, for up to ten seconds; a
  * failed `expect` inside it counts as not yet.
  */
 export const eventually = <A, E, R>(assertion: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    for (let attempt = 1; ; attempt++) {
-      const exit = yield* Effect.exit(assertion);
-
-      if (Exit.isSuccess(exit) || attempt === attempts) {
-        return yield* exit;
-      }
-
-      yield* Effect.sleep("10 millis");
-    }
-  });
+  assertion.pipe(
+    // A thrown `expect` is a defect, which `retry` never retries; sandboxing moves
+    // the whole cause into the error channel, and the last one is restored at the end.
+    Effect.sandbox,
+    Effect.retry({ schedule: Schedule.spaced("10 millis"), times: 999 }),
+    Effect.catch(Effect.failCause),
+  );
