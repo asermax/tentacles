@@ -57,7 +57,13 @@
   },
   "overrides": [
     {
-      "files": ["*.config.ts", "**/*.config.ts", "**/alchemy.run.ts", "tools/oxlint/**"],
+      "files": [
+        "*.config.ts",
+        "**/*.config.ts",
+        "**/alchemy.run.ts",
+        "tools/oxlint/**",
+        "apps/plugin/src/pi/extension.ts"
+      ],
       "rules": {
         "import/no-default-export": "off"
       }

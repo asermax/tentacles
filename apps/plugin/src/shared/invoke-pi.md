@@ -1,0 +1,1 @@
+Use the tentacles tools: `tentacles_spawn`, `tentacles_prompt`, `tentacles_messages`, `tentacles_wait`, `tentacles_list`, `tentacles_close` and `tentacles_answer`. When you have nothing else to do, call `tentacles_wait`. It blocks until a remote agent stops.
