@@ -2,6 +2,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
   createRegistry,
   type Cursor,
+  DEFAULT_RESTART_LIMIT,
   Harness,
   LiveDoc,
   ROOT_CONVERSATION_ID,
@@ -95,6 +96,10 @@ const make = (sessionId: SessionId) =>
         yield* at == null ? wakeTimer.clear() : wakeTimer.set(at);
       }).pipe(arming.withPermits(1));
 
+    // Set once the status tracker exists, which needs the open harness; the
+    // harness reads the restart limit only once it resumes, after that.
+    let tracked: { readonly questionCallLive: () => boolean } | null = null;
+
     const registry = createRegistry();
     const envId = `pi-env:${sessionId}`;
 
@@ -109,6 +114,17 @@ const make = (sessionId: SessionId) =>
           {
             models,
             registry,
+            settings: {
+              // A question waits for its answer however long that takes, and
+              // every eviction cuts its tool call off. pi-durable counts each
+              // cut-off toward the restart limit and has no durable wait for a
+              // tool, so the limit is lifted while a question's call is live.
+              get restartLimit() {
+                return tracked != null && tracked.questionCallLive()
+                  ? Infinity
+                  : DEFAULT_RESTART_LIMIT;
+              },
+            },
             onWake: (wake) => {
               fork(arm(wake));
             },
@@ -138,6 +154,8 @@ const make = (sessionId: SessionId) =>
     );
 
     const status = yield* trackStatus(harness, sessionId);
+
+    tracked = status;
 
     const record = promise(() => harness.snapshot(RecordDoc, sessionId, BACKGROUND_CONTEXT));
 

@@ -2,10 +2,17 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { BACKGROUND_CONTEXT, type Context as ChordContext } from "@earendil-works/chord/context";
 import { CodemodeSandbox } from "@earendil-works/pi-codemode";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { type FauxProviderHandle, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
-import { MemoryStorage } from "@earendil-works/pi-durable";
+import {
+  type ConversationId,
+  type EntryId,
+  type Id,
+  MemoryStorage,
+  type Storage,
+} from "@earendil-works/pi-durable";
 import { Browser } from "@tentacles/contracts/browser";
 import { CodeSandbox } from "@tentacles/contracts/code-sandbox";
 import { ModelProviders } from "@tentacles/contracts/model-providers";
@@ -27,6 +34,7 @@ import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
 import { Session, type SessionHandle } from "../../src/index.ts";
+import { eventually } from "./eventually.ts";
 import { testRegistry } from "./registry.ts";
 import { testWorkspace, type WorkspaceRecord } from "./workspace.ts";
 
@@ -58,6 +66,103 @@ class ReopenableStorage extends MemoryStorage {
   override async close() {}
 }
 
+const never = <T>() => new Promise<T>(() => {});
+
+/**
+ * One instance's view of the session's storage. Once killed, no call of it
+ * settles, as for a process that died: the instance never writes again.
+ */
+class ProcessStorage implements Storage {
+  readonly #storage: ReopenableStorage;
+  #dead = false;
+
+  constructor(storage: ReopenableStorage) {
+    this.#storage = storage;
+  }
+
+  kill() {
+    this.#dead = true;
+  }
+
+  #answer<T>(call: () => Promise<T>) {
+    return this.#dead ? never<T>() : call();
+  }
+
+  commit(...args: Parameters<Storage["commit"]>) {
+    return this.#answer(() => this.#storage.commit(...args));
+  }
+
+  mintId<I extends Id<string>>() {
+    return this.#answer(() => this.#storage.mintId<I>());
+  }
+
+  conversation(...args: Parameters<Storage["conversation"]>) {
+    return this.#answer(() => this.#storage.conversation(...args));
+  }
+
+  scanConversations(...args: Parameters<Storage["scanConversations"]>) {
+    return this.#answer(() => this.#storage.scanConversations(...args));
+  }
+
+  entry(id: EntryId, context: ChordContext): ReturnType<Storage["entry"]>;
+  entry(
+    conversationId: ConversationId,
+    id: EntryId,
+    context: ChordContext,
+  ): ReturnType<Storage["entry"]>;
+  entry(...args: [EntryId, ChordContext] | [ConversationId, EntryId, ChordContext]) {
+    return this.#answer(() =>
+      args.length === 2
+        ? this.#storage.entry(args[0], args[1])
+        : this.#storage.entry(args[0], args[1], args[2]),
+    );
+  }
+
+  findLatestHeadMarker(...args: Parameters<Storage["findLatestHeadMarker"]>) {
+    return this.#answer(() => this.#storage.findLatestHeadMarker(...args));
+  }
+
+  scanEntries(...args: Parameters<Storage["scanEntries"]>) {
+    return this.#answer(() => this.#storage.scanEntries(...args));
+  }
+
+  task(...args: Parameters<Storage["task"]>) {
+    return this.#answer(() => this.#storage.task(...args));
+  }
+
+  scanTasks(...args: Parameters<Storage["scanTasks"]>) {
+    return this.#answer(() => this.#storage.scanTasks(...args));
+  }
+
+  submission(...args: Parameters<Storage["submission"]>) {
+    return this.#answer(() => this.#storage.submission(...args));
+  }
+
+  scanSubmissions(...args: Parameters<Storage["scanSubmissions"]>) {
+    return this.#answer(() => this.#storage.scanSubmissions(...args));
+  }
+
+  submissionByRequest(...args: Parameters<Storage["submissionByRequest"]>) {
+    return this.#answer(() => this.#storage.submissionByRequest(...args));
+  }
+
+  findDocument(...args: Parameters<Storage["findDocument"]>) {
+    return this.#answer(() => this.#storage.findDocument(...args));
+  }
+
+  document(...args: Parameters<Storage["document"]>) {
+    return this.#answer(() => this.#storage.document(...args));
+  }
+
+  scanDocuments(...args: Parameters<Storage["scanDocuments"]>) {
+    return this.#answer(() => this.#storage.scanDocuments(...args));
+  }
+
+  close() {
+    return this.#answer(() => this.#storage.close());
+  }
+}
+
 /** The world a core test runs in, and the session host it reaches sessions through. */
 export class TestWorld extends Context.Service<
   TestWorld,
@@ -74,6 +179,14 @@ export class TestWorld extends Context.Service<
     readonly handle: (sessionId: SessionId) => Effect.Effect<SessionHandle>;
     /** Drops the instance, its harness closed mid-work, and keeps its storage. */
     readonly evict: (sessionId: SessionId) => Effect.Effect<void>;
+    /**
+     * Drops the instance as a process that dies does: its harness never closes
+     * and its storage stops answering it. The next instance counts the
+     * restarts of the work it cut off.
+     */
+    readonly crash: (sessionId: SessionId) => Effect.Effect<void>;
+    /** Resolves once the running instance took up every task left pending. */
+    readonly pickedUp: (sessionId: SessionId) => Effect.Effect<void>;
   }
 >()("test/TestWorld") {}
 
@@ -134,7 +247,12 @@ const makeWorld = Effect.gen(function* () {
 
   const records = new Map<SessionId, SessionRecords>();
   const storages = new Map<SessionId, ReopenableStorage>();
-  const instances = new Map<SessionId, { handle: SessionHandle; scope: Scope.Closeable }>();
+
+  const instances = new Map<
+    SessionId,
+    { handle: SessionHandle; scope: Scope.Closeable; storage: ProcessStorage }
+  >();
+
   const making = yield* Semaphore.make(1);
   const worldScope = yield* Scope.Scope;
 
@@ -165,20 +283,22 @@ const makeWorld = Effect.gen(function* () {
       return record;
     });
 
-  const sessionContext = (sessionId: SessionId, record: SessionRecords) => {
-    let storage = storages.get(sessionId);
+  const storageOf = (sessionId: SessionId) => {
+    const found = storages.get(sessionId);
 
-    if (storage == null) {
-      storage = new ReopenableStorage();
-      storages.set(sessionId, storage);
+    if (found != null) {
+      return found;
     }
 
-    const opened = storage;
+    const created = new ReopenableStorage();
 
-    return Context.make(
-      SessionStorage,
-      SessionStorage.of({ storage: () => Effect.succeed(opened) }),
-    ).pipe(
+    storages.set(sessionId, created);
+
+    return created;
+  };
+
+  const sessionContext = (sessionId: SessionId, record: SessionRecords, opened: Storage) =>
+    Context.make(SessionStorage, SessionStorage.of({ storage: () => Effect.succeed(opened) })).pipe(
       Context.add(
         WakeTimer,
         WakeTimer.of({
@@ -209,7 +329,6 @@ const makeWorld = Effect.gen(function* () {
       Context.add(Workspace, workspaces.get(sessionId)!),
       Context.merge(shareds),
     );
-  };
 
   const handle = (sessionId: SessionId) =>
     Effect.gen(function* () {
@@ -221,13 +340,14 @@ const makeWorld = Effect.gen(function* () {
 
       const record = yield* recordsOf(sessionId);
       const scope = yield* Scope.make();
+      const storage = new ProcessStorage(storageOf(sessionId));
 
       const made = yield* Session.make(sessionId).pipe(
-        Effect.provideContext(sessionContext(sessionId, record)),
+        Effect.provideContext(sessionContext(sessionId, record, storage)),
         Scope.provide(scope),
       );
 
-      instances.set(sessionId, { handle: made, scope });
+      instances.set(sessionId, { handle: made, scope, storage });
 
       return made;
     }).pipe(making.withPermits(1));
@@ -242,6 +362,23 @@ const makeWorld = Effect.gen(function* () {
         yield* Scope.close(running.scope, Exit.void);
       }
     });
+
+  const crashOne = (sessionId: SessionId) =>
+    Effect.sync(() => {
+      instances.get(sessionId)?.storage.kill();
+      instances.delete(sessionId);
+    });
+
+  const pickedUp = (sessionId: SessionId) =>
+    eventually(
+      Effect.promise(() =>
+        storageOf(sessionId).scanTasks({ status: "pending" }, 1, undefined, BACKGROUND_CONTEXT),
+      ).pipe(
+        Effect.flatMap((page) =>
+          page.items.length === 0 ? Effect.void : Effect.die(new Error("tasks still pending")),
+        ),
+      ),
+    );
 
   yield* Effect.addFinalizer(() => Effect.forEach([...instances.keys()], drop, { discard: true }));
 
@@ -291,6 +428,8 @@ const makeWorld = Effect.gen(function* () {
     },
     handle,
     evict: drop,
+    crash: crashOne,
+    pickedUp,
   });
 
   return { world, host, failing };

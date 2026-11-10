@@ -1,4 +1,5 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { DEFAULT_RESTART_LIMIT } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "@effect/vitest";
 import { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting } from "@tentacles/worker-api/errors";
@@ -203,6 +204,29 @@ describe("the question tool", () => {
         SessionState.cases.waiting.make({ question }),
         running,
       ]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("a question waits through more evictions than pi-durable's restart limit", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+
+      world.faux.setResponses([ask("Still there?"), fauxAssistantMessage("Thanks.")]);
+
+      const { sessionId } = yield* startSession(null);
+      const question = yield* waitingOn(sessionId);
+
+      for (let eviction = 0; eviction <= DEFAULT_RESTART_LIMIT; eviction++) {
+        yield* world.crash(sessionId);
+        yield* (yield* world.handle(sessionId)).wake();
+        yield* world.pickedUp(sessionId);
+      }
+
+      expect(yield* waitingOn(sessionId)).toEqual(question);
+
+      yield* (yield* world.handle(sessionId)).answer({ questionId: question.id, text: "yes" });
+      yield* finished(sessionId);
+      expect((yield* toolResults(sessionId))[0]).toMatchObject({ output: "yes", isError: false });
     }).pipe(Effect.provide(testWorld)),
   );
 

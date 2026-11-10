@@ -38,13 +38,16 @@ export type Observed = {
 const describeFailure = (failure: NonNullable<LiveState["runFailure"]>) =>
   failure.detail == null ? failure.reason : `${failure.reason}: ${failure.detail}`;
 
-// A question waits while it has no answer and the tool call that asked it is
-// still in pi.live: an aborted or finished call takes its question with it.
-const waitingQuestion = (observed: Observed) => {
+const liveQuestions = (observed: Observed) => {
   const calls = new Set((observed.live?.tools ?? []).map((slot) => String(slot.taskId)));
 
-  return observed.questions.find((question) => question.answer == null && calls.has(question.id));
+  return observed.questions.filter((question) => calls.has(question.id));
 };
+
+// A question waits while it has no answer and the tool call that asked it is
+// still in pi.live: an aborted or finished call takes its question with it.
+const waitingQuestion = (observed: Observed) =>
+  liveQuestions(observed).find((question) => question.answer == null);
 
 /** The session's state as its documents show it; null before create stored the record. */
 export const deriveState = (observed: Observed): SessionState | null => {
@@ -248,6 +251,12 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
 
       /** Resolves once a status was reported since attach. */
       reported: Deferred.await(reported),
+
+      /**
+       * Whether a question's tool call is still in pi.live, answered or not, as
+       * last observed. Synchronous, for pi-durable's settings.
+       */
+      questionCallLive: () => liveQuestions(observed).length > 0,
 
       /** The state as the documents show it now, without a run's last entry. */
       current: readObserved(harness, sessionId).pipe(Effect.map(deriveState)),
