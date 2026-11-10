@@ -16,6 +16,6 @@ export const Entry = Schema.Union([
     isError: Schema.Boolean,
   }),
   Schema.TaggedStruct("subagentResult", { text: Schema.String }),
-]);
+]).pipe(Schema.toTaggedUnion("_tag"));
 
 export type Entry = typeof Entry.Type;

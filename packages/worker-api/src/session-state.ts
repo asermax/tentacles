@@ -30,7 +30,7 @@ export const SessionState = Schema.Union([
   Schema.TaggedStruct(SessionStatuses.idle, { lastEntry: Schema.optionalKey(Entry) }),
   Schema.TaggedStruct(SessionStatuses.failed, { failure: Schema.String }),
   Schema.TaggedStruct(SessionStatuses.closed, {}),
-]);
+]).pipe(Schema.toTaggedUnion("_tag"));
 
 export type SessionState = typeof SessionState.Type;
 
