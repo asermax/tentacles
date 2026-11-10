@@ -8,7 +8,7 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-The tentacles plugin gives a parent agent on pi or Claude Code one tool per action on its remote sessions: spawn, prompt, messages, wait (pi only), list, close and answer. It is built from one source into a pi package and a Claude plugin. Each tool call runs a bundled helper CLI that calls the [Worker API](worker-api.md), and a long-running watch holds one socket per session to update the status line and wake the parent when a session asks, finishes or fails. The plugin keeps a local list of the parent's remote sessions per harness session and syncs it with the Worker when the harness starts. It reaches tentacles only through the Worker API and the session sockets.
+The tentacles plugin gives a parent agent on pi or Claude Code one tool per action on its remote sessions: spawn, prompt, messages, wait (pi only), list, close and answer. It is built from one source into a pi package and a Claude plugin. Each tool call runs a bundled helper CLI that calls the [Worker API](worker-api.md), and a long-running watch holds one socket per open session to update the status line and wake the parent when a session asks, finishes or fails. The plugin keeps a local list of the parent's remote sessions per harness session and syncs it with the Worker when the harness starts. It reaches tentacles only through the Worker API and the session sockets.
 
 ## 🏗️ Architecture
 
@@ -22,7 +22,7 @@ flowchart LR
         direction LR
         Glue@{ shape: rect, label: "Harness glue<br/>pi extension / Claude mod" }
         Skill@{ shape: hex, label: "Skill<br/>protocol, remote children" }
-        Helper@{ shape: rect, label: "Helper CLI<br/>one call per command,<br/>watch: one socket per session" }
+        Helper@{ shape: rect, label: "Helper CLI<br/>one call per command,<br/>watch: one socket per open session" }
         Local@{ shape: cyl, label: "Local state<br/>pi session entry /<br/>CLAUDE_PLUGIN_DATA file" }
         Glue -->|"command and arguments"| Helper
         Helper -->|"result or error"| Glue
@@ -55,7 +55,7 @@ flowchart LR
 
 The **harness glue** is a pi extension on pi and a Claude mod on Claude Code. It registers the tools, turns each tool call into a helper command, keeps the parent's local state, updates the status line and delivers the wakes.
 
-The **helper CLI** runs as one process per command, and as a long-running watch that holds one socket per session in the local state and hands each state change back to the glue. It reads the Worker URL and the API key from environment variables, and the default session settings come from environment variables too (see Implementation details).
+The **helper CLI** runs as one process per command, and as a long-running watch that holds one socket per open session in the local state and hands each state change back to the glue. It reads the Worker URL and the API key from environment variables, and the default session settings come from environment variables too (see Implementation details).
 
 The **local state** is the parent's list of remote sessions, per harness session: a custom session entry on pi, a file under `CLAUDE_PLUGIN_DATA` on Claude Code. The glue reads it when the harness starts and writes it whenever the parent's sessions change.
 
@@ -126,17 +126,17 @@ The plugin keeps, per harness session, the parent's remote sessions with their n
 
 When the harness starts and the local list is not empty, the plugin asks the Worker for the parent's sessions and replaces the list with the answer (1 to 3). With an empty list, the plugin makes no call. A forked parent (pi's `/fork`, Claude Code's `/branch` or `--fork-session`) has a new session id, so its first sync returns nothing and its list empties: a fork sees none of the original's remote sessions.
 
-spawn adds a session, close marks it closed, and a prompt that reopens a closed session marks it open again (4, 5). The watch holds a socket for each session in the list, and every state event updates that session's status (6, 7).
+spawn adds a session, close marks it closed, and a prompt that reopens a closed session marks it open again (4, 5). The watch holds a socket for each open session in the list, and every state event updates that session's status (6, 7). A closed session has no socket until a prompt reopens it, which restarts the watch with the session included.
 
 Closed sessions stay in the list and in the list tool's result, so the parent can reopen one. The status line shows only the open sessions (12); a sync that returns a closed session brings it back as closed, hidden from the status line.
 
-A deleted session leaves the list the first time the plugin learns of it: the start-up sync omits it (1 to 3), or any call on it (prompt, messages, close or answer) returns that the session does not exist (8 to 11), or the watch's socket for the session reports that the session does not exist.
+A deleted session leaves the list the first time the plugin learns of it: the start-up sync omits it (1 to 3), or any call on it (prompt, messages, close or answer) returns that the session does not exist (8 to 11), or, for an open session, the watch's socket reports that the session does not exist.
 
 > [!NOTE] Why the list is kept both locally and in the Worker
 > The local list lets a harness that has never spawned a remote session start without calling the Worker. The Worker's copy lets a harness that does have sessions recover their current status, including changes it missed while it was closed.
 
 > [!WARNING] A deleted session lingers until the plugin learns of it
-> The daily cleanup deletes a session without telling its parent. Until the next start-up sync, the next call on that session or the watch's next connection to it, the local list, and the status line if the session was open, still name it.
+> The daily cleanup deletes a session without telling its parent. The local list still names the session, and so does the status line if the session was open. This lasts until the next start-up sync, the next call on the session, or, for an open session, the watch's next connection to it.
 
 ## ⚙️ Implementation details
 
@@ -148,11 +148,11 @@ A deleted session leaves the list the first time the plugin learns of it: the st
 | `TENTACLES_SESSION_PROVIDER` | the model provider | the provider that serves glm-5.2 |
 | `TENTACLES_SESSION_MODEL` | the model | glm-5.2 |
 | `TENTACLES_SESSION_EFFORT` | the effort level | max |
-| `TENTACLES_WORKSPACE_IMAGE` | the workspace image | the default image |
+| `TENTACLES_WORKSPACE_IMAGE` | the workspace image; `default` is the only one tentacles offers | `default` |
 | `TENTACLES_WORKSPACE_SIZE` | the workspace container's instance type | basic |
 | `TENTACLES_WORKSPACE_LIFETIME` | the workspace's inactivity time, in minutes | 15 |
 
-The helper reads them where it runs, on the developer's machine; the deploy reads its own variables, apart from these.
+The helper reads them where it runs, on the developer's machine, except `TENTACLES_HELPER`, which the glue reads to find the helper. The deploy reads its own variables, apart from these.
 
 ---
 

@@ -15,7 +15,7 @@ The Worker's API is the plugin's only way to reach tentacles: seven calls (creat
 | Member | Takes | Answers | Who asks |
 |---|---|---|---|
 | `create` | the name, the parent, the settings and the first prompt (see below) | starts the session, waits until its first run has started and returns its session id | the spawn tool |
-| `prompt` | the session id, the text, and a mode: follow-up or steer | sends the text to the session; on an idle, failed or closed session it starts a new run, reopening a closed one; a steer sent while a question waits queues until the answer | the prompt tool |
+| `prompt` | the session id, the text, and a mode: follow-up or steer | sends the text to the session; on an idle, failed or closed session it starts a new run, reopening a closed one; a prompt sent while a question waits is a steer whatever its mode, and queues until the answer | the prompt tool |
 | `answer` | the session id, the question id and the answer text | resolves the waiting question, and the run continues | the answer tool |
 | `close` | the session id | aborts whatever the session is doing and closes it | the close tool |
 | `messages` | the session id and a count, 1 when absent | the last entries of the root conversation, as many as the count | the messages tool |

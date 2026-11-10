@@ -32,9 +32,10 @@ flowchart LR
     Browser@{ shape: cloud, label: "Browser Run" }
 
     Plugin -->|"requests, socket"| Worker
-    Worker -->|"listings, preview lookups"| Registry
-    Worker -->|"session requests by id"| Session
-    Session -->|"status changes, deleted,<br/>preview opened and cleared"| Registry
+    Worker -->|"listings, preview lookups,<br/>cleanup drops the entry"| Registry
+    Worker -->|"session requests by id,<br/>cleanup deletes the session"| Session
+    Session -->|"status changes,<br/>preview opened and cleared"| Registry
+    Session -->|"binding: preview's browser"| Browser
     Session -->|"tool calls over exec stdio"| Workspace
     Session -->|"Claude calls"| Claude
     Session -->|"other models"| Gateway
@@ -44,7 +45,7 @@ flowchart LR
     Egress -->|"subscription token"| Anthropic
     Egress -->|"GitHub token"| GitHub
     Workspace -->|"agent-browser CDP"| Worker
-    Worker -->|"binding"| Browser
+    Worker -->|"binding: CDP relay"| Browser
     Browser -->|"preview URL"| Worker
     Worker -->|"preview port"| Workspace
 
@@ -62,19 +63,19 @@ flowchart LR
 
 ### 🚪 Worker
 
-The Worker is the only way in. It checks the API key on every plugin request and socket, then routes it: listings and preview lookups go to the registry, and everything about one session goes to that session's Durable Object by its id. It also hosts two routes of its own. The preview route turns a preview URL's token into a session and a port and forwards the request to that port in the workspace. The CDP relay connects agent-browser in the workspace to Browser Run through the binding. The relay's address carries a token that the Worker signs with its own secret, so nobody else can make a valid address. The API answers at `tentacles.asermax.com`, and previews at `<token>-tentacles-preview.asermax.com`. The Worker keeps no state of its own; the preview tokens live in the registry. [worker-api](worker-api.md) lists its calls and the session socket.
+The Worker is the only way in. It checks the API key on every plugin request and socket, then routes it: listings and preview lookups go to the registry, and everything about one session goes to that session's Durable Object by its id. It also hosts two routes of its own. The preview route turns a preview URL's token into a session and a port and forwards the request to that port in the workspace. The CDP relay connects agent-browser in the workspace to Browser Run through the binding. The relay's address carries a token signed with a Worker secret, which the relay checks, so nobody else can make a valid address. The API answers at `tentacles.asermax.com`, and previews at `<token>-tentacles-preview.asermax.com`. The Worker keeps no state of its own; the preview tokens live in the registry. [worker-api](worker-api.md) lists its calls and the session socket.
 
 ### 📒 Registry Durable Object
 
-The registry is the one store that spans sessions: an entry per session with its name, its parent, its status and the time its last run stopped, plus the session's preview, when one is open: its port and its token. When the preview tool asks for a preview URL, the Worker generates the token and records it and the port on the session's entry, replacing any preview already open. When a run stops, the session tells the registry, which clears the session's preview. [sessions](sessions.md) lists the fields of each entry.
+The registry is the one store that spans sessions: an entry per session with its name, its parent, its status and the time its last run stopped, plus the session's preview, when one is open: its port and its token. When the preview tool opens a preview, the registry generates the token, records it and the port on the session's entry, replacing any preview already open, and returns the token. When a run stops, the session tells the registry, which clears the session's preview. [sessions](sessions.md) lists the fields of each entry.
 
 ### 🧠 Session Durable Object
 
-Each session is one Durable Object keyed by its session id. It runs pi-durable's Harness over its own SQLite, with the question tool and the `onWake` alarm that resumes a run after an eviction. It holds the parent's socket, which carries the session state on connect and on every change, and it owns its workspace container, which it starts on demand. It sends each model call where the session's settings say: Claude models to the shared Claude container, other providers to AI Gateway through `env.AI`. The session object never writes the status ahead of the run. It watches pi-durable's state (the run, a waiting question, the last run's failure), tells the registry each time the derived status changes, and tells the registry when the session is deleted.
+Each session is one Durable Object keyed by its session id. It runs pi-durable's Harness over its own SQLite, with the question tool and the `onWake` alarm that resumes a run after an eviction. It holds the parent's socket, which carries the session state on connect and on every change, and it owns its workspace container, which it starts on demand. It sends each model call where the session's settings say: Claude models to the shared Claude container, other providers to AI Gateway through `env.AI`. The session object never writes the status ahead of the run. It watches pi-durable's state (the run, a waiting question, the last run's failure) and tells the registry each time the derived status changes. It opens the preview's Browser Run browser through its own binding. The daily cleanup job deletes a session through its session object, then removes the session's registry entry itself.
 
 ### 📦 Workspace container
 
-Each session has its own workspace container running pi-env's daemon and git, plus agent-browser when the image has it or the agent installs it. The session's tools reach the daemon over the container's exec stdio. [workspace](workspace.md) covers the container's start, lifetime and image.
+Each session has its own workspace container running pi-env's daemon and git, plus agent-browser when the agent installs it. The session's tools reach the daemon over the container's exec stdio. [workspace](workspace.md) covers the container's start, lifetime and image.
 
 ### 🤖 Shared Claude container
 
@@ -103,8 +104,8 @@ Each component above plays a role that any provider has to fill. Several roles a
 | Session storage | Durable Object SQLite | `SessionStorage` | pi-durable's storage for one session | pi-durable's storage adapter |
 | Wake-up timer | the object's alarm | `WakeTimer` | set or clear the one timer that resumes a run after an eviction | pi-durable's `onWake`; the host writes the timer |
 | Parent socket | Durable Object WebSocket | `ParentChannel` | send the session state to every socket the parent holds open | none |
-| Registry of sessions and their preview | registry Durable Object | `RegistryStore` | add an entry, record a status and the time a run stops, list one parent's sessions, open, resolve and clear a preview, remove an entry, find the sessions stopped before a given time | none |
-| Workspace: a container with exec | container started by the session object | `Workspace` | make sure the container is up, cloning the repository on a fresh start; the connection pi-env runs its tools over; forward a request to a port; stop | pi-env's `RemoteExecutionEnv` over a connection |
+| Registry of sessions and their preview | registry Durable Object | `RegistryStore` | add an entry, record a status and the time a run stops, list one parent's sessions, open a preview and return its token, resolve and clear a preview, remove an entry, find the sessions stopped before a given time | none |
+| Workspace: a container with exec | container started by the session object | `Workspace` | `ensure(settings)`: make sure the container is up, from the session's repository, image, size and lifetime passed on every call, cloning the repository on a fresh start; `isRunning`: whether the container is running, without starting it; `connection`: the connection pi-env runs its tools over; `forward`: forward a request to a port | pi-env's `RemoteExecutionEnv` over a connection |
 | Browser | Browser Run through the binding | `Browser` | open a browser for the session's preview, returning its CDP address, and close it | agent-browser speaks CDP to any URL |
 | Preview routing | Worker preview route and registry | `PreviewRouter` | the public URL a preview token is served on | none |
 | Models | shared Claude container for Claude, AI Gateway through `env.AI` for the rest | `ModelProviders` | every model provider the session's settings can name | pi-ai providers |
@@ -156,10 +157,12 @@ Each contract in the table under 🔌 Provider-neutral roles is an Effect servic
 
 Shapes the API defines, such as the session state, pass through the contracts with the types the API declares, so a contract and the API cannot disagree.
 
+A member that can fail declares a tagged error with a message: `Workspace.ensure` fails with `WorkspaceUnavailable`, `Browser.open` with `BrowserUnavailable`, and every `RegistryStore` member with `RegistryUnavailable`. The common logic handles each by its tag: a failed `ensure` fails the tool call's operation and the next operation tries again, the preview tool closes the browser it opened when the registry fails, and the cleanup job logs a registry failure.
+
 > [!NOTE] Why the roles pi already defines get contracts of their own
 > Storage, the wake-up timer, the workspace connection and the model providers already have interfaces in pi, and their contracts often hand pi's object through unchanged. Every role gets a contract anyway, so all roles are defined one way, and a reader and a new provider find all eleven in the same form.
 
-A provider is one package that declares its own infrastructure. It exports a stack that a deploy runs. The stack declares the provider's resources, and the code that runs in those resources builds the Layer of the eleven contracts from the same declarations.
+A provider is one package that declares its own infrastructure. It exports a stack, which a deploy runs with Alchemy on the stage `prod`. The stack declares the provider's resources, and the code that runs in those resources builds the Layer of the eleven contracts from the same declarations.
 
 > [!NOTE] Why each implementation declares its own infrastructure
 > A provider plugs an implementation in once, and both the running code and the deploy use it. When the declaration of a resource and the code that uses it are the same code, a resource the code needs cannot be missing from the deploy.

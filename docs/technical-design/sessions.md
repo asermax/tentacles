@@ -16,7 +16,7 @@ A session is one remote agent: a Durable Object keyed by its session id, where p
 erDiagram
     REGISTRY_ENTRY ||--|| SESSION : "points to"
     SESSION ||--o{ CONVERSATION : "has (pi-durable)"
-    SESSION ||--o{ QUESTION : "waits on"
+    SESSION ||--o{ QUESTION : "asked (one document)"
     REGISTRY_ENTRY {
         string session_id PK
         string name
@@ -40,6 +40,7 @@ erDiagram
     QUESTION {
         string id PK
         text text
+        text answer "nullable"
     }
 ```
 
@@ -47,22 +48,22 @@ pi-durable's conversations (the root, its forks and subagent conversations) live
 
 ### 🧠 Session
 
-SESSION is the record each session's Durable Object keeps next to pi-durable's history. `id` is the session id the object is keyed by. `name` is required and given by the parent at spawn; it is what the parent's status line shows. `parent_harness` (pi or claude) and `parent_session_id` identify the parent: its harness and that harness's session id. `settings` holds what the parent chose at spawn, with the plugin's defaults for anything the parent left out: provider, model, effort level, image, size and lifetime, and optionally the repository tentacles clones into the workspace. close sets `closed`, and a prompt that reopens the session clears it. `last_stopped` is the time the session's last run stopped, from which the month before deletion counts, and is empty while the first run is going. `commit_prompts` counts the prompts to commit sent in the current run, so the limit of three survives an eviction; a run started by a prompt from the parent resets `commit_prompts` to zero.
+SESSION is the record each session's Durable Object keeps next to pi-durable's history. `id` is the session id the object is keyed by. `name` is required and given by the parent at spawn; it is what the parent's status line shows. `parent_harness` (pi or claude) and `parent_session_id` identify the parent: its harness and that harness's session id. `settings` holds what the parent chose at spawn, with the plugin's defaults for anything the parent left out: provider, model, effort level, image, size and lifetime, and optionally the repository tentacles clones into the workspace. close sets `closed`, and a prompt that reopens the session clears it. `last_stopped` is the time the session's last run stopped, and is empty while the first run is going. The 15 minutes that pending work keeps the container up count from this time (see [workspace](workspace.md)). `commit_prompts` counts the prompts to commit sent in the current run, so the limit of three survives an eviction; a run started by a prompt from the parent resets `commit_prompts` to zero.
 
 The session's status is not a field. The session object watches pi-durable's state and derives it: a run going is running, an unanswered question is waiting, no run with `closed` set is closed, no run with the last run's failure recorded is failed (pi-durable keeps why the run failed), and no run otherwise is idle. Each time the derived status changes, the session reports it to the registry and sends the session state to the parent, so a status always follows something the session did.
 
 ### 📒 Registry entry
 
-REGISTRY_ENTRY lives in the one registry Durable Object for the whole Worker, one entry per session: the session id, its name, the parent's harness and session id, the session's status (the same values as the session's derived status, closed included, and empty until the session reports its first one) and `last_stopped`, the same stop time the session keeps. The session updates its entry on every state change, so the list call and the plugin's start-up sync get each session's status without asking each session. The daily cleanup job picks its candidates from `last_stopped`. The registry drops the entry when the session is deleted.
+REGISTRY_ENTRY lives in the one registry Durable Object for the whole Worker, one entry per session: the session id, its name, the parent's harness and session id, the session's status (the same values as the session's derived status, closed included, and empty until the session reports its first one) and `last_stopped`, the time the last run stopped. The registry records `last_stopped` itself when a status change reports a stopped run, keeps it when one stopped status follows another, and clears it when a new run starts. The session updates its entry on every state change, so the list call and the plugin's start-up sync get each session's status without asking each session. The daily cleanup job picks its candidates from the registry's `last_stopped`, and drops the entry after it deletes the session.
 
-`preview_port` and `preview_token` hold the session's preview while one is open, and are empty otherwise. A session has at most one preview, and only to validate the app in a Browser Run browser; the agent validates anything else, such as an API, inside the workspace with no preview. `preview_port` is the workspace port the preview exposes. `preview_token` is a random UUID the Worker generates when the preview tool asks for it, so a preview URL carries neither the API key nor the session id. Opening a preview while one is open replaces it: the previous token stops working and its browser closes. When the run stops, the registry clears both fields. [workspace](workspace.md) covers how the agent opens and uses a preview.
+`preview_port` and `preview_token` hold the session's preview while one is open, and are empty otherwise. A session has at most one preview, and only to validate the app in a Browser Run browser; the agent validates anything else, such as an API, inside the workspace with no preview. `preview_port` is the workspace port the preview exposes. `preview_token` is a random UUID that the registry generates when the preview tool opens a preview. It is the only value the registry returns for the new preview, so a preview URL carries neither the API key nor the session id. Opening a preview while one is open replaces it: the previous token stops working and its browser closes. When the run stops, the registry clears both fields. [workspace](workspace.md) covers how the agent opens and uses a preview.
 
 > [!TIP] Rejected: listing the session Durable Objects directly
 > Durable Objects cannot be enumerated or queried across instances, so "the sessions of this parent" has no answer without a store that spans sessions. The registry is that store, and holding the status there spares the plugin one status call per session.
 
 ### ❓ Question
 
-QUESTION is a question the session's agent is waiting on: its id and its text, nothing more. It exists from the moment the question tool asks until the answer resolves the tool call. It keeps its id when an eviction makes the tool run again. [question-round-trip](question-round-trip.md) follows the question to the parent and back.
+QUESTION is a question the session's agent asked with `ask_parent`: its id, its text and its answer, empty until the parent answers. Every question of the session lives in one session-wide document, one entry per question, and an entry stays after its answer. The id is the id of the asking tool call. When an eviction makes the tool run again, the replay finds its question in the document and keeps the id. If the answer already arrived, the replay returns the answer without asking again. The waiting question is the one with no answer whose tool call is still live; an aborted or finished call takes its question out of waiting. [question-round-trip](question-round-trip.md) follows the question to the parent and back.
 
 The API key and the Claude and GitHub credentials are Worker secrets, and none of these entities stores them.
 
@@ -73,7 +74,7 @@ stateDiagram-v2
     [*] --> Running : spawn (first prompt)
     Running --> Idle : run finishes
     Running --> Running : finishes with work not pushed (prompted to commit)
-    Running --> Waiting : question tool asks
+    Running --> Waiting : ask_parent asks
     Waiting --> Running : answer
     Running --> Failed : run fails
     Idle --> Running : prompt
@@ -107,7 +108,7 @@ stateDiagram-v2
 
 A session starts running when the parent spawns it, since spawn carries the first prompt. While it runs, a prompt from the parent follows up or steers. An eviction is not a state: pi-durable resumes the run by the session's alarm and the session stays running.
 
-When the agent asks a question, after committing and pushing its work, the session waits. The conversation cannot continue until the parent answers. A prompt sent meanwhile queues as a steer and reaches the agent after the answer; it neither answers nor cancels the question.
+When the agent asks a question, after committing and pushing its work, the session waits. The conversation cannot continue until the parent answers. A prompt sent meanwhile is a steer whatever its mode, and reaches the agent after the answer; it neither answers nor cancels the question.
 
 A run ends in one of two ways. When it finishes, the session is idle. When the session's settings name a repository and that repository holds work not committed and pushed, tentacles first prompts the agent to commit and the run goes on, up to three times (see [workspace](workspace.md)). When the run fails on an error it cannot recover from, the session is failed: it behaves like idle and records why the last run failed. The plugin notifies the parent either way, and a prompt on either starts a new run. The session's preview, if one is open, closes when a run stops.
 
@@ -142,7 +143,7 @@ flowchart LR
     class Reg,S orange
 ```
 
-A job runs once a day through the `Scheduler` contract; on Cloudflare a cron trigger on the Worker fires it (see [runtime-components](runtime-components.md)). It reads the registry and picks the sessions whose last run stopped more than a month ago. A running or waiting session is never a candidate. For each candidate it clears the session's Durable Object, removing its history and record, and drops its registry entry. No preview is left by then, since the preview closes when a run stops. Nothing outside tentacles is touched: branches the agent pushed stay on GitHub.
+A job runs once a day through the `Scheduler` contract; on Cloudflare a cron trigger on the Worker fires it (see [runtime-components](runtime-components.md)). It reads the registry and picks the sessions whose last run stopped more than a month ago. A running or waiting session is never a candidate. For each candidate it deletes the session through its Durable Object, which clears the object's storage, removing its history and record, and then drops the registry entry. The entry goes only after the session is gone, so a deletion that stopped halfway leaves the session a candidate, and the next day's job deletes it again and drops the entry. No preview is left by then, since the preview closes when a run stops. Nothing outside tentacles is touched: branches the agent pushed stay on GitHub.
 
 tentacles does not tell the parent. The parent's plugin removes the session from its local list the first time it learns of the deletion (see [plugin](plugin.md)).
 
