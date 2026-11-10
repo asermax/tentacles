@@ -3,12 +3,14 @@ import { RegistryStore, RegistryUnavailable } from "@tentacles/contracts/registr
 import { SessionId } from "@tentacles/worker-api/ids";
 import type { Parent } from "@tentacles/worker-api/parent";
 import {
+  activeStatuses,
   SessionRef,
   SessionStatuses,
   type SessionStatus,
 } from "@tentacles/worker-api/session-state";
 import { and, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
+import * as Arr from "effect/Array";
 import * as Clock from "effect/Clock";
 import { SecureRandom } from "effect/crypto";
 import * as Effect from "effect/Effect";
@@ -20,7 +22,7 @@ import { registry } from "./schema.ts";
 /** A synchronous drizzle SQLite database: a Durable Object's storage, or better-sqlite3 in tests. */
 export type RegistryDatabase = BaseSQLiteDatabase<"sync", unknown>;
 
-const stopped = [SessionStatuses.idle, SessionStatuses.failed, SessionStatuses.closed];
+const stopped = Arr.difference(Object.values(SessionStatuses), activeStatuses);
 
 const decodeRefs = Schema.decodeUnknownEffect(Schema.Array(SessionRef));
 

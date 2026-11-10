@@ -45,7 +45,9 @@ export const statusOf = (state: SessionState): SessionStatus =>
   });
 
 /** A session is active while it runs or waits on a question. */
-export const isActive = SessionState.isAnyOf([SessionStatuses.running, SessionStatuses.waiting]);
+export const activeStatuses = [SessionStatuses.running, SessionStatuses.waiting] as const;
+
+export const isActive = SessionState.isAnyOf(activeStatuses);
 
 export const SessionRef = Schema.Struct({
   sessionId: SessionId,
