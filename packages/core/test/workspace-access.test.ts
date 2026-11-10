@@ -57,8 +57,23 @@ describe("the workspace before each tool call", () => {
       const { results, ensures } = yield* runSession(repository);
 
       expect(results).toHaveLength(2);
-      expect(ensures.length).toBeGreaterThanOrEqual(2);
-      expect(ensures.every((each) => each?.url === repository.url)).toBe(true);
+      // One ensure per tool call, and one for the end-of-run commit check.
+      expect(ensures).toEqual([repository, repository, repository]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("a model turn with no tool call does not start the workspace", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+
+      world.faux.setResponses([fauxAssistantMessage("nothing to run")]);
+
+      // Without a repository no commit check runs, so only a section render
+      // could reach the workspace.
+      const { results, ensures } = yield* runSession(null);
+
+      expect(results).toEqual([]);
+      expect(ensures).toEqual([]);
     }).pipe(Effect.provide(testWorld)),
   );
 

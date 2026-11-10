@@ -36,6 +36,7 @@ import { QuestionsDoc } from "./questions.ts";
 import { RecordDoc } from "./record.ts";
 import { trackStatus } from "./state.ts";
 import { workspaceDirectory } from "./workspace-directory.ts";
+import { workspaceEnv } from "./workspace-env.ts";
 import { isWorkspaceNeeded } from "./workspace-needed.ts";
 
 // While work runs, the timer also serves as a recovery heartbeat: a process
@@ -95,6 +96,7 @@ const make = (sessionId: SessionId) =>
       }).pipe(arming.withPermits(1));
 
     const registry = createRegistry();
+    const envId = `pi-env:${sessionId}`;
 
     for (const extension of yield* remoteAgentExtensions(sessionId)) {
       registry.install(extension);
@@ -110,19 +112,21 @@ const make = (sessionId: SessionId) =>
             onWake: (wake) => {
               fork(arm(wake));
             },
-            // pi-durable calls this before every tool use; a failure becomes
-            // that call's error result.
-            env: async (target, context) => {
-              const record = await target.read.snapshot(RecordDoc, sessionId, context);
+            // pi-durable calls this before every tool use and for section
+            // renders; the workspace opens on the env's first operation, and a
+            // failure there becomes that call's error result.
+            env: (target) =>
+              workspaceEnv(envId, workspaceDirectory, async () => {
+                const record = await target.read.snapshot(RecordDoc, sessionId, BACKGROUND_CONTEXT);
 
-              await run(workspace.ensure(record?.settings.repository ?? null));
+                await run(workspace.ensure(record?.settings.repository ?? null));
 
-              return new RemoteExecutionEnv({
-                connection: await run(workspace.connection()),
-                id: `pi-env:${sessionId}`,
-                cwd: workspaceDirectory,
-              });
-            },
+                return new RemoteExecutionEnv({
+                  connection: await run(workspace.connection()),
+                  id: envId,
+                  cwd: workspaceDirectory,
+                });
+              }),
           },
           BACKGROUND_CONTEXT,
         ),
