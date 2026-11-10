@@ -261,7 +261,7 @@ const makeWorld = Effect.gen(function* () {
     // body is the first message: the state sent on connect.
     connect: (sessionId) =>
       notFoundGuard(sessionId, (made) =>
-        made.status().pipe(Effect.map((state) => new SocketUpgrade(JSON.stringify(state)))),
+        made.status().pipe(Effect.map((state) => socketUpgrade(JSON.stringify(state)))),
       ),
     preview: (sessionId, port, request) =>
       notFoundGuard(sessionId, (made) => made.preview(port, request)),
@@ -296,12 +296,12 @@ const makeWorld = Effect.gen(function* () {
   return { world, host, failing };
 });
 
-/** A socket upgrade as a test's host answers it. */
-export class SocketUpgrade extends Response {
-  override get status() {
-    return 101;
-  }
-}
+/**
+ * A socket upgrade as a test's host answers it. Node refuses to construct a
+ * 101, so the status is set on a built response.
+ */
+const socketUpgrade = (firstMessage: string) =>
+  Object.defineProperty(new Response(firstMessage), "status", { value: 101 });
 
 /** TestWorld, SessionHost and RegistryStore for a core test, over fresh storage. */
 export const testWorld = Layer.effectContext(
