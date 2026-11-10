@@ -87,6 +87,8 @@ The watch wakes the parent with what it needs to act without another call:
 
 [question-round-trip](question-round-trip.md) follows a question to the parent and back.
 
+On pi, a wake that arrives while the wait tool is waiting becomes the wait's result instead of a message. A wake that arrives while no wait is running goes out as a message, which pi holds until the parent's turn ends; the next wait returns that wake at once, unless the session has started running again since, and the wait after it waits for a new change. This follows the wait of herdr-subagents.
+
 > [!WARNING] A headless parent gets no wake
 > A parent running headless (`claude -p`) is never woken, the same as with local subagents. It learns of a question or a finished run only by calling the tools, and a question it never reads keeps its session waiting.
 

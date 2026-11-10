@@ -235,3 +235,73 @@ describe("parent controller on a watch line", () => {
     expect(glue.wakes).toEqual([]);
   });
 });
+
+describe("parent controller on a wait", () => {
+  const asked = {
+    sessionId: first,
+    state: Waiting.make({ question: questionOf("q-7", "Which branch?") }),
+  };
+
+  it("returns the next wake to a wait that is already waiting, instead of sending it as a message", async () => {
+    const glue = await watching();
+
+    const waited = glue.call("wait");
+
+    glue.emit(asked);
+
+    expect(await waited).toEqual({ isError: false, text: expect.stringContaining("q-7") });
+    expect(glue.wakes).toEqual([]);
+  });
+
+  it("returns a wake that went out as a message before the wait was called", async () => {
+    const glue = await watching();
+
+    glue.emit(asked);
+
+    expect(glue.wakes).toHaveLength(1);
+    expect(await glue.call("wait")).toEqual({ isError: false, text: glue.wakes[0] });
+  });
+
+  it("waits for a new change after a wait has returned the wake that went out before it", async () => {
+    const glue = await watching();
+
+    glue.emit(asked);
+    await glue.call("wait");
+
+    let returned: string | undefined;
+
+    const waited = glue.call("wait").then((outcome) => {
+      returned = outcome.text;
+    });
+
+    await settle();
+
+    expect(returned).toBeUndefined();
+
+    glue.emit({ sessionId: first, state: Running.make({}) });
+    glue.emit({
+      sessionId: first,
+      state: Idle.make({ lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
+    });
+    await waited;
+
+    expect(returned).toContain("Opened PR 12.");
+  });
+
+  it("does not return a wake for a session that started running again since", async () => {
+    const glue = await watching();
+
+    glue.emit(asked);
+    glue.emit({ sessionId: first, state: Running.make({}) });
+
+    let returned: string | undefined;
+
+    void glue.call("wait").then((outcome) => {
+      returned = outcome.text;
+    });
+
+    await settle();
+
+    expect(returned).toBeUndefined();
+  });
+});

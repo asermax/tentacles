@@ -89,6 +89,10 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
 
   const wakeKeys = new Map<SessionId, string>();
 
+  // Wakes that went out as a message while no wait was registered: pi holds such a message until
+  // its turn ends, so a wait called in that turn returns the wake instead of waiting for the next.
+  const unwaited = new Map<SessionId, string>();
+
   const save = (next: ReadonlyArray<SessionRef>) => {
     sessions = next;
     glue.status(renderStatusLine(sessions));
@@ -104,11 +108,14 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
 
   const drop = (sessionId: SessionId) => {
     wakeKeys.delete(sessionId);
+    unwaited.delete(sessionId);
     save(sessions.filter((session) => session.sessionId !== sessionId));
   };
 
-  const deliver = (text: string) => {
+  const deliver = (sessionId: SessionId, text: string) => {
     if (waiters.length === 0) {
+      unwaited.delete(sessionId);
+      unwaited.set(sessionId, text);
       glue.wake(text);
 
       return;
@@ -144,9 +151,13 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
       Match.orElse(() => undefined),
     );
 
-    if (text != null) {
-      deliver(text);
+    if (text == null) {
+      unwaited.delete(sessionId);
+
+      return;
     }
+
+    deliver(sessionId, text);
   };
 
   const onWatchLine = (line: WatchLine) => {
@@ -212,6 +223,7 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
       }),
       Match.when(ToolNames.close, () => {
         Option.map(target, (sessionId) => {
+          unwaited.delete(sessionId);
           setStatus(sessionId, SessionStatuses.closed);
           restartWatch();
         });
@@ -282,6 +294,16 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
       });
     }
 
+    const [pending] = unwaited;
+
+    if (pending != null) {
+      const [sessionId, text] = pending;
+
+      unwaited.delete(sessionId);
+
+      return Promise.resolve({ isError: false, text });
+    }
+
     return new Promise((resolve) => {
       const waiter = (text: string) => resolve({ isError: false, text });
 
@@ -311,6 +333,7 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
       parent = { harness, sessionId: ParentSessionId.make(options.parentSessionId) };
       waiters = [];
       wakeKeys.clear();
+      unwaited.clear();
       interactive = options.interactive;
 
       const local = await glue.readState();
