@@ -80,11 +80,13 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
       jobs.daily(cleanup.pipe(Effect.provide(contracts))),
     ).pipe(Effect.provide(scheduler));
 
-    const api = HttpApiBuilder.layer(TentaclesApi).pipe(
-      Layer.provide(SessionsHandlersLive),
-      Layer.provide(apiKeyLayer(apiKey)),
-      Layer.provide(contracts),
-      Layer.provide(HttpServer.layerServices),
+    const api = yield* HttpRouter.toHttpEffect(
+      HttpApiBuilder.layer(TentaclesApi).pipe(
+        Layer.provide(SessionsHandlersLive),
+        Layer.provide(apiKeyLayer(apiKey)),
+        Layer.provide(contracts),
+        Layer.provide(HttpServer.layerServices),
+      ),
     );
 
     return {
@@ -117,7 +119,7 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
         }
 
         if (url.pathname.startsWith("/api/")) {
-          return yield* Effect.flatten(HttpRouter.toHttpEffect(api));
+          return yield* api;
         }
 
         return notFound();
