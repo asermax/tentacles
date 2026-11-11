@@ -75,6 +75,9 @@ The **skill** teaches the parent agent the tools with the same protocol it follo
 
 Each tool takes the arguments of its Worker API call and returns its result, except where the plugin fills in the parent itself. spawn takes the name, the first prompt and any settings the agent sets; the plugin fills every other setting from its defaults (see Implementation details). list takes no arguments. A Worker error, such as a deleted or unknown session or an answer to a question that is not waiting, reaches the agent as a tool failure carrying the Worker's message. When the plugin gets no usable answer from the Worker, the tool fails with an error naming the cause: the Worker did not answer at its URL, it answered with an unexpected status, or a required variable is unset. On Claude Code the plugin registers the tools by their bare names and the model sees them under the plugin's MCP prefix; on pi they carry the `tentacles_` prefix themselves.
 
+> [!NOTE] Why Claude Code has no wait tool
+> The Claude mod runs every helper process with `$.process.run`, which Claude Code caps at ten minutes, so a wait could not block until a remote agent stops. The mod has no need for one either: it wakes the parent itself by submitting the wake as a prompt, which starts a turn once the session is idle. herdr-subagents drops its wait on Claude Code for the same reason.
+
 ## ⏰ Wake messages
 
 The watch wakes the parent with what it needs to act without another call:
