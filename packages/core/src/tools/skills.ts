@@ -50,6 +50,19 @@ export const expandSkills = (text: string, skills: readonly SkillEntry[]) =>
     return skill == null ? trigger : skillBlock(skill);
   });
 
+/**
+ * Expands the held skills' triggers in a prompt, reading the skills document
+ * only when a held name is triggered: matching needs the names alone.
+ */
+export const expandPrompt = async (
+  text: string,
+  heldNames: readonly string[],
+  readSkills: () => Promise<readonly SkillEntry[]>,
+) =>
+  [...text.matchAll(triggerPattern)].some((match) => heldNames.includes(match[1] ?? ""))
+    ? expandSkills(text, await readSkills())
+    : text;
+
 const listing = (skills: readonly SkillEntry[]) =>
   "Skills are instructions for specific kinds of work. When a task matches a skill's description, " +
   "load it with the skill tool before you start.\n\n" +

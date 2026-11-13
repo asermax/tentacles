@@ -5,6 +5,7 @@ import { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
+import { expandPrompt, type SkillEntry } from "../src/tools/skills.ts";
 import { definitionArchives, skillBlockOf } from "./support/archives.ts";
 import { eventually } from "./support/eventually.ts";
 import { type Archives, createRequest } from "./support/fixtures.ts";
@@ -242,4 +243,47 @@ describe("the skill tool and the skills section", () => {
         expect(result?.output).toContain("No skill implement. Skills: none");
       }).pipe(Effect.provide(testWorld)),
   );
+});
+
+describe("prompt expansion reads", () => {
+  const held: SkillEntry = {
+    name: "implement",
+    description: "Implement a change",
+    path: "/skills/implement/SKILL.md",
+  };
+
+  const countingRead = () => {
+    const reads: number[] = [];
+
+    return {
+      reads,
+      read: async () => {
+        reads.push(reads.length);
+
+        return [held];
+      },
+    };
+  };
+
+  it("a prompt with no held trigger does not read the skills document", async () => {
+    const { reads, read } = countingRead();
+
+    const text = await expandPrompt(
+      "see /deploy and /tmp/implement, then /implement.",
+      ["implement"],
+      read,
+    );
+
+    expect(text).toBe("see /deploy and /tmp/implement, then /implement.");
+    expect(reads).toHaveLength(0);
+  });
+
+  it("a prompt with a held trigger reads the skills document once and expands it", async () => {
+    const { reads, read } = countingRead();
+
+    const text = await expandPrompt("/implement and /skill:implement", ["implement"], read);
+
+    expect(text).toBe(`${skillBlockOf("implement")} and ${skillBlockOf("implement")}`);
+    expect(reads).toHaveLength(1);
+  });
 });

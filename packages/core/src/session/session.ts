@@ -34,7 +34,7 @@ import * as Semaphore from "effect/Semaphore";
 
 import { AgentsDoc } from "../tools/agents-doc.ts";
 import { remoteAgentExtensions } from "../tools/extension.ts";
-import { expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills.ts";
+import { expandPrompt, expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills.ts";
 import { toEntries } from "./entries.ts";
 import { QuestionsDoc } from "./questions.ts";
 import { readArchives } from "./read-archives.ts";
@@ -263,13 +263,15 @@ const make = (sessionId: SessionId) =>
           // pi-durable places after the answer's tool round.
           const steers = request.mode === PromptModes.steer || SessionState.guards.waiting(state);
 
-          const skills = yield* Effect.promise(() =>
-            harness.snapshot(SkillsDoc, BACKGROUND_CONTEXT),
-          );
-
           const draft: SubmissionDraft = {
             type: "input",
-            content: expandSkills(request.text, skills?.skills ?? []),
+            content: yield* Effect.promise(() =>
+              expandPrompt(request.text, state.skills, async () => {
+                const doc = await harness.snapshot(SkillsDoc, BACKGROUND_CONTEXT);
+
+                return doc?.skills ?? [];
+              }),
+            ),
             whenBusy: steers ? "steer" : "followUp",
           };
 
