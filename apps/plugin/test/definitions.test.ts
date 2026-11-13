@@ -173,7 +173,7 @@ describe("spawn with skill and agent definitions", () => {
     expect(await modesOf(created?.agents)).toEqual({ "planner.md": 0o600 });
   });
 
-  it("accepts a skill whose description has an unquoted colon and sends its SKILL.md with each plain value quoted and the rest unchanged", async () => {
+  it("accepts a skill whose description has an unquoted colon and sends its SKILL.md with only the broken values quoted and the rest unchanged", async () => {
     const skill = join(dir, "skills", "implement");
 
     write(
@@ -183,6 +183,8 @@ describe("spawn with skill and agent definitions", () => {
         "name: implement",
         "description: Does a thing: with a colon",
         "argument-hint: [repo-path] [branch-name]",
+        "tags: [a, b]",
+        "disable-model-invocation: true",
         'allowed-tools: "Bash"',
         "metadata:",
         "  owner: platform",
@@ -200,9 +202,11 @@ describe("spawn with skill and agent definitions", () => {
     expect(await unpacked(created?.skills)).toEqual({
       "implement/SKILL.md": [
         "---",
-        'name: "implement"',
+        "name: implement",
         'description: "Does a thing: with a colon"',
         'argument-hint: "[repo-path] [branch-name]"',
+        "tags: [a, b]",
+        "disable-model-invocation: true",
         'allowed-tools: "Bash"',
         "metadata:",
         "  owner: platform",
@@ -214,7 +218,7 @@ describe("spawn with skill and agent definitions", () => {
     });
   });
 
-  it("accepts an agent whose description has an unquoted colon and sends the file with each plain value quoted", async () => {
+  it("accepts an agent whose description has an unquoted colon and sends the file with only the broken value quoted", async () => {
     const agent = write(
       "agents/planner.md",
       "---\nname: planner\ndescription: Plans: and splits the work\n---\nPlan it.\n",
@@ -226,7 +230,7 @@ describe("spawn with skill and agent definitions", () => {
     expect(result).toEqual(Success.make({ result: { sessionId } }));
     expect(await unpacked(created?.agents)).toEqual({
       "planner.md":
-        '---\nname: "planner"\ndescription: "Plans: and splits the work"\n---\nPlan it.\n',
+        '---\nname: planner\ndescription: "Plans: and splits the work"\n---\nPlan it.\n',
     });
   });
 

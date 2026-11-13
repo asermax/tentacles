@@ -65,10 +65,21 @@ const indentedPattern = /^[ \t]+\S/;
 
 const isPlainValue = (value: string) => !/^["'|>]/.test(value);
 
+const failsAlone = (line: string) => {
+  try {
+    parse(line);
+
+    return false;
+  } catch {
+    return true;
+  }
+};
+
 // Claude Code accepts values that strict YAML rejects (`description: Does a
-// thing: with a colon`, `argument-hint: [a] [b]`); quoting each plain
-// single-line value keeps its text and makes the block strict-valid.
-const quotePlainValues = (block: string) => {
+// thing: with a colon`, `argument-hint: [a] [b]`); quoting only the plain
+// single-line values that fail on their own keeps their text and leaves every
+// valid line as written.
+const quoteFailingValues = (block: string) => {
   const lines = block.split("\n");
 
   return lines
@@ -79,7 +90,7 @@ const quotePlainValues = (block: string) => {
         return line;
       }
 
-      if (indentedPattern.test(lines[index + 1] ?? "")) {
+      if (indentedPattern.test(lines[index + 1] ?? "") || !failsAlone(line.trimEnd())) {
         return line;
       }
 
@@ -109,7 +120,7 @@ export const readFrontmatter = (text: string): Frontmatter => {
   try {
     return { attributes: parse(block) ?? {}, body, text };
   } catch (strict) {
-    const repaired = quotePlainValues(block);
+    const repaired = quoteFailingValues(block);
 
     try {
       return {
