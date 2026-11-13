@@ -3,11 +3,11 @@ import * as Schema from "effect/Schema";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 
 import { Entry } from "./entries.ts";
-import { QuestionNotWaiting, SessionNotFound } from "./errors.ts";
+import { InvalidArchive, QuestionNotWaiting, SessionNotFound } from "./errors.ts";
 import { QuestionId, SessionId } from "./ids.ts";
 import { ApiKey } from "./middleware.ts";
 import { Parent } from "./parent.ts";
-import { SessionRef, SessionState } from "./session-state.ts";
+import { SessionListing, SessionState } from "./session-state.ts";
 import { Settings } from "./settings.ts";
 
 export const PromptModes = {
@@ -19,11 +19,17 @@ export const PromptMode = Schema.Enum(PromptModes);
 
 export type PromptMode = typeof PromptMode.Type;
 
+export const maxArchiveBytes = 5 * 1024 * 1024;
+
+const Archive = Schema.Uint8Array.check(Schema.isMaxLength(maxArchiveBytes));
+
 export const CreateSession = Schema.Struct({
   name: Schema.String,
   parent: Parent,
   settings: Settings,
   prompt: Schema.String,
+  skills: Schema.optionalKey(Archive),
+  agents: Schema.optionalKey(Archive),
 });
 
 export type CreateSession = typeof CreateSession.Type;
@@ -52,6 +58,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     HttpApiEndpoint.post("create", "/sessions", {
       payload: CreateSession,
       success: Schema.Struct({ sessionId: SessionId }),
+      error: InvalidArchive,
     }),
     HttpApiEndpoint.post("prompt", "/sessions/:sessionId/prompt", {
       params: sessionParams,
@@ -83,7 +90,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     }),
     HttpApiEndpoint.get("list", "/sessions", {
       query: Parent.fields,
-      success: Schema.Array(SessionRef),
+      success: Schema.Array(SessionListing),
     }),
     // HttpApiSchema.Upgrade rejects websocket, so the socket declares its 101 as
     // an empty success and the client opens the socket on the endpoint's URL.
