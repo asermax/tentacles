@@ -5,7 +5,9 @@ import { Answer, MessageCount, Prompt } from "@tentacles/worker-api/sessions";
 import type * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
+import * as Struct from "effect/Struct";
 import type * as HttpClient from "effect/http/HttpClient";
 import type * as HttpClientError from "effect/http/HttpClientError";
 
@@ -14,6 +16,7 @@ import { SpawnRequest } from "../core/spawn-request.ts";
 import type { EndpointToolEntry } from "../core/tool-table.ts";
 import { TentaclesClient, TentaclesClientLive } from "./client.ts";
 import { SettingsDefaults } from "./config.ts";
+import { readDefinitions, rejectionText, type Rejected } from "./definitions.ts";
 
 const sessionFields = { sessionId: SessionId };
 
@@ -35,6 +38,7 @@ const decodeArguments = <S extends Schema.ConstraintDecoder<unknown>>(schema: S,
 
 type CommandError =
   | TentaclesError
+  | Rejected
   | HttpClientError.HttpClientError
   | Schema.SchemaError
   | Config.ConfigError;
@@ -67,12 +71,22 @@ const commands: Record<EndpointToolEntry["name"], Command> = {
       const defaults = yield* SettingsDefaults;
       const client = yield* TentaclesClient;
 
+      const archives = yield* readDefinitions({
+        skills: request.skills ?? [],
+        agents: request.agents ?? [],
+      });
+
+      if (Predicate.isTagged(archives, "Rejected")) {
+        return yield* Effect.fail(archives);
+      }
+
       return yield* client.sessions.create({
         payload: {
           name: request.name,
           parent: request.parent,
           prompt: request.prompt,
           settings: { ...defaults, repository: null, ...request.settings },
+          ...Struct.omit(archives, ["_tag"]),
         },
       });
     }),
@@ -117,6 +131,7 @@ export const runCommand = (
             Failure.make({ error: tentaclesError }),
           ),
           Match.tags({
+            Rejected: (rejected) => HelperError.make({ message: rejectionText(rejected) }),
             HttpClientError: (httpError) =>
               HelperError.make({ message: describeHttpError(httpError) }),
             ConfigError: (configError) =>

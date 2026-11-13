@@ -48,6 +48,8 @@ describe("helper commands against the Worker", () => {
     );
 
     expect(result).toEqual(Success.make({ result: { sessionId } }));
+    expect(stub.creates[0]).not.toHaveProperty("skills");
+    expect(stub.creates[0]).not.toHaveProperty("agents");
     expect(stub.requests).toEqual([
       {
         endpoint: "create",

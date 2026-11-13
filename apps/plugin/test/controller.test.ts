@@ -1,4 +1,4 @@
-import { SessionNotFound } from "@tentacles/worker-api/errors";
+import { InvalidArchive, SessionNotFound } from "@tentacles/worker-api/errors";
 import { Harnesses } from "@tentacles/worker-api/parent";
 import { SessionRef, SessionStatuses } from "@tentacles/worker-api/session-state";
 import { describe, expect, it } from "vitest";
@@ -68,6 +68,16 @@ describe("parent controller at harness start", () => {
     expect(glue.watches).toEqual([[third]]);
   });
 
+  it("keeps id, name and status of each session when the list's items carry settings and names", async () => {
+    const glue = await started(local(migrate), {
+      list: Success.make({
+        result: [{ ...migrate, ...details, skills: ["implement"], agents: ["reviewer"] }],
+      }),
+    });
+
+    expect(glue.states.at(-1)).toEqual({ sessions: [migrate] });
+  });
+
   it("empties the local state of a forked parent, whose list is empty", async () => {
     const glue = await started(local(migrate), { list: Success.make({ result: [] }) });
 
@@ -134,6 +144,19 @@ describe("parent controller on a tool result", () => {
       sessions: [{ sessionId: second, name: "docs", status: SessionStatuses.running }],
     });
     expect(glue.watches).toEqual([[second]]);
+  });
+
+  it("fails the spawn tool with the message of the InvalidArchive the Worker returned and records no session", async () => {
+    const message = "The skills archive is invalid: implement/SKILL.md: name is missing";
+
+    const glue = await started(local(), {
+      spawn: Failure.make({ error: new InvalidArchive({ message }) }),
+    });
+
+    const outcome = await glue.call("spawn", { name: "docs", prompt: "write them" });
+
+    expect(outcome).toEqual({ isError: true, text: message });
+    expect(glue.states).toEqual([]);
   });
 
   it("marks a closed session closed and hides it from the status line", async () => {
