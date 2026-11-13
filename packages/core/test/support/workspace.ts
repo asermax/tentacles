@@ -25,6 +25,13 @@ export interface WorkspaceRecord {
   forward: (port: number, request: Request) => Response;
 }
 
+// Repository URLs must be https, so the bare remotes are named by this host
+// and the sandbox's git rewrites it to the directory that holds them.
+const remoteHost = "https://git.test/";
+
+/** The URL a session's settings use for a bare remote created by bareRepository. */
+export const remoteUrl = (name: string) => `${remoteHost}${name}.git`;
+
 // Distributions point /lib64 at different places (usr/lib on Arch, usr/lib64
 // on Ubuntu), and the dynamic loader's path goes through it, so the sandbox
 // repeats the host's own links instead of assuming one layout.
@@ -65,6 +72,15 @@ const sandboxed = (directory: string, shared: string) => {
     "--setenv",
     "HOME",
     "/tmp",
+    "--setenv",
+    "GIT_CONFIG_COUNT",
+    "1",
+    "--setenv",
+    "GIT_CONFIG_KEY_0",
+    `url.${shared}/.insteadOf`,
+    "--setenv",
+    "GIT_CONFIG_VALUE_0",
+    remoteHost,
     "--setenv",
     "GIT_AUTHOR_NAME",
     "agent",
@@ -221,7 +237,7 @@ const git = (cwd: string, ...args: string[]) =>
     stdio: "ignore",
   });
 
-/** A bare repository with one commit on main, the remote a session clones. */
+/** A bare repository with one commit on main; returns the URL a session clones it from. */
 export const bareRepository = (shared: string, name: string) => {
   const bare = join(shared, `${name}.git`);
   const seed = join(shared, `${name}-seed`);
@@ -233,5 +249,5 @@ export const bareRepository = (shared: string, name: string) => {
   git(seed, "commit", "-m", "initial");
   git(seed, "push", bare, "main");
 
-  return bare;
+  return remoteUrl(name);
 };

@@ -121,6 +121,24 @@ describe("helper commands against the Worker", () => {
     });
   });
 
+  it("reports a repository URL without a scheme and sends no request", async () => {
+    const stub = await startWorker({ createdId: sessionId });
+
+    const result = await runHelperCommand(
+      "spawn",
+      {
+        name: "migrate",
+        prompt: "go",
+        parent,
+        settings: { repository: { url: "github.com/asermax/tentacles", shallow: true } },
+      },
+      variablesFor(stub.url),
+    );
+
+    expect(helperErrorMessage(result)).toContain("repository URL must start with https://");
+    expect(stub.requests).toEqual([]);
+  });
+
   it("answers Failure SessionNotFound when the session does not exist", async () => {
     const stub = await startWorker();
 

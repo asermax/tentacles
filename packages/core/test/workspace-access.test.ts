@@ -8,7 +8,7 @@ import * as Effect from "effect/Effect";
 import { definitionArchives, skillsArchive } from "./support/archives.ts";
 import { eventually } from "./support/eventually.ts";
 import { type Archives, createRequest, detailsOf } from "./support/fixtures.ts";
-import { bareRepository } from "./support/workspace.ts";
+import { bareRepository, remoteUrl } from "./support/workspace.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
 const bash = (command: string) =>
@@ -167,7 +167,7 @@ describe("the workspace before each tool call", () => {
   it.live("a failed ensure fails only that tool call, and the next call ensures again", () =>
     Effect.gen(function* () {
       const world = yield* TestWorld;
-      const repository = { url: `${world.shared}/missing.git`, shallow: true };
+      const repository = { url: remoteUrl("missing"), shallow: true };
 
       world.faux.setResponses([bash("true"), bash("true"), fauxAssistantMessage("gave up")]);
 

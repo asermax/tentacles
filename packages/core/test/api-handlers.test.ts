@@ -92,6 +92,23 @@ describe("the sessions API", () => {
     }).pipe(Effect.provide(testWorld)),
   );
 
+  it.live("create with a repository URL without a scheme fails with 400 and creates nothing", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const api = yield* serveApi;
+
+      const response = yield* api(
+        "/sessions",
+        post(
+          createBody(createRequest("go", { url: "github.com/asermax/tentacles", shallow: true })),
+        ),
+      );
+
+      expect(response.status).toBe(400);
+      expect(world.registryCalls).toEqual([]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
   it.live(
     "create with skills and agents lists their names and stores the skills archive as sent",
     () =>
