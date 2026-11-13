@@ -40,7 +40,7 @@ type DefinitionPaths = Required<Pick<SpawnRequest, ArchiveKind>>;
 /** What a kind's check settles about its paths: what goes into the package, and the files on disk that the package replaces with content. */
 interface Checked {
   readonly sources: ReadonlyArray<TarSource>;
-  readonly replaced: ReadonlyArray<string>;
+  readonly replaced: ReadonlySet<string>;
 }
 
 const decoder = new TextDecoder();
@@ -99,17 +99,16 @@ const readSkill = (path: string) =>
     const folder = basename(root);
     const skillPath = join(root, skillFile);
 
+    const missing = problemOf(path, `has no ${skillFile}`);
+
     const info = yield* Effect.tryPromise({
       try: () => stat(skillPath),
       catch: (cause) =>
-        problemOf(
-          path,
-          isNotFound(cause) ? `has no ${skillFile}` : `cannot be read: ${String(cause)}`,
-        ),
+        isNotFound(cause) ? missing : problemOf(path, `cannot be read: ${String(cause)}`),
     }).pipe(
       Effect.filterOrFail(
         (found) => found.isFile(),
-        () => problemOf(path, `has no ${skillFile}`),
+        () => missing,
       ),
     );
 
@@ -190,7 +189,7 @@ const checkSkillPaths: Check = (paths) =>
       ? yield* Effect.fail(problems)
       : {
           sources: reads.flatMap((read) => read.sources),
-          replaced: reads.map((read) => read.replaced),
+          replaced: new Set(reads.map((read) => read.replaced)),
         };
   });
 
@@ -201,7 +200,7 @@ const checkAgentPaths: Check = (paths) =>
 
     return problems.length > 0
       ? yield* Effect.fail(problems)
-      : { sources: reads.flatMap((read) => read.sources), replaced: [] };
+      : { sources: reads.flatMap((read) => read.sources), replaced: new Set() };
   });
 
 const checkContextPaths: Check = (paths) =>
@@ -209,7 +208,7 @@ const checkContextPaths: Check = (paths) =>
     const [sources, unreadable] = yield* partition(paths, readContext);
     const problems = [...unreadable, ...duplicateNames(paths)];
 
-    return problems.length > 0 ? yield* Effect.fail(problems) : { sources, replaced: [] };
+    return problems.length > 0 ? yield* Effect.fail(problems) : { sources, replaced: new Set() };
   });
 
 const checks: Record<ArchiveKind, Check> = {
@@ -229,7 +228,7 @@ const pack = (kind: ArchiveKind, { sources, replaced }: Checked) =>
         packTar(sources, {
           dereference: true,
           baseDir: "/",
-          filter: (path) => !replaced.includes(path),
+          filter: (path) => !replaced.has(path),
         }),
         createGzip(),
         async (packed) => {
