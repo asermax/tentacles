@@ -24,13 +24,14 @@ import { SessionStorage } from "@tentacles/contracts/session-storage";
 import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace } from "@tentacles/contracts/workspace";
-import type { ArchiveKind } from "@tentacles/worker-api/archive-kinds";
+import { type ArchiveKind, archiveKinds } from "@tentacles/worker-api/archive-kinds";
 import { SessionId } from "@tentacles/worker-api/ids";
 import type { SessionState } from "@tentacles/worker-api/session-state";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -277,18 +278,13 @@ const makeWorld = Effect.gen(function* () {
   const worldScope = yield* Scope.Scope;
 
   const workspaces = new Map<SessionId, Workspace["Service"]>();
-  const archives = new Map<SessionId, Map<ArchiveKind, Uint8Array>>();
+  const archives = Record.map(archiveKinds, () => new Map<SessionId, Uint8Array>());
 
   // The archives live beside the storage, so an eviction keeps them.
   const archiveStoreOf = (sessionId: SessionId) =>
     ArchiveStore.of({
-      save: (kind, archive) =>
-        Effect.sync(() => {
-          const byKind = archives.get(sessionId) ?? new Map<ArchiveKind, Uint8Array>();
-
-          archives.set(sessionId, byKind.set(kind, archive));
-        }),
-      read: (kind) => Effect.sync(() => archives.get(sessionId)?.get(kind) ?? null),
+      save: (kind, archive) => Effect.sync(() => void archives[kind].set(sessionId, archive)),
+      read: (kind) => Effect.sync(() => archives[kind].get(sessionId) ?? null),
     });
 
   const recordsOf = (sessionId: SessionId) =>
@@ -455,7 +451,10 @@ const makeWorld = Effect.gen(function* () {
             yield* notFoundGuard(sessionId, (made) => made.delete());
             yield* drop(sessionId);
             storages.delete(sessionId);
-            archives.delete(sessionId);
+
+            for (const byKind of Object.values(archives)) {
+              byKind.delete(sessionId);
+            }
           }),
   });
 
@@ -473,14 +472,7 @@ const makeWorld = Effect.gen(function* () {
 
       return found;
     },
-    archives: (kind) =>
-      new Map(
-        Array.from(archives).flatMap(([sessionId, byKind]) => {
-          const archive = byKind.get(kind);
-
-          return archive == null ? [] : [[sessionId, archive] as const];
-        }),
-      ),
+    archives: (kind) => archives[kind],
     handle,
     evict: drop,
     crash: crashOne,

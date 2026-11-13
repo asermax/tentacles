@@ -21,7 +21,7 @@ import { SessionStorage } from "@tentacles/contracts/session-storage";
 import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
-import { archiveKinds, archiveKindNames } from "@tentacles/worker-api/archive-kinds";
+import { archiveExpansions } from "@tentacles/worker-api/archive-kinds";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
@@ -207,10 +207,10 @@ const make = (sessionId: SessionId) =>
           const skills = archives.skills.map(toSkillEntry);
           const { agents } = archives;
 
-          for (const kind of archiveKindNames) {
+          for (const { kind } of archiveExpansions) {
             const archive = request[kind];
 
-            if (archiveKinds[kind].expandsInto != null && archive != null) {
+            if (archive != null) {
               yield* archiveStore.save(kind, archive);
             }
           }
