@@ -124,6 +124,9 @@ importers:
       effect:
         specifier: 4.1.3
         version: 4.1.3
+      modern-tar:
+        specifier: 0.8.6
+        version: 0.8.6
     devDependencies:
       '@effect/platform-node':
         specifier: 4.1.3

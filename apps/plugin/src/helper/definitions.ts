@@ -1,12 +1,14 @@
-import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, join, relative, resolve, sep } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
 
 import {
-  type ArchiveEntry,
-  packArchive,
-  permissionBits,
-  skillFile,
-} from "@tentacles/worker-api/archives";
+  archiveKindNames,
+  archiveKinds,
+  type ArchiveKind,
+} from "@tentacles/worker-api/archive-kinds";
+import { permissionBits, skillFile } from "@tentacles/worker-api/archives";
 import {
   checkAgents,
   checkSkills,
@@ -18,39 +20,46 @@ import { repairFrontmatter } from "@tentacles/worker-api/frontmatter";
 import { type CreateSession, maxArchiveBytes } from "@tentacles/worker-api/sessions";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
+import * as Record from "effect/Record";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import type * as Types from "effect/Types";
+import { type ContentSource, packTar, type TarSource } from "modern-tar/fs";
 
 import type { SpawnRequest } from "../core/spawn-request";
 
-/** Every problem of every path, per group; nothing is sent. */
+/** Every problem of every path, per kind; nothing is sent. */
 export const Rejected = Schema.TaggedStruct("Rejected", {
-  skills: Schema.Array(Problem),
-  agents: Schema.Array(Problem),
-  context: Schema.Array(Problem),
+  ...Record.map(archiveKinds, () => Schema.Array(Problem)),
 });
 
 export type Rejected = typeof Rejected.Type;
 
-export type DefinitionPaths = Required<Pick<SpawnRequest, "skills" | "agents" | "context">>;
+export type DefinitionPaths = Required<Pick<SpawnRequest, ArchiveKind>>;
+
+/** What a kind's check settles about its paths: what goes into the package, and the files on disk that the package replaces with content. */
+interface Checked {
+  readonly sources: ReadonlyArray<TarSource>;
+  readonly replaced: ReadonlyArray<string>;
+}
 
 const decoder = new TextDecoder();
 
 const encoder = new TextEncoder();
 
-/** A definition file as the helper sends it: its text with the frontmatter repaired when strict YAML rejects it, and the entry carrying that text. */
-const definitionFile = (path: string, bytes: Uint8Array, mode: number) => {
+/** A definition file as the helper sends it: its text with the frontmatter repaired when strict YAML rejects it, and the package source carrying that text. */
+const definitionFile = (target: string, bytes: Uint8Array, mode: number) => {
   const original = decoder.decode(bytes);
   const text = repairFrontmatter(original);
 
   return {
     text,
-    entry: {
-      path,
-      bytes: text === original ? bytes : encoder.encode(text),
+    source: {
+      type: "content",
+      target,
+      content: text === original ? bytes : encoder.encode(text),
       mode,
-    } satisfies ArchiveEntry,
+    } satisfies ContentSource,
   };
 };
 
@@ -76,76 +85,75 @@ const inspect = (path: string, kind: "folder" | "file") =>
     ),
   );
 
-const readFolder = (path: string, folder: string) =>
+const readText = (path: string, problemPath: string) =>
   Effect.tryPromise({
-    try: async () => {
-      const dirents = await readdir(path, { recursive: true, withFileTypes: true });
-
-      const entries = await Promise.all(
-        dirents.map(async (dirent): Promise<ArchiveEntry | undefined> => {
-          const file = join(dirent.parentPath, dirent.name);
-
-          const info = await stat(file);
-
-          if (!info.isFile()) {
-            return undefined;
-          }
-
-          return {
-            path: `${folder}/${relative(path, file).split(sep).join("/")}`,
-            bytes: await readFile(file),
-            mode: info.mode & permissionBits,
-          };
-        }),
-      );
-
-      return entries
-        .filter((entry) => entry != null)
-        .toSorted((left, right) => left.path.localeCompare(right.path));
-    },
-    catch: (cause) => problemOf(path, `cannot be read: ${String(cause)}`),
+    try: () => readFile(path),
+    catch: (cause) => problemOf(problemPath, `cannot be read: ${String(cause)}`),
   });
 
 const readSkill = (path: string) =>
   Effect.gen(function* () {
     yield* inspect(path, "folder");
 
-    const folder = basename(resolve(path));
-    const entries = yield* readFolder(path, folder);
-    const skill = entries.find((entry) => entry.path === `${folder}/${skillFile}`);
+    const root = resolve(path);
+    const folder = basename(root);
+    const skillPath = join(root, skillFile);
 
-    if (skill == null) {
-      return yield* Effect.fail(problemOf(path, `has no ${skillFile}`));
-    }
+    const info = yield* Effect.tryPromise({
+      try: () => stat(skillPath),
+      catch: (cause) =>
+        problemOf(
+          path,
+          isNotFound(cause) ? `has no ${skillFile}` : `cannot be read: ${String(cause)}`,
+        ),
+    }).pipe(
+      Effect.filterOrFail(
+        (found) => found.isFile(),
+        () => problemOf(path, `has no ${skillFile}`),
+      ),
+    );
 
-    const { text, entry } = definitionFile(skill.path, skill.bytes, skill.mode);
+    const { text, source } = definitionFile(
+      `${folder}/${skillFile}`,
+      yield* readText(skillPath, path),
+      info.mode & permissionBits,
+    );
 
     return {
-      source: { folder, path, text } satisfies SkillSource,
-      entries: entries.map((existing) => (existing === skill ? entry : existing)),
+      skill: { folder, path, text } satisfies SkillSource,
+      sources: [{ type: "directory", source: root, target: folder }, source] satisfies TarSource[],
+      replaced: skillPath,
     };
   });
 
-/** A context path: a file becomes one entry at its name, a folder its regular files under its name. */
+const readAgent = (path: string) =>
+  Effect.gen(function* () {
+    const info = yield* inspect(path, "file");
+
+    const { text, source } = definitionFile(
+      basename(path),
+      yield* readText(path, path),
+      info.mode & permissionBits,
+    );
+
+    return { agent: { path, text } satisfies AgentSource, sources: [source] };
+  });
+
+/** A context path is checked by its stat alone: nothing in a folder is read here. */
 const readContext = (path: string) =>
   Effect.gen(function* () {
     const info = yield* statPath(path);
-    const name = basename(resolve(path));
 
-    if (info.isDirectory()) {
-      return yield* readFolder(path, name);
-    }
-
-    if (!info.isFile()) {
+    if (!info.isDirectory() && !info.isFile()) {
       return yield* Effect.fail(problemOf(path, "is not a file or a folder"));
     }
 
-    const bytes = yield* Effect.tryPromise({
-      try: () => readFile(path),
-      catch: (cause) => problemOf(path, `cannot be read: ${String(cause)}`),
-    });
+    const source = resolve(path);
+    const target = basename(source);
 
-    return [{ path: name, bytes, mode: info.mode & permissionBits }] satisfies ArchiveEntry[];
+    return info.isDirectory()
+      ? ({ type: "directory", source, target } satisfies TarSource)
+      : ({ type: "file", source, target } satisfies TarSource);
   });
 
 /** A problem on every context path whose name an earlier path already has. */
@@ -166,116 +174,121 @@ const duplicateNames = (paths: ReadonlyArray<string>) => {
   });
 };
 
-const readAgent = (path: string) =>
+const partition = <Path, Read>(
+  paths: ReadonlyArray<Path>,
+  read: (path: Path) => Effect.Effect<Read, Problem>,
+) => Effect.partition(paths, read, { concurrency: "unbounded" });
+
+type Check = (paths: ReadonlyArray<string>) => Effect.Effect<Checked, ReadonlyArray<Problem>>;
+
+const checkSkillPaths: Check = (paths) =>
   Effect.gen(function* () {
-    const info = yield* inspect(path, "file");
+    const [reads, unreadable] = yield* partition(paths, readSkill);
+    const problems = [...unreadable, ...checkSkills(reads.map((read) => read.skill)).problems];
 
-    const bytes = yield* Effect.tryPromise({
-      try: () => readFile(path),
-      catch: (cause) => problemOf(path, `cannot be read: ${String(cause)}`),
-    });
-
-    const { text, entry } = definitionFile(basename(path), bytes, info.mode & permissionBits);
-
-    return {
-      source: { path, text } satisfies AgentSource,
-      entries: [entry],
-    };
+    return problems.length > 0
+      ? yield* Effect.fail(problems)
+      : {
+          sources: reads.flatMap((read) => read.sources),
+          replaced: reads.map((read) => read.replaced),
+        };
   });
 
-// A group with problems is not packed: its size would count definitions the
-// agent has to fix anyway. A group with nothing to pack succeeds with no archive.
-const packGroup = (
-  kind: "skills" | "agents" | "context",
-  problems: ReadonlyArray<Problem>,
-  entries: ReadonlyArray<ArchiveEntry>,
-) =>
+const checkAgentPaths: Check = (paths) =>
   Effect.gen(function* () {
-    if (problems.length > 0) {
-      return yield* Effect.fail(problems);
-    }
+    const [reads, unreadable] = yield* partition(paths, readAgent);
+    const problems = [...unreadable, ...checkAgents(reads.map((read) => read.agent)).problems];
 
-    if (entries.length === 0) {
-      return undefined;
-    }
+    return problems.length > 0
+      ? yield* Effect.fail(problems)
+      : { sources: reads.flatMap((read) => read.sources), replaced: [] };
+  });
 
-    const archive = yield* packArchive(entries);
+const checkContextPaths: Check = (paths) =>
+  Effect.gen(function* () {
+    const [sources, unreadable] = yield* partition(paths, readContext);
+    const problems = [...unreadable, ...duplicateNames(paths)];
 
-    if (archive.byteLength > maxArchiveBytes) {
-      return yield* Effect.fail([
+    return problems.length > 0 ? yield* Effect.fail(problems) : { sources, replaced: [] };
+  });
+
+const checks: Record<ArchiveKind, Check> = {
+  skills: checkSkillPaths,
+  agents: checkAgentPaths,
+  context: checkContextPaths,
+};
+
+// modern-tar's packer reads the files while it packs; the package is checked once it exists.
+// dereference follows symlinks and packs their targets, and baseDir "/" lets a target sit anywhere.
+const pack = (kind: ArchiveKind, { sources, replaced }: Checked) =>
+  Effect.tryPromise({
+    try: async () => {
+      const chunks: Array<Uint8Array> = [];
+
+      await pipeline(
+        packTar(sources, {
+          dereference: true,
+          baseDir: "/",
+          filter: (path) => !replaced.includes(path),
+        }),
+        createGzip(),
+        async (packed) => {
+          for await (const chunk of packed) {
+            chunks.push(chunk);
+          }
+        },
+      );
+
+      return Buffer.concat(chunks);
+    },
+    catch: (cause) => [problemOf(`the ${kind} archive`, `cannot be packed: ${String(cause)}`)],
+  }).pipe(
+    Effect.filterOrFail(
+      (archive) => archive.byteLength <= maxArchiveBytes,
+      (archive) => [
         problemOf(
           `the ${kind} archive`,
           `is ${megabytes(archive.byteLength)}, over the ${megabytes(maxArchiveBytes)} limit`,
         ),
-      ]);
+      ],
+    ),
+  );
+
+// A kind with problems is not packed: its size would count definitions the agent has to fix
+// anyway. A kind with no paths succeeds with no archive.
+const archiveOf = (kind: ArchiveKind, paths: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    if (paths.length === 0) {
+      return undefined;
     }
 
-    return archive;
+    return yield* checks[kind](paths).pipe(Effect.flatMap((checked) => pack(kind, checked)));
   }).pipe(Effect.result);
 
-/** Reads every path the agent passed, runs worker-api's checks on each group and packs the archives, each present only when its group had paths; fails with every problem of every path, never at the first. */
-export const readDefinitions = ({
-  skills: skillPaths,
-  agents: agentPaths,
-  context: contextPaths,
-}: DefinitionPaths) =>
+/** Checks every path the agent passed, kind by kind, and packs each kind that had paths into an archive; fails with every problem of every path, never at the first. */
+export const readDefinitions = (paths: DefinitionPaths) =>
   Effect.gen(function* () {
-    const [
-      [skillReads, skillUnreadable],
-      [agentReads, agentUnreadable],
-      [contextReads, contextUnreadable],
-    ] = yield* Effect.all(
-      [
-        Effect.partition(skillPaths, readSkill, { concurrency: "unbounded" }),
-        Effect.partition(agentPaths, readAgent, { concurrency: "unbounded" }),
-        Effect.partition(contextPaths, readContext, { concurrency: "unbounded" }),
-      ],
-      { concurrency: 3 },
+    const results = yield* Effect.all(
+      Record.map(paths, (kindPaths, kind) => archiveOf(kind, kindPaths)),
+      { concurrency: "unbounded" },
     );
 
-    const [skills, agents, context] = yield* Effect.all(
-      [
-        packGroup(
-          "skills",
-          [...skillUnreadable, ...checkSkills(skillReads.map((read) => read.source)).problems],
-          skillReads.flatMap((read) => read.entries),
-        ),
-        packGroup(
-          "agents",
-          [...agentUnreadable, ...checkAgents(agentReads.map((read) => read.source)).problems],
-          agentReads.flatMap((read) => read.entries),
-        ),
-        packGroup(
-          "context",
-          [...contextUnreadable, ...duplicateNames(contextPaths)],
-          contextReads.flat(),
-        ),
-      ],
-      { concurrency: 3 },
-    );
-
-    if (Result.isFailure(skills) || Result.isFailure(agents) || Result.isFailure(context)) {
+    if (Object.values(results).some(Result.isFailure)) {
       return yield* Effect.fail(
-        Rejected.make({
-          skills: Result.isFailure(skills) ? skills.failure : [],
-          agents: Result.isFailure(agents) ? agents.failure : [],
-          context: Result.isFailure(context) ? context.failure : [],
-        }),
+        Rejected.make(
+          Record.map(results, (result) => (Result.isFailure(result) ? result.failure : [])),
+        ),
       );
     }
 
-    const archives: Types.Mutable<Pick<CreateSession, "skills" | "agents" | "context">> = {};
+    const archives: Types.Mutable<Pick<CreateSession, ArchiveKind>> = {};
 
-    if (skills.success != null) {
-      archives.skills = skills.success;
-    }
+    for (const kind of archiveKindNames) {
+      const result = results[kind];
 
-    if (agents.success != null) {
-      archives.agents = agents.success;
-    }
-
-    if (context.success != null) {
-      archives.context = context.success;
+      if (Result.isSuccess(result) && result.success != null) {
+        archives[kind] = result.success;
+      }
     }
 
     return archives;
@@ -284,11 +297,11 @@ export const readDefinitions = ({
 const section = (heading: string, problems: ReadonlyArray<Problem>) =>
   `${heading}:\n${problems.map((problem) => `- ${problem.path}: ${problem.message}`).join("\n")}`;
 
-/** The tool's error text: every problem with its path, the skills' under one heading and the agents' under another. */
+/** The tool's error text: every problem with its path, one section per kind with problems, in the kinds table's order. */
 export const rejectionText = (rejected: Rejected) =>
   [
     "No session was created: some skills, agents or context have problems.",
-    ...(rejected.skills.length > 0 ? [section("Skills", rejected.skills)] : []),
-    ...(rejected.agents.length > 0 ? [section("Agents", rejected.agents)] : []),
-    ...(rejected.context.length > 0 ? [section("Context", rejected.context)] : []),
+    ...archiveKindNames.flatMap((kind) =>
+      rejected[kind].length > 0 ? [section(archiveKinds[kind].heading, rejected[kind])] : [],
+    ),
   ].join("\n\n");

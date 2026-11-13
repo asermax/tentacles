@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -560,6 +560,39 @@ describe("spawn with context paths", () => {
     const big = write("big.bin", randomBytes(6 * 1024 * 1024));
 
     const message = helperErrorMessage(await spawn({ context: [big] }));
+
+    expect(message).toMatch(
+      new RegExp(
+        `^${intro}\\n\\nContext:\\n- the context archive: is \\d+\\.\\d MB, over the 5\\.0 MB limit$`,
+      ),
+    );
+    expect(stubWorker().requests).toEqual([]);
+  });
+
+  it("packs the content of the target of a symlink inside a context folder", async () => {
+    const folder = join(dir, "scratch", "tools");
+    const target = write("elsewhere/data.txt", "target content");
+
+    write("scratch/tools/run.sh", "echo run");
+    symlinkSync(target, join(folder, "link.txt"));
+
+    const result = await spawn({ context: [folder] });
+    const [created] = stubWorker().creates;
+
+    expect(result).toEqual(Success.make({ result: { sessionId } }));
+    expect(await unpacked(created?.context)).toEqual({
+      "tools/run.sh": "echo run",
+      "tools/link.txt": "target content",
+    });
+  });
+
+  it("reports a context folder that packs to more than the archive limit under the Context group", async () => {
+    const folder = join(dir, "scratch", "bulky");
+
+    write("scratch/bulky/first.bin", randomBytes(3 * 1024 * 1024));
+    write("scratch/bulky/nested/second.bin", randomBytes(3 * 1024 * 1024));
+
+    const message = helperErrorMessage(await spawn({ context: [folder] }));
 
     expect(message).toMatch(
       new RegExp(
