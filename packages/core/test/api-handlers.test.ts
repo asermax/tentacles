@@ -264,6 +264,36 @@ describe("the sessions API", () => {
     }).pipe(Effect.provide(testWorld)),
   );
 
+  it.live(
+    "create with both archives invalid fails InvalidArchive naming both and stores nothing",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* TestWorld;
+        const api = yield* serveApi;
+
+        const skills = yield* Effect.promise(() =>
+          skillsArchive({ name: "impl", folder: "implement" }),
+        );
+
+        const agents = yield* Effect.promise(() => agentWithoutBody("reviewer"));
+
+        const response = yield* api(
+          "/sessions",
+          post(createBody(createRequest("go", null, { skills, agents }))),
+        );
+
+        const { message } = decodeInvalidArchive(yield* json(response));
+
+        expect(response.status).toBe(400);
+        expect(message).toContain("skills archive");
+        expect(message).toContain("name 'impl' does not match the folder 'implement'");
+        expect(message).toContain("agents archive");
+        expect(message).toMatch(/reviewer\.md: .*(body|prompt)/);
+        expect(world.registryCalls).toEqual([]);
+        expect(world.skillsArchives.size).toBe(0);
+      }).pipe(Effect.provide(testWorld)),
+  );
+
   it.live("create with a skills archive over 5 MB fails the schema and creates nothing", () =>
     Effect.gen(function* () {
       const world = yield* TestWorld;

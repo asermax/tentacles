@@ -21,7 +21,6 @@ import { SessionStorage } from "@tentacles/contracts/session-storage";
 import { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
-import { readAgentsArchive, readSkillsArchive } from "@tentacles/worker-api/archives";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
@@ -38,6 +37,7 @@ import { remoteAgentExtensions } from "../tools/extension.ts";
 import { expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills.ts";
 import { toEntries } from "./entries.ts";
 import { QuestionsDoc } from "./questions.ts";
+import { readArchives } from "./read-archives.ts";
 import { RecordDoc, type SessionRecord } from "./record.ts";
 import { trackStatus } from "./state.ts";
 import { workspaceEnv } from "./workspace-env.ts";
@@ -201,11 +201,9 @@ const make = (sessionId: SessionId) =>
         Effect.gen(function* () {
           // Both archives are read before anything is stored, so one that
           // cannot be read leaves no trace.
-          const skills = (
-            request.skills == null ? [] : yield* readSkillsArchive(request.skills)
-          ).map(toSkillEntry);
-
-          const agents = request.agents == null ? [] : yield* readAgentsArchive(request.agents);
+          const archives = yield* readArchives(request);
+          const skills = archives.skills.map(toSkillEntry);
+          const { agents } = archives;
 
           if (request.skills != null) {
             yield* skillsArchive.save(request.skills);
