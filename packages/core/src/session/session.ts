@@ -66,8 +66,6 @@ export type SessionHandle = {
   readonly workspaceNeeded: (isWorkPending: boolean) => Effect.Effect<boolean>;
 };
 
-const promise = <A>(evaluate: () => Promise<A>) => Effect.promise(evaluate);
-
 const make = (sessionId: SessionId) =>
   Effect.gen(function* () {
     const services = yield* Effect.context<
@@ -97,7 +95,7 @@ const make = (sessionId: SessionId) =>
 
     // Set once the status tracker exists, which needs the open harness; the
     // harness reads the restart limit only once it resumes, after that.
-    let tracked: { readonly questionCallLive: () => boolean } | null = null;
+    let status: Effect.Success<ReturnType<typeof trackStatus>> | null = null;
 
     const registry = createRegistry();
     const envId = `pi-env:${sessionId}`;
@@ -107,7 +105,7 @@ const make = (sessionId: SessionId) =>
     }
 
     const harness = yield* Effect.acquireRelease(
-      promise(() =>
+      Effect.promise(() =>
         Harness.open(
           storage,
           {
@@ -119,7 +117,7 @@ const make = (sessionId: SessionId) =>
               // cut-off toward the restart limit and has no durable wait for a
               // tool, so the limit is lifted while a question's call is live.
               get restartLimit() {
-                return tracked != null && tracked.questionCallLive()
+                return status != null && status.questionCallLive()
                   ? Infinity
                   : DEFAULT_RESTART_LIMIT;
               },
@@ -155,14 +153,12 @@ const make = (sessionId: SessionId) =>
           BACKGROUND_CONTEXT,
         ),
       ),
-      (opened) => promise(() => opened.close(BACKGROUND_CONTEXT)),
+      (opened) => Effect.promise(() => opened.close(BACKGROUND_CONTEXT)),
     );
 
-    const status = yield* trackStatus(harness, sessionId);
+    status = yield* trackStatus(harness, sessionId);
 
-    tracked = status;
-
-    const record = promise(() => harness.snapshot(RecordDoc, sessionId, BACKGROUND_CONTEXT));
+    const record = Effect.promise(() => harness.snapshot(RecordDoc, sessionId, BACKGROUND_CONTEXT));
 
     const existing = record.pipe(
       Effect.filterOrFail(
@@ -181,7 +177,7 @@ const make = (sessionId: SessionId) =>
       ),
     );
 
-    const root = promise(() => harness.root(BACKGROUND_CONTEXT));
+    const root = Effect.promise(() => harness.root(BACKGROUND_CONTEXT));
 
     // Armed before any call that can start work: onWake only follows the
     // commit, and a missing timer strands the work.
@@ -199,7 +195,7 @@ const make = (sessionId: SessionId) =>
         Effect.gen(function* () {
           yield* status.register(request.name, request.parent);
 
-          const conversation = yield* promise(() =>
+          const conversation = yield* Effect.promise(() =>
             harness.root(BACKGROUND_CONTEXT, {
               agent: {
                 model: { provider: request.settings.provider, modelId: request.settings.model },
@@ -223,7 +219,7 @@ const make = (sessionId: SessionId) =>
 
           yield* status.attach;
           yield* armActive;
-          yield* promise(() =>
+          yield* Effect.promise(() =>
             conversation.submit(
               { type: "input", content: request.prompt, requestId: "create" },
               BACKGROUND_CONTEXT,
@@ -256,7 +252,7 @@ const make = (sessionId: SessionId) =>
           // One commit admits the prompt, resets the commit prompts and clears
           // the closed mark, so the status never shows the record without the
           // run the prompt starts.
-          yield* promise(() =>
+          yield* Effect.promise(() =>
             harness.commit(async (tx) => {
               await conversation.submit(tx, draft);
 
@@ -281,7 +277,7 @@ const make = (sessionId: SessionId) =>
             ),
           );
 
-          yield* promise(() =>
+          yield* Effect.promise(() =>
             harness.commit(async (tx) => {
               const questions = await tx.doc(QuestionsDoc);
 
@@ -302,13 +298,13 @@ const make = (sessionId: SessionId) =>
             return;
           }
 
-          yield* promise(() =>
+          yield* Effect.promise(() =>
             harness.commit(async (tx) => {
               (await tx.doc(RecordDoc, sessionId, found)).closed = true;
             }, BACKGROUND_CONTEXT),
           );
 
-          const live = yield* promise(() =>
+          const live = yield* Effect.promise(() =>
             harness.snapshot(LiveDoc, ROOT_CONVERSATION_ID, BACKGROUND_CONTEXT),
           );
 
@@ -316,7 +312,9 @@ const make = (sessionId: SessionId) =>
             const conversation = yield* root;
 
             yield* armActive;
-            yield* promise(() => conversation.abort(BACKGROUND_CONTEXT, { background: true }));
+            yield* Effect.promise(() =>
+              conversation.abort(BACKGROUND_CONTEXT, { background: true }),
+            );
           }
         }),
 
@@ -331,7 +329,7 @@ const make = (sessionId: SessionId) =>
           // A pi-durable entry can map to several entries (an answer with text
           // and tool calls), so pages are read until enough are mapped.
           do {
-            const page = yield* promise(() =>
+            const page = yield* Effect.promise(() =>
               conversation.entries({ order: "descending" }, count, cursor, BACKGROUND_CONTEXT),
             );
 
@@ -365,7 +363,7 @@ const make = (sessionId: SessionId) =>
 
           const conversation = yield* root;
 
-          yield* promise(() => conversation.abort(BACKGROUND_CONTEXT, { background: true }));
+          yield* Effect.promise(() => conversation.abort(BACKGROUND_CONTEXT, { background: true }));
           yield* wakeTimer.clear();
         }),
 
