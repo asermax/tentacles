@@ -10,7 +10,7 @@ import * as Exit from "effect/Exit";
 import { cleanup } from "../src/index.ts";
 import { later } from "./support/clock.ts";
 import { eventually } from "./support/eventually.ts";
-import { createRequest, parent } from "./support/fixtures.ts";
+import { createRequest, details, parent } from "./support/fixtures.ts";
 import { heldAnswer } from "./support/model.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
@@ -109,7 +109,7 @@ describe("the daily cleanup", () => {
       yield* afterAMonth(cleanup);
 
       expect((yield* listed).toSorted()).toEqual([running, waiting].toSorted());
-      expect(yield* statusOf(running)).toEqual(SessionState.cases.running.make({}));
+      expect(yield* statusOf(running)).toEqual(SessionState.cases.running.make(details));
       expect(SessionState.guards.waiting(yield* statusOf(waiting))).toBe(true);
       held.release();
     }).pipe(Effect.provide(testWorld)),
@@ -120,7 +120,7 @@ describe("the daily cleanup", () => {
       const registry = yield* RegistryStore;
       const sessionId = newSessionId();
 
-      yield* registry.add(sessionId, "gone", parent);
+      yield* registry.add(sessionId, "gone", parent, details);
       yield* registry.setStatus(sessionId, "running");
       yield* registry.setStatus(sessionId, "idle");
 

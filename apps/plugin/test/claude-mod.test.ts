@@ -21,7 +21,7 @@ import type {
   ToolCallResult,
 } from "../src/claude/engine.ts";
 import { register } from "../src/claude/register.ts";
-import { Failed, sessionIdOf } from "./values.ts";
+import { details, Failed, sessionIdOf } from "./values.ts";
 
 const sessionId = sessionIdOf(1);
 
@@ -190,7 +190,7 @@ describe("Claude mod", () => {
     await vi.waitFor(() => expect(mod.runs).toHaveLength(2), { timeout: 2000, interval: 20 });
 
     mod.watch.push(
-      `${Schema.encodeSync(WatchLineJson)({ sessionId, state: Failed.make({ failure: "No workspace." }) })}\n`,
+      `${Schema.encodeSync(WatchLineJson)({ sessionId, state: Failed.make({ ...details, failure: "No workspace." }) })}\n`,
     );
     await vi.waitFor(() => expect(mod.prompts).not.toHaveLength(0), {
       timeout: 2000,

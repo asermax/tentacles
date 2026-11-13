@@ -20,6 +20,8 @@ import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServer from "effect/http/HttpServer";
 import { HttpApiBuilder } from "effect/http-api";
 
+import { details } from "./values.ts";
+
 export const stubApiKey = "stub-api-key";
 
 /** One state the session's socket sends, after a pause. */
@@ -119,7 +121,7 @@ const stubLayer = (script: StubScript, requests: Array<ReceivedRequest>) => {
         return answering(
           sessionOf(params.sessionId).pipe(
             Effect.map(
-              (session) => session.states.at(-1)?.state ?? SessionState.cases.running.make({}),
+              (session) => session.states.at(-1)?.state ?? SessionState.cases.running.make(details),
             ),
           ),
         );
@@ -127,7 +129,9 @@ const stubLayer = (script: StubScript, requests: Array<ReceivedRequest>) => {
       .handle("list", ({ query }) => {
         requests.push({ endpoint: "list", query: query });
 
-        return answering(Effect.succeed(script.listed ?? []));
+        return answering(
+          Effect.succeed((script.listed ?? []).map((session) => ({ ...session, ...details }))),
+        );
       })
       .handle("socket", ({ params, request }) => {
         requests.push({ endpoint: "socket", sessionId: params.sessionId });

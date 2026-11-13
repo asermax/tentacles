@@ -11,7 +11,7 @@ import * as Effect from "effect/Effect";
 import { post, serveApi } from "./support/api.ts";
 import { script, scriptOutput } from "./support/codemode.ts";
 import { eventually } from "./support/eventually.ts";
-import { createRequest } from "./support/fixtures.ts";
+import { createRequest, detailsOf } from "./support/fixtures.ts";
 import { bareRepository } from "./support/workspace.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
@@ -22,17 +22,17 @@ const ask = (question: string) => toolUse("ask_parent", { question });
 
 const bash = (command: string) => toolUse("bash", { command });
 
-const running = SessionState.cases.running.make({});
-
 const startSession = (repository: Repository | null) =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
     const sessionId = newSessionId();
     const handle = yield* world.handle(sessionId);
 
-    yield* handle.create(createRequest("work", repository));
+    const request = createRequest("work", repository);
 
-    return { sessionId, handle, records: world.records(sessionId) };
+    yield* handle.create(request);
+
+    return { sessionId, handle, records: world.records(sessionId), details: detailsOf(request) };
   });
 
 const repositoryIn = (shared: string): Repository => ({
@@ -85,11 +85,14 @@ describe("the question tool", () => {
 
       world.faux.setResponses([ask("Which database?"), fauxAssistantMessage("Using postgres.")]);
 
-      const { sessionId, records } = yield* startSession(repositoryIn(world.shared));
+      const { sessionId, records, details } = yield* startSession(repositoryIn(world.shared));
       const question = yield* waitingOn(sessionId);
 
       expect(question.text).toBe("Which database?");
-      expect(records.states).toEqual([running, SessionState.cases.waiting.make({ question })]);
+      expect(records.states).toEqual([
+        SessionState.cases.running.make(details),
+        SessionState.cases.waiting.make({ ...details, question }),
+      ]);
 
       const answered = yield* api(
         `/sessions/${sessionId}/answer`,
@@ -99,8 +102,9 @@ describe("the question tool", () => {
       expect(answered.status).toBe(204);
       yield* finished(sessionId);
       expect(records.states.slice(2)).toEqual([
-        running,
+        SessionState.cases.running.make(details),
         SessionState.cases.idle.make({
+          ...details,
           lastEntry: Entry.cases.text.make({ text: "Using postgres." }),
         }),
       ]);
@@ -206,7 +210,7 @@ describe("the question tool", () => {
 
       world.faux.setResponses([ask("Still there?"), fauxAssistantMessage("Thanks.")]);
 
-      const { sessionId, records } = yield* startSession(repositoryIn(world.shared));
+      const { sessionId, records, details } = yield* startSession(repositoryIn(world.shared));
       const question = yield* waitingOn(sessionId);
 
       yield* world.evict(sessionId);
@@ -221,9 +225,9 @@ describe("the question tool", () => {
       yield* finished(sessionId);
       expect((yield* toolResults(sessionId))[0]?.output).toBe("yes");
       expect(records.states.slice(0, 3)).toEqual([
-        running,
-        SessionState.cases.waiting.make({ question }),
-        running,
+        SessionState.cases.running.make(details),
+        SessionState.cases.waiting.make({ ...details, question }),
+        SessionState.cases.running.make(details),
       ]);
     }).pipe(Effect.provide(testWorld)),
   );
@@ -274,7 +278,7 @@ describe("the question tool", () => {
 
       world.faux.setResponses([ask("Go?"), fauxAssistantMessage("Went.")]);
 
-      const { sessionId, handle } = yield* startSession(repositoryIn(world.shared));
+      const { sessionId, handle, details } = yield* startSession(repositoryIn(world.shared));
       const question = yield* waitingOn(sessionId);
 
       const wrong = yield* api(
@@ -283,7 +287,9 @@ describe("the question tool", () => {
       );
 
       expect(wrong.status).toBe(409);
-      expect(yield* handle.status()).toEqual(SessionState.cases.waiting.make({ question }));
+      expect(yield* handle.status()).toEqual(
+        SessionState.cases.waiting.make({ ...details, question }),
+      );
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -293,11 +299,12 @@ describe("the question tool", () => {
 
       world.faux.setResponses([ask("Anyone?"), fauxAssistantMessage("Ok.")]);
 
-      const { sessionId, handle } = yield* startSession(repositoryIn(world.shared));
+      const { sessionId, handle, details } = yield* startSession(repositoryIn(world.shared));
       const question = yield* waitingOn(sessionId);
 
       expect(yield* handle.status()).toEqual(
         SessionState.cases.waiting.make({
+          ...details,
           question: { id: question.id, text: "Anyone?" },
         }),
       );
@@ -310,14 +317,16 @@ describe("the question tool", () => {
 
       world.faux.setResponses([ask("Which?"), fauxAssistantMessage("Did both.")]);
 
-      const { sessionId, handle } = yield* startSession(repositoryIn(world.shared));
+      const { sessionId, handle, details } = yield* startSession(repositoryIn(world.shared));
       const question = yield* waitingOn(sessionId);
 
       yield* handle.prompt({ text: "also update the docs", mode: "followUp" });
       yield* Effect.sleep("50 millis");
 
       expect(world.faux.state.callCount).toBe(1);
-      expect(yield* handle.status()).toEqual(SessionState.cases.waiting.make({ question }));
+      expect(yield* handle.status()).toEqual(
+        SessionState.cases.waiting.make({ ...details, question }),
+      );
 
       yield* handle.answer({ questionId: question.id, text: "the first" });
       yield* finished(sessionId);
@@ -343,14 +352,17 @@ describe("the question tool", () => {
 
       world.faux.setResponses([ask("Wait?")]);
 
-      const { sessionId, handle, records } = yield* startSession(repositoryIn(world.shared));
+      const { sessionId, handle, records, details } = yield* startSession(
+        repositoryIn(world.shared),
+      );
+
       const question = yield* waitingOn(sessionId);
 
       yield* handle.close();
 
       yield* eventually(
         Effect.sync(() =>
-          expect(records.states.at(-1)).toEqual(SessionState.cases.closed.make({})),
+          expect(records.states.at(-1)).toEqual(SessionState.cases.closed.make(details)),
         ),
       );
       expect(

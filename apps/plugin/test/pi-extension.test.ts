@@ -15,7 +15,7 @@ import type {
   PiTool,
 } from "../src/pi/pi-api.ts";
 import { createFakeHelper, type FakeHelper } from "./fake-helper.ts";
-import { questionOf, sessionIdOf, Waiting } from "./values.ts";
+import { details, questionOf, sessionIdOf, Waiting } from "./values.ts";
 
 const sessionId = sessionIdOf(1);
 
@@ -96,7 +96,7 @@ describe("pi extension", () => {
   });
 
   it("keeps the local state in a custom session entry, wakes through sendMessage and shows open sessions in the widget", async () => {
-    const waiting = Waiting.make({ question: questionOf("q-3", "Which branch?") });
+    const waiting = Waiting.make({ ...details, question: questionOf("q-3", "Which branch?") });
 
     const helper = createFakeHelper({ list: Success.make({ result: [migrate] }) }, [
       { sessionId, state: waiting },

@@ -6,7 +6,7 @@ import { SessionStorage } from "@tentacles/contracts/session-storage";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Session } from "@tentacles/core";
 import type { Entry } from "@tentacles/worker-api/entries";
-import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
+import { InvalidArchive, QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
 import { SessionState } from "@tentacles/worker-api/session-state";
 import type { Answer, CreateSession, Prompt } from "@tentacles/worker-api/sessions";
@@ -36,7 +36,7 @@ import {
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
 export interface SessionOperations {
-  readonly create: (request: CreateSession) => Effect.Effect<void>;
+  readonly create: (request: CreateSession) => Effect.Effect<void, InvalidArchive>;
   readonly prompt: (request: Prompt) => Effect.Effect<void, SessionNotFound>;
   readonly answer: (request: Answer) => Effect.Effect<void, SessionNotFound | QuestionNotWaiting>;
   readonly close: () => Effect.Effect<void, SessionNotFound>;
@@ -49,7 +49,7 @@ export interface SessionOperations {
 /** One object per session, named by its id. */
 export class SessionObject extends Cloudflare.DurableObject<SessionObject, SessionOperations>()(
   "SessionObject",
-  { errors: [SessionNotFound, QuestionNotWaiting] },
+  { errors: [SessionNotFound, QuestionNotWaiting, InvalidArchive] },
 ) {}
 
 // A request the Worker passes to the object through fetch carries what it is for in a header,

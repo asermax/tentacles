@@ -9,7 +9,7 @@ import * as Schema from "effect/Schema";
 
 import { post, serveApi } from "./support/api.ts";
 import { eventually } from "./support/eventually.ts";
-import { createRequest, parent } from "./support/fixtures.ts";
+import { createRequest, details, parent } from "./support/fixtures.ts";
 import { heldAnswer, routedModel } from "./support/model.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
@@ -57,8 +57,8 @@ describe("the sessions API", () => {
       const sessionId = yield* createOver(api, "build it");
       const listed = yield* json(yield* api(`/sessions?harness=pi&sessionId=${parent.sessionId}`));
 
-      expect(listed).toEqual([{ sessionId, name: "worker", status: "running" }]);
-      expect(world.records(sessionId).states).toEqual([SessionState.cases.running.make({})]);
+      expect(listed).toEqual([{ sessionId, name: "worker", status: "running", ...details }]);
+      expect(world.records(sessionId).states).toEqual([SessionState.cases.running.make(details)]);
       held.release();
     }).pipe(Effect.provide(testWorld)),
   );
@@ -199,7 +199,7 @@ describe("the sessions API", () => {
       const sessionId = yield* finishedSession(api, "done");
 
       expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toEqual(
-        SessionState.cases.idle.make({}),
+        SessionState.cases.idle.make(details),
       );
     }).pipe(Effect.provide(testWorld)),
   );
@@ -221,8 +221,8 @@ describe("the sessions API", () => {
         expect(listed).toHaveLength(2);
         expect(listed).toEqual(
           expect.arrayContaining([
-            { sessionId: first, name: "worker", status: "idle" },
-            { sessionId: second, name: "worker", status: "closed" },
+            { sessionId: first, name: "worker", status: "idle", ...details },
+            { sessionId: second, name: "worker", status: "closed", ...details },
           ]),
         );
         expect(yield* json(yield* api("/sessions?harness=claude&sessionId=nobody"))).toEqual([]);
@@ -244,7 +244,7 @@ describe("the sessions API", () => {
       });
 
       expect(response.status).toBe(101);
-      expect(decodeState(yield* json(response))).toEqual(SessionState.cases.running.make({}));
+      expect(decodeState(yield* json(response))).toEqual(SessionState.cases.running.make(details));
       held.release();
     }).pipe(Effect.provide(testWorld)),
   );

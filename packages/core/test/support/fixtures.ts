@@ -1,5 +1,6 @@
 import { ParentSessionId } from "@tentacles/worker-api/ids";
 import { Harnesses, type Parent } from "@tentacles/worker-api/parent";
+import type { SessionDetails } from "@tentacles/worker-api/session-state";
 import type { CreateSession } from "@tentacles/worker-api/sessions";
 import type { Repository, Settings } from "@tentacles/worker-api/settings";
 import * as Schema from "effect/Schema";
@@ -29,3 +30,11 @@ export const createRequest = (
   settings: settings(repository),
   prompt,
 });
+
+export const detailsOf = (request: CreateSession): SessionDetails => ({
+  settings: request.settings,
+  skills: [],
+  agents: [],
+});
+
+export const details = detailsOf(createRequest(""));

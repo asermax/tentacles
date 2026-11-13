@@ -6,7 +6,7 @@ import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
 import { eventually } from "./support/eventually.ts";
-import { createRequest } from "./support/fixtures.ts";
+import { createRequest, detailsOf } from "./support/fixtures.ts";
 import { bareRepository } from "./support/workspace.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
@@ -23,7 +23,9 @@ const runSession = (repository: Repository | null) =>
     const sessionId = newSessionId();
     const handle = yield* world.handle(sessionId);
 
-    yield* handle.create(createRequest("work", repository));
+    const request = createRequest("work", repository);
+
+    yield* handle.create(request);
     yield* eventually(Effect.sync(() => expect(world.records(sessionId).states).toHaveLength(2)));
 
     const results = (yield* handle.messages(20)).filter(Entry.guards.toolResult);
@@ -35,6 +37,7 @@ const runSession = (repository: Repository | null) =>
       ensures: records.workspace.ensures.map((ensured) => ensured.repository),
       settings: records.workspace.ensures,
       states: records.states,
+      details: detailsOf(request),
     };
   });
 
@@ -105,14 +108,17 @@ describe("the workspace before each tool call", () => {
 
       world.faux.setResponses([bash("true"), bash("true"), fauxAssistantMessage("gave up")]);
 
-      const { results, ensures, states } = yield* runSession(repository);
+      const { results, ensures, states, details } = yield* runSession(repository);
 
       expect(results).toHaveLength(2);
       expect(results.every((result) => result.isError)).toBe(true);
       expect(results[0]?.output).toContain("git clone failed");
       expect(ensures.length).toBeGreaterThanOrEqual(2);
       expect(states.at(-1)).toEqual(
-        SessionState.cases.idle.make({ lastEntry: Entry.cases.text.make({ text: "gave up" }) }),
+        SessionState.cases.idle.make({
+          ...details,
+          lastEntry: Entry.cases.text.make({ text: "gave up" }),
+        }),
       );
     }).pipe(Effect.provide(testWorld)),
   );

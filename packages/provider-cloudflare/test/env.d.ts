@@ -1,6 +1,10 @@
 import type { Parent } from "@tentacles/worker-api/parent";
 import type { CreateSession } from "@tentacles/worker-api/sessions";
-import type { SessionRef, SessionStatus } from "@tentacles/worker-api/session-state";
+import type {
+  SessionDetails,
+  SessionListing,
+  SessionStatus,
+} from "@tentacles/worker-api/session-state";
 
 // The session object's RPC as a test calls it, the way the Worker's SessionHost does.
 interface SessionRpc extends Rpc.DurableObjectBranded {
@@ -10,9 +14,9 @@ interface SessionRpc extends Rpc.DurableObjectBranded {
 // The registry object's RPC as a test calls it from outside the Worker: each member of
 // RegistryStore, answered by the Alchemy bridge with its plain result.
 interface RegistryRpc extends Rpc.DurableObjectBranded {
-  add(sessionId: string, name: string, parent: Parent): void;
+  add(sessionId: string, name: string, parent: Parent, details: SessionDetails): void;
   setStatus(sessionId: string, status: SessionStatus): void;
-  list(parent: Parent): ReadonlyArray<SessionRef>;
+  list(parent: Parent): ReadonlyArray<SessionListing>;
 }
 
 declare global {

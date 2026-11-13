@@ -6,12 +6,12 @@ import {
 import { describe, expect, it } from "@effect/vitest";
 import { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
-import { SessionState } from "@tentacles/worker-api/session-state";
+import { type SessionDetails, SessionState } from "@tentacles/worker-api/session-state";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
 import { eventually } from "./support/eventually.ts";
-import { createRequest } from "./support/fixtures.ts";
+import { createRequest, detailsOf } from "./support/fixtures.ts";
 import { heldAnswer } from "./support/model.ts";
 import { bareRepository } from "./support/workspace.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
@@ -25,8 +25,6 @@ const commitAndPush = bash("git commit -qam 'save work' && git push -q origin ma
 
 const answer = (text: string) => fauxAssistantMessage(text);
 
-const running = SessionState.cases.running.make({});
-
 const startSession = (responses: FauxResponseStep[], repository: "managed" | "none" = "managed") =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
@@ -38,10 +36,12 @@ const startSession = (responses: FauxResponseStep[], repository: "managed" | "no
         ? { url: bareRepository(world.shared, "app"), shallow: false }
         : null;
 
-    world.faux.setResponses(responses);
-    yield* handle.create(createRequest("work", managed));
+    const request = createRequest("work", managed);
 
-    return { sessionId, handle, records: world.records(sessionId) };
+    world.faux.setResponses(responses);
+    yield* handle.create(request);
+
+    return { sessionId, handle, records: world.records(sessionId), details: detailsOf(request) };
   });
 
 const commitPrompts = (sessionId: SessionId) =>
@@ -63,8 +63,8 @@ const stoppedWith = (sessionId: SessionId, state: SessionState) =>
     );
   });
 
-const idleAfter = (text: string) =>
-  SessionState.cases.idle.make({ lastEntry: Entry.cases.text.make({ text }) });
+const idleAfter = (details: SessionDetails, text: string) =>
+  SessionState.cases.idle.make({ ...details, lastEntry: Entry.cases.text.make({ text }) });
 
 describe("the end-of-run commit check", () => {
   it.live(
@@ -73,7 +73,7 @@ describe("the end-of-run commit check", () => {
       Effect.gen(function* () {
         const held = heldAnswer("committing");
 
-        const { sessionId, records } = yield* startSession([
+        const { sessionId, records, details } = yield* startSession([
           leaveChange,
           answer("done"),
           held.response,
@@ -88,22 +88,25 @@ describe("the end-of-run commit check", () => {
         const [prompt] = yield* commitPrompts(sessionId);
 
         expect(prompt?.text).toContain(" M README.md");
-        expect(records.states).toEqual([running]);
+        expect(records.states).toEqual([SessionState.cases.running.make(details)]);
         held.release();
       }).pipe(Effect.provide(testWorld)),
   );
 
   it.live("an agent that commits and pushes after the prompt finishes idle", () =>
     Effect.gen(function* () {
-      const { sessionId, records } = yield* startSession([
+      const { sessionId, records, details } = yield* startSession([
         leaveChange,
         answer("done"),
         commitAndPush,
         answer("pushed"),
       ]);
 
-      yield* stoppedWith(sessionId, idleAfter("pushed"));
-      expect(records.states).toEqual([running, idleAfter("pushed")]);
+      yield* stoppedWith(sessionId, idleAfter(details, "pushed"));
+      expect(records.states).toEqual([
+        SessionState.cases.running.make(details),
+        idleAfter(details, "pushed"),
+      ]);
       expect(yield* commitPrompts(sessionId)).toHaveLength(1);
     }).pipe(Effect.provide(testWorld)),
   );
@@ -112,7 +115,7 @@ describe("the end-of-run commit check", () => {
     Effect.gen(function* () {
       const world = yield* TestWorld;
 
-      const { sessionId } = yield* startSession([
+      const { sessionId, details } = yield* startSession([
         leaveChange,
         answer("done"),
         answer("no"),
@@ -120,7 +123,7 @@ describe("the end-of-run commit check", () => {
         answer("never"),
       ]);
 
-      yield* stoppedWith(sessionId, idleAfter("never"));
+      yield* stoppedWith(sessionId, idleAfter(details, "never"));
       expect(yield* commitPrompts(sessionId)).toHaveLength(3);
       expect(world.faux.state.callCount).toBe(5);
     }).pipe(Effect.provide(testWorld)),
@@ -128,9 +131,9 @@ describe("the end-of-run commit check", () => {
 
   it.live("a run that never used the workspace finishes idle without starting it", () =>
     Effect.gen(function* () {
-      const { sessionId, records } = yield* startSession([answer("ok")]);
+      const { sessionId, records, details } = yield* startSession([answer("ok")]);
 
-      yield* stoppedWith(sessionId, idleAfter("ok"));
+      yield* stoppedWith(sessionId, idleAfter(details, "ok"));
       expect(records.workspace.ensures).toEqual([]);
       expect(yield* commitPrompts(sessionId)).toEqual([]);
     }).pipe(Effect.provide(testWorld)),
@@ -138,23 +141,23 @@ describe("the end-of-run commit check", () => {
 
   it.live("without a repository nothing is checked", () =>
     Effect.gen(function* () {
-      const { sessionId } = yield* startSession([leaveChange, answer("done")], "none");
+      const { sessionId, details } = yield* startSession([leaveChange, answer("done")], "none");
 
-      yield* stoppedWith(sessionId, idleAfter("done"));
+      yield* stoppedWith(sessionId, idleAfter(details, "done"));
       expect(yield* commitPrompts(sessionId)).toEqual([]);
     }).pipe(Effect.provide(testWorld)),
   );
 
   it.live("a failed run is not checked", () =>
     Effect.gen(function* () {
-      const { sessionId } = yield* startSession([
+      const { sessionId, details } = yield* startSession([
         leaveChange,
         fauxAssistantMessage("", { stopReason: "error", errorMessage: "invalid request" }),
       ]);
 
       yield* stoppedWith(
         sessionId,
-        SessionState.cases.failed.make({ failure: "model_error: invalid request" }),
+        SessionState.cases.failed.make({ ...details, failure: "model_error: invalid request" }),
       );
       expect(yield* commitPrompts(sessionId)).toEqual([]);
     }).pipe(Effect.provide(testWorld)),
@@ -164,12 +167,12 @@ describe("the end-of-run commit check", () => {
     Effect.gen(function* () {
       const world = yield* TestWorld;
       const held = heldAnswer("never finished");
-      const { sessionId, handle } = yield* startSession([leaveChange, held.response]);
+      const { sessionId, handle, details } = yield* startSession([leaveChange, held.response]);
 
       yield* eventually(Effect.sync(() => expect(world.faux.state.callCount).toBe(2)));
       yield* handle.close();
 
-      yield* stoppedWith(sessionId, SessionState.cases.closed.make({}));
+      yield* stoppedWith(sessionId, SessionState.cases.closed.make(details));
       expect(yield* commitPrompts(sessionId)).toEqual([]);
     }).pipe(Effect.provide(testWorld)),
   );
@@ -179,7 +182,7 @@ describe("the end-of-run commit check", () => {
       const world = yield* TestWorld;
       const held = heldAnswer("cut off");
 
-      const { sessionId } = yield* startSession([
+      const { sessionId, details } = yield* startSession([
         leaveChange,
         answer("done"),
         answer("no"),
@@ -194,7 +197,7 @@ describe("the end-of-run commit check", () => {
       yield* world.evict(sessionId);
       yield* (yield* world.handle(sessionId)).wake();
 
-      yield* stoppedWith(sessionId, idleAfter("never"));
+      yield* stoppedWith(sessionId, idleAfter(details, "never"));
       expect(yield* commitPrompts(sessionId)).toHaveLength(3);
     }).pipe(Effect.provide(testWorld)),
   );
@@ -203,7 +206,7 @@ describe("the end-of-run commit check", () => {
     Effect.gen(function* () {
       const world = yield* TestWorld;
 
-      const { sessionId, handle } = yield* startSession([
+      const { sessionId, handle, details } = yield* startSession([
         leaveChange,
         answer("done"),
         answer("no"),
@@ -211,14 +214,14 @@ describe("the end-of-run commit check", () => {
         answer("no"),
       ]);
 
-      yield* stoppedWith(sessionId, idleAfter("no"));
+      yield* stoppedWith(sessionId, idleAfter(details, "no"));
       expect(yield* commitPrompts(sessionId)).toHaveLength(3);
 
       world.faux.setResponses([answer("later"), answer("no"), answer("no"), answer("final")]);
       yield* handle.prompt({ text: "anything else?", mode: "followUp" });
 
       yield* eventually(Effect.sync(() => expect(world.faux.state.callCount).toBe(9)));
-      yield* stoppedWith(sessionId, idleAfter("final"));
+      yield* stoppedWith(sessionId, idleAfter(details, "final"));
       expect(yield* commitPrompts(sessionId)).toHaveLength(6);
     }).pipe(Effect.provide(testWorld)),
   );
@@ -228,7 +231,7 @@ describe("the end-of-run commit check", () => {
       const world = yield* TestWorld;
       const held = heldAnswer("no");
 
-      const { sessionId, handle } = yield* startSession([
+      const { sessionId, handle, details } = yield* startSession([
         leaveChange,
         answer("done"),
         held.response,
@@ -241,7 +244,7 @@ describe("the end-of-run commit check", () => {
       yield* handle.prompt({ text: "keep going", mode: "followUp" });
       held.release();
 
-      yield* stoppedWith(sessionId, idleAfter("never"));
+      yield* stoppedWith(sessionId, idleAfter(details, "never"));
       expect(yield* commitPrompts(sessionId)).toHaveLength(3);
     }).pipe(Effect.provide(testWorld)),
   );

@@ -28,7 +28,7 @@ const withLastEntry = (sessionId: SessionId, state: SessionState) =>
 
     return Option.match(Option.fromNullishOr(entries.at(-1)), {
       onNone: () => state,
-      onSome: (lastEntry) => SessionState.cases.idle.make({ lastEntry }),
+      onSome: (lastEntry) => SessionState.cases.idle.make({ ...state, lastEntry }),
     });
   });
 

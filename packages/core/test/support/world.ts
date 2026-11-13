@@ -231,9 +231,9 @@ const makeWorld = Effect.gen(function* () {
 
   const failing = RegistryStore.of({
     ...registry,
-    add: (sessionId, name, parent) =>
+    add: (sessionId, name, parent, details) =>
       Effect.sync(() => void registryCalls.push(`add ${sessionId}`)).pipe(
-        Effect.andThen(registry.add(sessionId, name, parent)),
+        Effect.andThen(registry.add(sessionId, name, parent, details)),
       ),
     setStatus: (sessionId, status) =>
       Effect.sync(() => void registryCalls.push(`${status} ${sessionId}`)).pipe(

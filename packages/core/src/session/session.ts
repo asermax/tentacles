@@ -193,7 +193,11 @@ const make = (sessionId: SessionId) =>
     const handle: SessionHandle = {
       create: (request) =>
         Effect.gen(function* () {
-          yield* status.register(request.name, request.parent);
+          yield* status.register(request.name, request.parent, {
+            settings: request.settings,
+            skills: [],
+            agents: [],
+          });
 
           const conversation = yield* Effect.promise(() =>
             harness.root(BACKGROUND_CONTEXT, {

@@ -13,7 +13,12 @@ import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Parent } from "@tentacles/worker-api/parent";
-import { isActive, SessionState, statusOf } from "@tentacles/worker-api/session-state";
+import {
+  isActive,
+  type SessionDetails,
+  SessionState,
+  statusOf,
+} from "@tentacles/worker-api/session-state";
 import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -45,29 +50,40 @@ const liveQuestions = (observed: Observed) => {
 const waitingQuestion = (observed: Observed) =>
   liveQuestions(observed).find((question) => question.answer == null);
 
+const detailsOf = (record: SessionRecord): SessionDetails => ({
+  settings: record.settings,
+  skills: [],
+  agents: [],
+});
+
 /** The session's state as its documents show it; null before create stored the record. */
 export const deriveState = (observed: Observed): SessionState | null => {
   if (observed.record == null) {
     return null;
   }
 
+  const details = detailsOf(observed.record);
+
   if (observed.live?.run != null) {
     const question = waitingQuestion(observed);
 
     return question == null
-      ? SessionState.cases.running.make({})
-      : SessionState.cases.waiting.make({ question: { id: question.id, text: question.text } });
+      ? SessionState.cases.running.make(details)
+      : SessionState.cases.waiting.make({
+          ...details,
+          question: { id: question.id, text: question.text },
+        });
   }
 
   if (observed.record.closed) {
-    return SessionState.cases.closed.make({});
+    return SessionState.cases.closed.make(details);
   }
 
   const failure = observed.live?.runFailure;
 
   return failure == null
-    ? SessionState.cases.idle.make({})
-    : SessionState.cases.failed.make({ failure: describeFailure(failure) });
+    ? SessionState.cases.idle.make(details)
+    : SessionState.cases.failed.make({ ...details, failure: describeFailure(failure) });
 };
 
 // Two states are the same change when their status is, and, while waiting,
@@ -203,8 +219,8 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
 
     return {
       /** RegistryStore.add, with no status until the first report. */
-      register: (name: string, parent: Parent) =>
-        registry.add(sessionId, name, parent).pipe(Effect.orDie),
+      register: (name: string, parent: Parent, details: SessionDetails) =>
+        registry.add(sessionId, name, parent, details).pipe(Effect.orDie),
 
       /**
        * Start observing a session whose record exists. What it shows now is the

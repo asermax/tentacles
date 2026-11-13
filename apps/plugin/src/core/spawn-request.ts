@@ -5,7 +5,7 @@ import * as Struct from "effect/Struct";
 
 /** What the helper receives for spawn: CreateSession with every setting optional, since the helper fills the rest from its variables. */
 export const SpawnRequest = CreateSession.mapFields((fields) => ({
-  ...fields,
+  ...Struct.omit(fields, ["skills", "agents"]),
   settings: Schema.optionalKey(Settings.mapFields(Struct.map(Schema.optionalKey))),
 }));
 
