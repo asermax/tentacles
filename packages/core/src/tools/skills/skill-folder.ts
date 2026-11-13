@@ -1,4 +1,4 @@
-import { skillsDirectory } from "@tentacles/contracts/workspace";
+import { archiveKinds } from "@tentacles/worker-api/archive-kinds";
 import type { Skill } from "@tentacles/worker-api/definitions";
 
-export const skillFolder = (skill: Skill) => `${skillsDirectory}/${skill.name}`;
+export const skillFolder = (skill: Skill) => `${archiveKinds.skills.expandsInto}/${skill.name}`;

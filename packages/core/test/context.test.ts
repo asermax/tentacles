@@ -83,7 +83,7 @@ describe("create with context", () => {
 
       yield* finished(sessionId);
 
-      expect(world.contextArchives.get(sessionId)).toEqual(context);
+      expect(world.archives("context").get(sessionId)).toEqual(context);
       expect(sections[0]).toBe(sentence);
     }).pipe(Effect.provide(testWorld)),
   );
@@ -100,7 +100,7 @@ describe("create with context", () => {
 
       yield* finished(sessionId);
 
-      expect(world.contextArchives.size).toBe(0);
+      expect(world.archives("context").size).toBe(0);
       expect(sections.every((section) => section == null)).toBe(true);
     }).pipe(Effect.provide(testWorld)),
   );
@@ -125,7 +125,7 @@ describe("create with context", () => {
       expect(response.status).toBe(400);
       expect(decodeInvalidArchive(yield* json(response)).message).toContain("context archive");
       expect(world.registryCalls).toEqual([]);
-      expect(world.contextArchives.size).toBe(0);
+      expect(world.archives("context").size).toBe(0);
       expect(world.faux.getPendingResponseCount()).toBe(1);
     }).pipe(Effect.provide(testWorld)),
   );
@@ -153,8 +153,8 @@ describe("create with context", () => {
       expect(response.status).toBe(400);
       expect(message).toContain("skills archive");
       expect(message).toContain("context archive");
-      expect(world.contextArchives.size).toBe(0);
-      expect(world.skillsArchives.size).toBe(0);
+      expect(world.archives("context").size).toBe(0);
+      expect(world.archives("skills").size).toBe(0);
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -177,8 +177,8 @@ describe("create with context", () => {
 
       yield* finished(sessionId);
 
-      expect(world.skillsArchives.get(sessionId)).toEqual(archives.skills);
-      expect(world.contextArchives.get(sessionId)).toEqual(context);
+      expect(world.archives("skills").get(sessionId)).toEqual(archives.skills);
+      expect(world.archives("context").get(sessionId)).toEqual(context);
       expect(yield* json(yield* api(`/sessions?harness=pi&sessionId=${parent.sessionId}`))).toEqual(
         [{ sessionId, name: "worker", status: "idle", ...named }],
       );

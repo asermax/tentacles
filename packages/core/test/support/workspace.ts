@@ -4,15 +4,17 @@ import { dirname, join } from "node:path";
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
-import type { ContextArchive } from "@tentacles/contracts/context-archive";
-import type { SkillsArchive } from "@tentacles/contracts/skills-archive";
+import type { ArchiveStore } from "@tentacles/contracts/archive-store";
 import {
-  contextDirectory,
-  skillsDirectory,
   Workspace,
   type WorkspaceSettings,
   WorkspaceUnavailable,
 } from "@tentacles/contracts/workspace";
+import {
+  archiveKindNames,
+  archiveKinds,
+  type ArchiveKind,
+} from "@tentacles/worker-api/archive-kinds";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
@@ -101,19 +103,18 @@ const sandboxed = (directory: string, shared: string) => {
   ];
 };
 
-const archivePath = (label: string) => `/tmp/${label}.tar.gz`;
+const archivePath = (kind: ArchiveKind) => `/tmp/${kind}.tar.gz`;
 
 /**
  * A session's Workspace over a local sandboxed daemon. ensure starts the
- * workspace on its first call, clones the repository and expands the skills
- * and context archives into /skills and /context then, as a container that just started would; a failed
- * clone or expansion leaves it not started.
+ * workspace on its first call, clones the repository and expands each kind's archive into its
+ * directory then, as a container that just started would; a failed clone or expansion leaves it
+ * not started.
  */
 export const testWorkspace = (
   root: string,
   shared: string,
-  skillsArchive: SkillsArchive["Service"],
-  contextArchive: ContextArchive["Service"],
+  archiveStore: ArchiveStore["Service"],
 ) =>
   Effect.acquireRelease(
     Effect.sync(() => {
@@ -164,10 +165,10 @@ export const testWorkspace = (
         );
 
       // pi-env's exec takes no standard input, so the archive goes in as a file.
-      const extract = (label: string, directory: string, archive: Uint8Array) =>
+      const extract = (kind: ArchiveKind, directory: string, archive: Uint8Array) =>
         Effect.promise(async () => {
-          const env = new RemoteExecutionEnv({ connection, id: label, cwd: "/" });
-          const written = await env.writeFile(archivePath(label), archive, BACKGROUND_CONTEXT);
+          const env = new RemoteExecutionEnv({ connection, id: kind, cwd: "/" });
+          const written = await env.writeFile(archivePath(kind), archive, BACKGROUND_CONTEXT);
 
           if (!written.ok) {
             return String(written.error);
@@ -176,7 +177,7 @@ export const testWorkspace = (
           let output = "";
 
           const result = await env.exec(
-            ["sh", "-c", `mkdir -p ${directory} && tar -xzf ${archivePath(label)} -C ${directory}`],
+            ["sh", "-c", `mkdir -p ${directory} && tar -xzf ${archivePath(kind)} -C ${directory}`],
             { onOutput: (text) => (output += text) },
             BACKGROUND_CONTEXT,
           );
@@ -188,7 +189,7 @@ export const testWorkspace = (
               ? Effect.void
               : Effect.fail(
                   new WorkspaceUnavailable({
-                    message: `Expanding the ${label} failed: ${failure}`,
+                    message: `Expanding the ${kind} failed: ${failure}`,
                   }),
                 ),
           ),
@@ -206,15 +207,20 @@ export const testWorkspace = (
             yield* Effect.validate(
               [
                 settings.repository == null ? Effect.void : clone(settings.repository),
-                Effect.flatMap(skillsArchive.read(), (archive) =>
-                  archive == null ? Effect.void : extract("skills", skillsDirectory, archive),
-                ),
-                Effect.flatMap(contextArchive.read(), (archive) =>
-                  archive == null ? Effect.void : extract("context", contextDirectory, archive),
-                ),
+                ...archiveKindNames.flatMap((kind) => {
+                  const { expandsInto } = archiveKinds[kind];
+
+                  return expandsInto == null
+                    ? []
+                    : [
+                        Effect.flatMap(archiveStore.read(kind), (archive) =>
+                          archive == null ? Effect.void : extract(kind, expandsInto, archive),
+                        ),
+                      ];
+                }),
               ],
               (step) => step,
-              { concurrency: 3, discard: true },
+              { concurrency: "unbounded", discard: true },
             ).pipe(
               Effect.mapError(
                 (failures) =>

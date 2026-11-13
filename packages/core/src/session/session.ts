@@ -18,10 +18,10 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
-import { ContextArchive } from "@tentacles/contracts/context-archive";
-import { SkillsArchive } from "@tentacles/contracts/skills-archive";
+import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
+import { archiveKinds, archiveKindNames } from "@tentacles/worker-api/archive-kinds";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
@@ -78,8 +78,7 @@ const make = (sessionId: SessionId) =>
       Browser | CodeSandbox | ParentChannel | PreviewRouter | RegistryStore | Workspace
     >();
 
-    const skillsArchive = yield* SkillsArchive;
-    const contextArchive = yield* ContextArchive;
+    const archiveStore = yield* ArchiveStore;
 
     const run = Effect.runPromiseWith(services);
     const fork = Effect.runForkWith(services);
@@ -208,12 +207,12 @@ const make = (sessionId: SessionId) =>
           const skills = archives.skills.map(toSkillEntry);
           const { agents } = archives;
 
-          if (request.skills != null) {
-            yield* skillsArchive.save(request.skills);
-          }
+          for (const kind of archiveKindNames) {
+            const archive = request[kind];
 
-          if (request.context != null) {
-            yield* contextArchive.save(request.context);
+            if (archiveKinds[kind].expandsInto != null && archive != null) {
+              yield* archiveStore.save(kind, archive);
+            }
           }
 
           yield* status.register(request.name, request.parent, {
@@ -242,7 +241,7 @@ const make = (sessionId: SessionId) =>
                 await tx.doc(QuestionsDoc);
                 (await tx.doc(SkillsDoc)).skills.push(...skills);
                 (await tx.doc(AgentsDoc)).agents.push(...agents);
-                (await tx.doc(ContextDoc)).sent = archives.context;
+                (await tx.doc(ContextDoc)).sent = request.context != null;
               },
             }),
           );
