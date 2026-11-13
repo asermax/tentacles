@@ -173,6 +173,86 @@ describe("spawn with skill and agent definitions", () => {
     expect(await modesOf(created?.agents)).toEqual({ "planner.md": 0o600 });
   });
 
+  it("accepts a skill whose description has an unquoted colon and sends its SKILL.md with each plain value quoted and the rest unchanged", async () => {
+    const skill = join(dir, "skills", "implement");
+
+    write(
+      "skills/implement/SKILL.md",
+      [
+        "---",
+        "name: implement",
+        "description: Does a thing: with a colon",
+        "argument-hint: [repo-path] [branch-name]",
+        'allowed-tools: "Bash"',
+        "metadata:",
+        "  owner: platform",
+        "---",
+        "",
+        "Body: untouched.",
+        "",
+      ].join("\n"),
+    );
+
+    const result = await spawn({ skills: [skill] });
+    const [created] = stubWorker().creates;
+
+    expect(result).toEqual(Success.make({ result: { sessionId } }));
+    expect(await unpacked(created?.skills)).toEqual({
+      "implement/SKILL.md": [
+        "---",
+        'name: "implement"',
+        'description: "Does a thing: with a colon"',
+        'argument-hint: "[repo-path] [branch-name]"',
+        'allowed-tools: "Bash"',
+        "metadata:",
+        "  owner: platform",
+        "---",
+        "",
+        "Body: untouched.",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  it("accepts an agent whose description has an unquoted colon and sends the file with each plain value quoted", async () => {
+    const agent = write(
+      "agents/planner.md",
+      "---\nname: planner\ndescription: Plans: and splits the work\n---\nPlan it.\n",
+    );
+
+    const result = await spawn({ agents: [agent] });
+    const [created] = stubWorker().creates;
+
+    expect(result).toEqual(Success.make({ result: { sessionId } }));
+    expect(await unpacked(created?.agents)).toEqual({
+      "planner.md":
+        '---\nname: "planner"\ndescription: "Plans: and splits the work"\n---\nPlan it.\n',
+    });
+  });
+
+  it("sends a definition whose frontmatter is already valid byte for byte", async () => {
+    const text = "---\nname: planner\ndescription: Plans the work.\n---\nPlan it.\n";
+    const agent = write("agents/planner.md", text);
+
+    await spawn({ agents: [agent] });
+
+    expect(await unpacked(stubWorker().creates[0]?.agents)).toEqual({ "planner.md": text });
+  });
+
+  it("reports the YAML problem of a skill whose frontmatter stays invalid after the repair", async () => {
+    const skill = join(dir, "skills", "broken");
+
+    write(
+      "skills/broken/SKILL.md",
+      "---\nname: broken\ndescription: Has: a colon\nmetadata:\n  a: 1\n b: 2\n---\nBody.\n",
+    );
+
+    const message = helperErrorMessage(await spawn({ skills: [skill] }));
+
+    expect(message).toContain(`- ${skill}: the frontmatter is not valid YAML: `);
+    expect(stubWorker().requests).toEqual([]);
+  });
+
   it("sends the skills archive and no agents archive when it gets skill paths only", async () => {
     const result = await spawn({ skills: [skillFolder("implement")] });
     const [created] = stubWorker().creates;

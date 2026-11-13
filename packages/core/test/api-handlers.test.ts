@@ -139,6 +139,33 @@ describe("the sessions API", () => {
       }).pipe(Effect.provide(testWorld)),
   );
 
+  it.live("create with a skill whose description has an unquoted colon succeeds and lists it", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const api = yield* serveApi;
+
+      const skills = yield* Effect.promise(() =>
+        skillsArchive({ name: "implement", description: "Does a thing: with a colon" }),
+      );
+
+      world.faux.setResponses([fauxAssistantMessage("ok")]);
+
+      const response = yield* api(
+        "/sessions",
+        post(createBody(createRequest("go", null, { skills }))),
+      );
+
+      expect(response.status).toBe(200);
+
+      const { sessionId } = decodeCreated(yield* json(response));
+
+      expect(world.skillsArchives.get(sessionId)).toEqual(skills);
+      expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toMatchObject({
+        skills: ["implement"],
+      });
+    }).pipe(Effect.provide(testWorld)),
+  );
+
   it.live(
     "create with a skills archive that is not a gzip tar fails InvalidArchive and stores nothing",
     () =>

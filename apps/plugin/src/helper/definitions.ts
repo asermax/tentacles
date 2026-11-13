@@ -6,6 +6,7 @@ import {
   checkAgents,
   checkSkills,
   Problem,
+  repairFrontmatter,
   type AgentSource,
   type SkillSource,
 } from "@tentacles/worker-api/definitions";
@@ -43,6 +44,17 @@ export interface DefinitionPaths {
 const skillFile = "SKILL.md";
 
 const decoder = new TextDecoder();
+
+const encoder = new TextEncoder();
+
+// The session reads the archive strictly, so a definition the fallback had to
+// repair is sent repaired; every other file keeps its bytes.
+const repaired = (entry: ArchiveEntry): ArchiveEntry => {
+  const text = decoder.decode(entry.bytes);
+  const fixed = repairFrontmatter(text);
+
+  return fixed === text ? entry : { ...entry, bytes: encoder.encode(fixed) };
+};
 
 const problemOf = (path: string, message: string): Problem => ({ path, message });
 
@@ -107,7 +119,7 @@ const readSkill = (path: string) =>
 
     return {
       source: { folder, path, text: decoder.decode(skill.bytes) } satisfies SkillSource,
-      entries,
+      entries: entries.map((entry) => (entry === skill ? repaired(entry) : entry)),
     };
   });
 
@@ -122,7 +134,7 @@ const readAgent = (path: string) =>
 
     return {
       source: { path, text: decoder.decode(bytes) } satisfies AgentSource,
-      entries: [{ path: basename(path), bytes, mode: info.mode & permissionBits }],
+      entries: [repaired({ path: basename(path), bytes, mode: info.mode & permissionBits })],
     };
   });
 
