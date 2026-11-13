@@ -1,1 +1,1 @@
-export { providers, stack } from "./stack.ts";
+export { providers, stack } from "./stack";

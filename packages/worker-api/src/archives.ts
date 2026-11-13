@@ -2,8 +2,8 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { packTar, unpackTar } from "modern-tar";
 
-import { checkAgents, checkSkills, type Problem, type SkillSource } from "./definitions.ts";
-import { InvalidArchive } from "./errors.ts";
+import { checkAgents, checkSkills, type Problem, type SkillSource } from "./definitions";
+import { InvalidArchive } from "./errors";
 
 export class ArchiveUnreadable extends Schema.TaggedError<ArchiveUnreadable>()(
   "ArchiveUnreadable",

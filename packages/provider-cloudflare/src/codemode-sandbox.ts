@@ -4,7 +4,7 @@ import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import type { CodemodeSandbox } from "./codemode-worker.ts";
+import type { CodemodeSandbox } from "./codemode-worker";
 
 /** The codemode Worker's script name; the tentacles Worker binds its class by it. */
 export const codemodeWorkerName = "tentacles-codemode";

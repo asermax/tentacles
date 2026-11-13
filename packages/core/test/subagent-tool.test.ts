@@ -5,11 +5,11 @@ import { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
-import { definitionArchives } from "./support/archives.ts";
-import { eventually } from "./support/eventually.ts";
-import { createRequest } from "./support/fixtures.ts";
-import { heldAnswer, type ModelRequest, routedModel } from "./support/model.ts";
-import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { definitionArchives } from "./support/archives";
+import { eventually } from "./support/eventually";
+import { createRequest } from "./support/fixtures";
+import { heldAnswer, type ModelRequest, routedModel } from "./support/model";
+import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 type SubagentCall =
   | { action: "run"; task: string; agent?: string }

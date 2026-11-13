@@ -1,8 +1,8 @@
 import { type ConversationId, defineExtension, type Extension } from "@earendil-works/pi-durable";
 
-import { agentsSection } from "./agents-section.ts";
-import { subagentTasks } from "./subagent-tasks.ts";
-import { subagentTool } from "./subagent-tool.ts";
+import { agentsSection } from "./agents-section";
+import { subagentTasks } from "./subagent-tasks";
+import { subagentTool } from "./subagent-tool";
 
 /**
  * The session's agents: the section that lists them, the subagent tool and the

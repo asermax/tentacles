@@ -8,13 +8,13 @@ import { SessionState } from "@tentacles/worker-api/session-state";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
-import { post, serveApi } from "./support/api.ts";
-import { script, scriptOutput } from "./support/codemode.ts";
-import { eventually } from "./support/eventually.ts";
-import { definitionArchives, definitionNames } from "./support/archives.ts";
-import { createRequest, detailsOf } from "./support/fixtures.ts";
-import { bareRepository } from "./support/workspace.ts";
-import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { post, serveApi } from "./support/api";
+import { script, scriptOutput } from "./support/codemode";
+import { eventually } from "./support/eventually";
+import { definitionArchives, definitionNames } from "./support/archives";
+import { createRequest, detailsOf } from "./support/fixtures";
+import { bareRepository } from "./support/workspace";
+import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 const toolUse = (name: string, args: Record<string, string>) =>
   fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });

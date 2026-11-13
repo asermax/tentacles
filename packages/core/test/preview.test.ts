@@ -8,13 +8,13 @@ import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { previewHandler } from "../src/index.ts";
-import { PreviewResult } from "../src/tools/preview-result.ts";
-import { eventually } from "./support/eventually.ts";
-import { script, scriptOutput } from "./support/codemode.ts";
-import { createRequest } from "./support/fixtures.ts";
-import { heldAnswer } from "./support/model.ts";
-import { BrowserCalls, newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { previewHandler } from "../src";
+import { PreviewResult } from "../src/tools/preview-result";
+import { eventually } from "./support/eventually";
+import { script, scriptOutput } from "./support/codemode";
+import { createRequest } from "./support/fixtures";
+import { heldAnswer } from "./support/model";
+import { BrowserCalls, newSessionId, TestWorld, testWorld } from "./support/world";
 
 const preview = (args: { action: "open"; port: number } | { action: "close" }) =>
   fauxAssistantMessage(fauxToolCall("preview", args), { stopReason: "toolUse" });

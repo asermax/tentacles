@@ -7,7 +7,7 @@ import { SessionState } from "@tentacles/worker-api/session-state";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { createBody, post, serveApi } from "./support/api.ts";
+import { createBody, post, serveApi } from "./support/api";
 import {
   agentsArchive,
   agentWithoutBody,
@@ -16,11 +16,11 @@ import {
   oversizedSkillsArchive,
   skillBlockOf,
   skillsArchive,
-} from "./support/archives.ts";
-import { eventually } from "./support/eventually.ts";
-import { createRequest, detailsOf, details, parent } from "./support/fixtures.ts";
-import { heldAnswer, routedModel } from "./support/model.ts";
-import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
+} from "./support/archives";
+import { eventually } from "./support/eventually";
+import { createRequest, detailsOf, details, parent } from "./support/fixtures";
+import { heldAnswer, routedModel } from "./support/model";
+import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 const decodeCreated = Schema.decodeUnknownSync(Schema.Struct({ sessionId: SessionId }));
 

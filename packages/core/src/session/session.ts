@@ -33,15 +33,15 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
 import { AgentsDoc } from "../tools/agents";
-import { remoteAgentExtensions } from "../tools/extension.ts";
+import { remoteAgentExtensions } from "../tools/extension";
 import { expandPrompt, expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills";
-import { toEntries } from "./entries.ts";
-import { QuestionsDoc } from "./questions.ts";
-import { readArchives } from "./read-archives.ts";
-import { RecordDoc, type SessionRecord } from "./record.ts";
-import { trackStatus } from "./state.ts";
-import { workspaceEnv } from "./workspace-env.ts";
-import { isWorkspaceNeeded } from "./workspace-needed.ts";
+import { toEntries } from "./entries";
+import { QuestionsDoc } from "./questions";
+import { readArchives } from "./read-archives";
+import { RecordDoc, type SessionRecord } from "./record";
+import { trackStatus } from "./state";
+import { workspaceEnv } from "./workspace-env";
+import { isWorkspaceNeeded } from "./workspace-needed";
 
 // While work runs, the timer also serves as a recovery heartbeat: a process
 // that dies mid-run is woken within a minute.

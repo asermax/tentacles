@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
-import { testSecrets } from "./secrets.ts";
+import { testSecrets } from "./secrets";
 
 // What the images send in place of a credential; the egress replaces whatever arrives.
 const placeholder = "tentacles-egress-credential";

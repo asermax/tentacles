@@ -1,6 +1,6 @@
 import { section } from "@earendil-works/pi-durable";
 
-import { type SkillEntry, SkillsDoc } from "./skills-doc.ts";
+import { type SkillEntry, SkillsDoc } from "./skills-doc";
 
 const listing = (skills: readonly SkillEntry[]) =>
   "Skills are instructions for specific kinds of work. When a task matches a skill's description, " +

@@ -1,6 +1,6 @@
-import { expandSkills } from "./expand-skills.ts";
-import type { SkillEntry } from "./skills-doc.ts";
-import { triggerPattern } from "./trigger-pattern.ts";
+import { expandSkills } from "./expand-skills";
+import type { SkillEntry } from "./skills-doc";
+import { triggerPattern } from "./trigger-pattern";
 
 /**
  * Expands the held skills' triggers in a prompt, reading the skills document

@@ -7,16 +7,16 @@ import {
 } from "@earendil-works/pi-durable";
 import { lit, obj, oneOf, str, union } from "@earendil-works/pi-schema";
 
-import { ToolNames } from "../tool-names.ts";
-import { agentArgument } from "./agent-argument.ts";
-import { agentNamed } from "./agent-named.ts";
-import { answerText } from "./answer-text.ts";
-import { childStatus } from "./child-status.ts";
-import { findChild } from "./find-child.ts";
-import { reply } from "./reply.ts";
-import { Anchor } from "./subagent-anchor.ts";
-import { Reporter } from "./subagent-reporter.ts";
-import { Subagents } from "./subagents-doc.ts";
+import { ToolNames } from "../tool-names";
+import { agentArgument } from "./agent-argument";
+import { agentNamed } from "./agent-named";
+import { answerText } from "./answer-text";
+import { childStatus } from "./child-status";
+import { findChild } from "./find-child";
+import { reply } from "./reply";
+import { Anchor } from "./subagent-anchor";
+import { Reporter } from "./subagent-reporter";
+import { Subagents } from "./subagents-doc";
 
 /**
  * The subagent tool: run waits for a foreground child's answer (pi-durable's

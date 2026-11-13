@@ -6,11 +6,11 @@ import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
 import { expandPrompt, type SkillEntry } from "../src/tools/skills";
-import { definitionArchives, skillBlockOf } from "./support/archives.ts";
-import { eventually } from "./support/eventually.ts";
-import { type Archives, createRequest } from "./support/fixtures.ts";
-import { type ModelRequest, routedModel } from "./support/model.ts";
-import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { definitionArchives, skillBlockOf } from "./support/archives";
+import { eventually } from "./support/eventually";
+import { type Archives, createRequest } from "./support/fixtures";
+import { type ModelRequest, routedModel } from "./support/model";
+import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 const say = (text: string) => fauxAssistantMessage(text);
 

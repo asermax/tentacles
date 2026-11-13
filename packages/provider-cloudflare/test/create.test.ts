@@ -4,8 +4,8 @@ import { SessionId } from "@tentacles/worker-api/ids";
 import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
-import { agentsArchive, skillsArchive } from "./archives.ts";
-import { apiFetch, testSettings, waitUntilIdle } from "./sessions.ts";
+import { agentsArchive, skillsArchive } from "./archives";
+import { apiFetch, testSettings, waitUntilIdle } from "./sessions";
 
 const withinLimit = 5_200_000;
 const overLimit = 5_300_000;

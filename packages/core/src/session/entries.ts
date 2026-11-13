@@ -4,7 +4,7 @@ import { Entry } from "@tentacles/worker-api/entries";
 import * as Predicate from "effect/Predicate";
 
 import { isForegroundAnswer } from "../tools/agents";
-import { subagentReportKind, ToolNames } from "../tools/tool-names.ts";
+import { subagentReportKind, ToolNames } from "../tools/tool-names";
 
 type Part = { readonly type: string; readonly text?: string };
 

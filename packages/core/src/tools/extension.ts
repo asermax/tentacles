@@ -15,11 +15,11 @@ import { Workspace } from "@tentacles/contracts/workspace";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
-import { commitCheckExtension } from "../session/run-end.ts";
+import { commitCheckExtension } from "../session/run-end";
 import { agentsExtension } from "./agents";
-import { previewTool } from "./preview.ts";
-import { askParentTool } from "./question.ts";
-import { remoteAgentInstructions } from "./remote-agent-instructions.ts";
+import { previewTool } from "./preview";
+import { askParentTool } from "./question";
+import { remoteAgentInstructions } from "./remote-agent-instructions";
 import { skillsExtension } from "./skills";
 
 /**

@@ -1,7 +1,7 @@
 import { section } from "@earendil-works/pi-durable";
 import type { Agent } from "@tentacles/worker-api/definitions";
 
-import { AgentsDoc } from "./agents-doc.ts";
+import { AgentsDoc } from "./agents-doc";
 
 const listing = (agents: readonly Agent[]) =>
   "Agents are definitions of subagents. Pass an agent's name as the agent argument of the " +

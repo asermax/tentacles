@@ -7,7 +7,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
-import type { SessionObject } from "./session-object.ts";
+import type { SessionObject } from "./session-object";
 
 /** Where Cloudflare writes the CA a container's intercepted HTTPS is signed with; both images trust it. */
 export const egressCaPath = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";

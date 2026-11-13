@@ -6,11 +6,11 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import { vi } from "vitest";
 
-import type { CommandResult, WatchLine } from "../src/core/helper-output.ts";
-import { runCommand, type CommandName } from "../src/helper/command.ts";
-import { NodeWebSocketConstructor } from "../src/helper/client.ts";
-import { watchSessions } from "../src/helper/watch.ts";
-import { stubApiKey } from "./stub-worker.ts";
+import type { CommandResult, WatchLine } from "../src/core/helper-output";
+import { runCommand, type CommandName } from "../src/helper/command";
+import { NodeWebSocketConstructor } from "../src/helper/client";
+import { watchSessions } from "../src/helper/watch";
+import { stubApiKey } from "./stub-worker";
 
 export type Variables = Record<string, string>;
 

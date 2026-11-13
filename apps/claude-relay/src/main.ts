@@ -1,4 +1,4 @@
-import { relayServer } from "./server.ts";
+import { relayServer } from "./server";
 
 const port = process.env.PORT;
 const egressCaPath = process.env.EGRESS_CA_PATH;

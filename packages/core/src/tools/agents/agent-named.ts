@@ -1,8 +1,8 @@
 import type { Context } from "@earendil-works/chord/context";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 
-import { findNamed } from "../find-named.ts";
-import { AgentsDoc } from "./agents-doc.ts";
+import { findNamed } from "../find-named";
+import { AgentsDoc } from "./agents-doc";
 
 // The agent a call names, or null when it names none.
 export const agentNamed = async (

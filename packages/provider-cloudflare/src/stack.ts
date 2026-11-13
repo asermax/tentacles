@@ -1,9 +1,9 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Effect from "effect/Effect";
 
-import { codemodeSandboxClass, codemodeWorkerName } from "./codemode-sandbox.ts";
-import { gatewayId } from "./model-providers.ts";
-import TentaclesWorker from "./worker.ts";
+import { codemodeSandboxClass, codemodeWorkerName } from "./codemode-sandbox";
+import { gatewayId } from "./model-providers";
+import TentaclesWorker from "./worker";
 
 /**
  * The whole Cloudflare setup: the AI Gateway, the codemode Worker, and the tentacles Worker, whose

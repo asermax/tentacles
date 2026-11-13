@@ -1,5 +1,5 @@
-import { skillFolder } from "./skill-folder.ts";
-import type { SkillEntry } from "./skills-doc.ts";
+import { skillFolder } from "./skill-folder";
+import type { SkillEntry } from "./skills-doc";
 
 /** What the skill tool answers and a prompt expansion inserts: a pointer to the skill's SKILL.md. */
 export const skillBlock = (skill: SkillEntry) =>

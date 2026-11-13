@@ -12,7 +12,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { TestClock } from "effect/testing";
 
-import { closedRegistry, freshRegistry } from "./fresh-registry.ts";
+import { closedRegistry, freshRegistry } from "./fresh-registry";
 
 const day = 86_400_000;
 const now = Date.UTC(2026, 10, 10, 12);

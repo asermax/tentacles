@@ -1,4 +1,4 @@
-import type { Child } from "./subagents-doc.ts";
+import type { Child } from "./subagents-doc";
 
 export const findChild = (children: readonly Child[], id: string) => {
   const child = children.find((each) => each.id === id);

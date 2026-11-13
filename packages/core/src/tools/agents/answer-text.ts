@@ -1,7 +1,7 @@
 import type { Context } from "@earendil-works/chord/context";
 import type { EntryId, ToolExecutionApi } from "@earendil-works/pi-durable";
 
-import { answerOf } from "./answer-of.ts";
+import { answerOf } from "./answer-of";
 
 export const answerText = (
   api: Pick<ToolExecutionApi, "commit">,

@@ -1,6 +1,6 @@
-import { skillBlock } from "./skill-block.ts";
-import type { SkillEntry } from "./skills-doc.ts";
-import { triggerPattern } from "./trigger-pattern.ts";
+import { skillBlock } from "./skill-block";
+import type { SkillEntry } from "./skills-doc";
+import { triggerPattern } from "./trigger-pattern";
 
 /**
  * Replaces each `/skill:<name>` and `/<name>` of a held skill with its block.

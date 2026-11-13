@@ -34,10 +34,10 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
-import { Session, type SessionHandle } from "../../src/index.ts";
-import { eventually } from "./eventually.ts";
-import { testRegistry } from "./registry.ts";
-import { testWorkspace, type WorkspaceRecord } from "./workspace.ts";
+import { Session, type SessionHandle } from "../../src";
+import { eventually } from "./eventually";
+import { testRegistry } from "./registry";
+import { testWorkspace, type WorkspaceRecord } from "./workspace";
 
 /** A WakeTimer call: the time it was set to, or null for a clear. */
 export type WakeCall = number | null;

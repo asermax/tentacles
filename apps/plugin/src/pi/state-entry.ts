@@ -1,8 +1,8 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { LocalState } from "../core/local-state.ts";
-import type { PiContext, PiExtensionApi } from "./pi-api.ts";
+import { LocalState } from "../core/local-state";
+import type { PiContext, PiExtensionApi } from "./pi-api";
 
 export const stateEntryType = "tentacles-state";
 

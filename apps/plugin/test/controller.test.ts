@@ -3,10 +3,10 @@ import { Harnesses } from "@tentacles/worker-api/parent";
 import { SessionRef, SessionStatuses } from "@tentacles/worker-api/session-state";
 import { describe, expect, it } from "vitest";
 
-import { createController } from "../src/core/controller.ts";
-import { Failure, Success, type CommandResult } from "../src/core/helper-output.ts";
-import type { LocalState } from "../src/core/local-state.ts";
-import { createFakeGlue } from "./fake-glue.ts";
+import { createController } from "../src/core/controller";
+import { Failure, Success, type CommandResult } from "../src/core/helper-output";
+import type { LocalState } from "../src/core/local-state";
+import { createFakeGlue } from "./fake-glue";
 import {
   details,
   Failed,
@@ -16,7 +16,7 @@ import {
   sessionIdOf,
   TextEntry,
   Waiting,
-} from "./values.ts";
+} from "./values";
 
 const ref = (session: SessionRef) => SessionRef.make(session);
 

@@ -1,7 +1,7 @@
-export { SessionsHandlersLive } from "./api/sessions-handlers.ts";
+export { SessionsHandlersLive } from "./api/sessions-handlers";
 
-export { cleanup } from "./cleanup.ts";
+export { cleanup } from "./cleanup";
 
-export { previewHandler } from "./preview-handler.ts";
+export { previewHandler } from "./preview-handler";
 
-export { Session, type SessionHandle } from "./session/session.ts";
+export { Session, type SessionHandle } from "./session/session";

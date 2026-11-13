@@ -2,8 +2,8 @@ import { SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { runHelperWatch, variablesFor } from "./helper-run.ts";
-import { startStubWorker, type ScriptedSession, type StubWorker } from "./stub-worker.ts";
+import { runHelperWatch, variablesFor } from "./helper-run";
+import { startStubWorker, type ScriptedSession, type StubWorker } from "./stub-worker";
 import {
   details as baseDetails,
   Failed,
@@ -13,7 +13,7 @@ import {
   sessionIdOf,
   TextEntry,
   Waiting,
-} from "./values.ts";
+} from "./values";
 
 const named = { ...baseDetails, skills: ["implement"], agents: ["reviewer"] };
 

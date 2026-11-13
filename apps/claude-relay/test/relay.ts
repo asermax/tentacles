@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import * as Schema from "effect/Schema";
 import { vi } from "vitest";
 
-import { relayServer } from "../src/server.ts";
+import { relayServer } from "../src/server";
 
 const fakeClaudeFolder = fileURLToPath(new URL("fake-claude", import.meta.url));
 const recording = fileURLToPath(new URL("fixtures/claude-turn.ndjson", import.meta.url));

@@ -10,7 +10,7 @@ import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { HttpApiClient } from "effect/http-api";
 import * as Socket from "effect/socket/Socket";
 
-import { ConnectionConfig } from "./config.ts";
+import { ConnectionConfig } from "./config";
 
 const makeClient = Effect.gen(function* () {
   const { url, apiKey } = yield* ConnectionConfig;

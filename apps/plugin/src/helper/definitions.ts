@@ -22,7 +22,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import type * as Types from "effect/Types";
 
-import type { SpawnRequest } from "../core/spawn-request.ts";
+import type { SpawnRequest } from "../core/spawn-request";
 
 /** Every problem of every path, per group; nothing is sent. */
 export const Rejected = Schema.TaggedStruct("Rejected", {

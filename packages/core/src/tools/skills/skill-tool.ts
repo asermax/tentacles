@@ -1,10 +1,10 @@
 import { defineTool } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 
-import { findNamed } from "../find-named.ts";
-import { ToolNames } from "../tool-names.ts";
-import { skillBlock } from "./skill-block.ts";
-import { SkillsDoc } from "./skills-doc.ts";
+import { findNamed } from "../find-named";
+import { ToolNames } from "../tool-names";
+import { skillBlock } from "./skill-block";
+import { SkillsDoc } from "./skills-doc";
 
 export const skillTool = defineTool({
   name: ToolNames.skill,

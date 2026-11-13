@@ -22,8 +22,8 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
-import { credentialPlaceholder, EgressHosts, egressCaPath } from "./egress.ts";
-import { registerExec } from "./spawn-shim.ts";
+import { credentialPlaceholder, EgressHosts, egressCaPath } from "./egress";
+import { registerExec } from "./spawn-shim";
 
 const InstanceTypes = {
   lite: "lite",

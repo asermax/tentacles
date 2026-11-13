@@ -9,8 +9,8 @@ import {
   Success,
   WatchLineJson,
   type CommandResult,
-} from "../src/core/helper-output.ts";
-import { LocalStateJson } from "../src/core/local-state.ts";
+} from "../src/core/helper-output";
+import { LocalStateJson } from "../src/core/local-state";
 import type {
   Engine,
   Hook,
@@ -19,9 +19,9 @@ import type {
   SessionStart,
   ToolCall,
   ToolCallResult,
-} from "../src/claude/engine.ts";
-import { register } from "../src/claude/register.ts";
-import { details, Failed, sessionIdOf } from "./values.ts";
+} from "../src/claude/engine";
+import { register } from "../src/claude/register";
+import { details, Failed, sessionIdOf } from "./values";
 
 const sessionId = sessionIdOf(1);
 

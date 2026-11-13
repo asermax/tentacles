@@ -17,7 +17,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import { registry } from "./schema.ts";
+import { registry } from "./schema";
 
 /** A synchronous drizzle SQLite database: a Durable Object's storage, or better-sqlite3 in tests. */
 export type RegistryDatabase = BaseSQLiteDatabase<"sync", unknown>;

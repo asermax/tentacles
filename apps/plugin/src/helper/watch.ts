@@ -6,8 +6,8 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
-import { MissingLine, StateLine, type WatchLine } from "../core/helper-output.ts";
-import { openSessionSocket, TentaclesClient, TentaclesClientLive } from "./client.ts";
+import { MissingLine, StateLine, type WatchLine } from "../core/helper-output";
+import { openSessionSocket, TentaclesClient, TentaclesClientLive } from "./client";
 
 const decodeState = Schema.decodeUnknownEffect(Schema.fromJsonString(SessionState));
 

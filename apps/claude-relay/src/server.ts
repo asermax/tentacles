@@ -6,9 +6,9 @@ import { CLAUDE_CODE_MODELS } from "@earendil-works/pi-claude-code/src/model-cat
 import { streamClaudeCode } from "@earendil-works/pi-claude-code/src/stream.ts";
 import * as Option from "effect/Option";
 
-import { egressCaTrust } from "./egress-ca.ts";
-import { resolveModel } from "./resolve-model.ts";
-import { decodeStreamRequest } from "./stream-request.ts";
+import { egressCaTrust } from "./egress-ca";
+import { resolveModel } from "./resolve-model";
+import { decodeStreamRequest } from "./stream-request";
 
 const health = (response: ServerResponse) => {
   response.writeHead(200, { "content-type": "application/json" });

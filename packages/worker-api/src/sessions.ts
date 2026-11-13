@@ -2,13 +2,13 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 
-import { Entry } from "./entries.ts";
-import { InvalidArchive, QuestionNotWaiting, SessionNotFound } from "./errors.ts";
-import { QuestionId, SessionId } from "./ids.ts";
-import { ApiKey } from "./middleware.ts";
-import { Parent } from "./parent.ts";
-import { SessionListing, SessionState } from "./session-state.ts";
-import { Settings } from "./settings.ts";
+import { Entry } from "./entries";
+import { InvalidArchive, QuestionNotWaiting, SessionNotFound } from "./errors";
+import { QuestionId, SessionId } from "./ids";
+import { ApiKey } from "./middleware";
+import { Parent } from "./parent";
+import { SessionListing, SessionState } from "./session-state";
+import { Settings } from "./settings";
 
 export const PromptModes = {
   followUp: "followUp",

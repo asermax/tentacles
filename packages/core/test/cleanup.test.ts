@@ -7,12 +7,12 @@ import { SessionState } from "@tentacles/worker-api/session-state";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 
-import { cleanup } from "../src/index.ts";
-import { later } from "./support/clock.ts";
-import { eventually } from "./support/eventually.ts";
-import { createRequest, details, parent } from "./support/fixtures.ts";
-import { heldAnswer } from "./support/model.ts";
-import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { cleanup } from "../src";
+import { later } from "./support/clock";
+import { eventually } from "./support/eventually";
+import { createRequest, details, parent } from "./support/fixtures";
+import { heldAnswer } from "./support/model";
+import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 const afterAMonth = later("31 days");
 

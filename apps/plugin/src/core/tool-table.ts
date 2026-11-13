@@ -4,8 +4,8 @@ import * as Data from "effect/Data";
 import type * as JsonSchema from "effect/JsonSchema";
 import * as Schema from "effect/Schema";
 
-import { endpointArguments } from "./endpoint-arguments.ts";
-import { SpawnArguments } from "./spawn-request.ts";
+import { endpointArguments } from "./endpoint-arguments";
+import { SpawnArguments } from "./spawn-request";
 
 export const ToolNames = {
   spawn: "spawn",

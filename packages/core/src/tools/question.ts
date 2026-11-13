@@ -6,11 +6,11 @@ import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Schema from "effect/Schema";
 
-import { QuestionsDoc, type StoredQuestion } from "../session/questions.ts";
-import { RecordDoc } from "../session/record.ts";
-import { pendingWork } from "../session/repository.ts";
-import { AskParentResult, askParentResultSchema } from "./ask-parent-result.ts";
-import { ToolNames } from "./tool-names.ts";
+import { QuestionsDoc, type StoredQuestion } from "../session/questions";
+import { RecordDoc } from "../session/record";
+import { pendingWork } from "../session/repository";
+import { AskParentResult, askParentResultSchema } from "./ask-parent-result";
+import { ToolNames } from "./tool-names";
 
 const decodeQuestionId = Schema.decodeSync(QuestionId);
 

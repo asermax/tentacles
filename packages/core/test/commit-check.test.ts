@@ -10,11 +10,11 @@ import { type SessionDetails, SessionState } from "@tentacles/worker-api/session
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
-import { eventually } from "./support/eventually.ts";
-import { createRequest, detailsOf } from "./support/fixtures.ts";
-import { heldAnswer } from "./support/model.ts";
-import { bareRepository } from "./support/workspace.ts";
-import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { eventually } from "./support/eventually";
+import { createRequest, detailsOf } from "./support/fixtures";
+import { heldAnswer } from "./support/model";
+import { bareRepository } from "./support/workspace";
+import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 const bash = (command: string) =>
   fauxAssistantMessage(fauxToolCall("bash", { command }), { stopReason: "toolUse" });

@@ -8,11 +8,11 @@ import * as Schema from "effect/Schema";
 import { createBuilder } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { assertCoverage } from "../build/coverage.ts";
-import { emitPlugin } from "../build/emit.ts";
-import { skillSources, skillText } from "../build/skill.ts";
-import { CommandResultJson } from "../src/core/helper-output.ts";
-import { helperErrorMessage } from "./values.ts";
+import { assertCoverage } from "../build/coverage";
+import { emitPlugin } from "../build/emit";
+import { skillSources, skillText } from "../build/skill";
+import { CommandResultJson } from "../src/core/helper-output";
+import { helperErrorMessage } from "./values";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 

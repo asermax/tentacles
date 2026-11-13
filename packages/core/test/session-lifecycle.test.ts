@@ -6,11 +6,11 @@ import { SessionState } from "@tentacles/worker-api/session-state";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 
-import { eventually } from "./support/eventually.ts";
-import { definitionArchives, definitionNames } from "./support/archives.ts";
-import { createRequest, detailsOf, parent } from "./support/fixtures.ts";
-import { heldAnswer } from "./support/model.ts";
-import { BrowserCalls, newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { eventually } from "./support/eventually";
+import { definitionArchives, definitionNames } from "./support/archives";
+import { createRequest, detailsOf, parent } from "./support/fixtures";
+import { heldAnswer } from "./support/model";
+import { BrowserCalls, newSessionId, TestWorld, testWorld } from "./support/world";
 
 const details = detailsOf(createRequest(""), definitionNames);
 

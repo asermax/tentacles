@@ -9,7 +9,7 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import type { PreviewToken } from "./preview-router.ts";
+import type { PreviewToken } from "./preview-router";
 
 export interface OpenedPreview {
   readonly token: PreviewToken;

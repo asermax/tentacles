@@ -4,7 +4,7 @@ import { type SessionDetails, SessionState } from "@tentacles/worker-api/session
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
-import type { CommandResult } from "../src/core/helper-output.ts";
+import type { CommandResult } from "../src/core/helper-output";
 
 export const {
   running: Running,

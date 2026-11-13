@@ -8,10 +8,10 @@ import { InvalidArchive } from "@tentacles/worker-api/errors";
 import * as Effect from "effect/Effect";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { Failure, Success } from "../src/core/helper-output.ts";
-import { runHelperCommand, variablesFor } from "./helper-run.ts";
-import { startStubWorker, type StubWorker } from "./stub-worker.ts";
-import { helperErrorMessage, sessionIdOf } from "./values.ts";
+import { Failure, Success } from "../src/core/helper-output";
+import { runHelperCommand, variablesFor } from "./helper-run";
+import { startStubWorker, type StubWorker } from "./stub-worker";
+import { helperErrorMessage, sessionIdOf } from "./values";
 
 const sessionId = sessionIdOf(1);
 

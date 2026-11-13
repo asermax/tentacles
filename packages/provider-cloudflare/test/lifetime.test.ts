@@ -1,8 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import { env } from "cloudflare:workers";
 
-import { lifetimeSessionId } from "./secrets.ts";
-import { idleSession } from "./sessions.ts";
+import { lifetimeSessionId } from "./secrets";
+import { idleSession } from "./sessions";
 
 const ping = (isWorkPending: boolean) =>
   env.LIFETIME.fetch(`http://tentacles.internal/lifetime?pendingWork=${isWorkPending}`);

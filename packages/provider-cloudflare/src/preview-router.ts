@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { zone } from "./hosts.ts";
+import { zone } from "./hosts";
 
 // A first-level name under the zone, so Universal SSL covers it and the zone's wildcard record
 // resolves it.

@@ -9,7 +9,7 @@ import * as HttpServer from "effect/http/HttpServer";
 import { HttpApiBuilder } from "effect/http-api";
 import * as Layer from "effect/Layer";
 
-import { SessionsHandlersLive } from "../../src/index.ts";
+import { SessionsHandlersLive } from "../../src";
 
 /**
  * SessionsHandlersLive served in-process over the world's SessionHost and

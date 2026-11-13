@@ -6,7 +6,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { sqlRegistryStore } from "../src/registry-store.ts";
+import { sqlRegistryStore } from "../src/registry-store";
 
 const migrationsFolder = fileURLToPath(new URL("../src/migrations", import.meta.url));
 

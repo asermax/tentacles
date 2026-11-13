@@ -1,8 +1,8 @@
 import { type ConversationId, defineTask } from "@earendil-works/pi-durable";
 
-import { subagentReportKind } from "../tool-names.ts";
-import { answerOf } from "./answer-of.ts";
-import { Subagents } from "./subagents-doc.ts";
+import { subagentReportKind } from "../tool-names";
+import { answerOf } from "./answer-of";
+import { Subagents } from "./subagents-doc";
 
 type ReporterInput = {
   readonly name: string;

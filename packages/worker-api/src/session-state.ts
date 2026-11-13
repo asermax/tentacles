@@ -1,8 +1,8 @@
 import * as Schema from "effect/Schema";
 
-import { Entry } from "./entries.ts";
-import { QuestionId, SessionId } from "./ids.ts";
-import { Settings } from "./settings.ts";
+import { Entry } from "./entries";
+import { QuestionId, SessionId } from "./ids";
+import { Settings } from "./settings";
 
 export const SessionStatuses = {
   running: "running",

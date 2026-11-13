@@ -1,9 +1,9 @@
-export { expandPrompt } from "./expand-prompt.ts";
+export { expandPrompt } from "./expand-prompt";
 
-export { expandSkills } from "./expand-skills.ts";
+export { expandSkills } from "./expand-skills";
 
-export { skillsExtension } from "./skills-extension.ts";
+export { skillsExtension } from "./skills-extension";
 
-export { type SkillEntry, SkillsDoc } from "./skills-doc.ts";
+export { type SkillEntry, SkillsDoc } from "./skills-doc";
 
-export { toSkillEntry } from "./to-skill-entry.ts";
+export { toSkillEntry } from "./to-skill-entry";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ToolTable } from "../src/core/tool-table.ts";
+import { ToolTable } from "../src/core/tool-table";
 
 const uuid = expect.objectContaining({ type: "string", format: "uuid" });
 

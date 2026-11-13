@@ -25,7 +25,7 @@ import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServer from "effect/http/HttpServer";
 import { HttpApiBuilder } from "effect/http-api";
 
-import { details } from "./values.ts";
+import { details } from "./values";
 
 export const stubApiKey = "stub-api-key";
 

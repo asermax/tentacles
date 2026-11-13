@@ -1,7 +1,7 @@
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
-import { readFrontmatter } from "./frontmatter.ts";
+import { readFrontmatter } from "./frontmatter";
 
 const nameFormat =
   "name must be 1 to 64 lowercase letters, digits and hyphens, with no leading, trailing or doubled hyphen";

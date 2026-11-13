@@ -2,10 +2,10 @@ import { QuestionNotWaiting, SessionNotFound, Unauthorized } from "@tentacles/wo
 import { QuestionId } from "@tentacles/worker-api/ids";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { Failure, Success } from "../src/core/helper-output.ts";
-import { runHelperCommand, variablesFor } from "./helper-run.ts";
-import { startStubWorker, type StubWorker } from "./stub-worker.ts";
-import { helperErrorMessage, sessionIdOf, TextEntry } from "./values.ts";
+import { Failure, Success } from "../src/core/helper-output";
+import { runHelperCommand, variablesFor } from "./helper-run";
+import { startStubWorker, type StubWorker } from "./stub-worker";
+import { helperErrorMessage, sessionIdOf, TextEntry } from "./values";
 
 const sessionId = sessionIdOf(1);
 

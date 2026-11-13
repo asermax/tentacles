@@ -1,5 +1,5 @@
-export { agentsExtension } from "./agents-extension.ts";
+export { agentsExtension } from "./agents-extension";
 
-export { AgentsDoc } from "./agents-doc.ts";
+export { AgentsDoc } from "./agents-doc";
 
-export { isForegroundAnswer } from "./is-foreground-answer.ts";
+export { isForegroundAnswer } from "./is-foreground-answer";

@@ -9,12 +9,12 @@ import * as Schema from "effect/Schema";
 import type * as HttpClient from "effect/http/HttpClient";
 import type * as HttpClientError from "effect/http/HttpClientError";
 
-import { Failure, HelperError, Success, type CommandResult } from "../core/helper-output.ts";
-import { SpawnRequest } from "../core/spawn-request.ts";
-import type { EndpointToolEntry } from "../core/tool-table.ts";
-import { TentaclesClient, TentaclesClientLive } from "./client.ts";
-import { SettingsDefaults } from "./config.ts";
-import { readDefinitions, rejectionText, type Rejected } from "./definitions.ts";
+import { Failure, HelperError, Success, type CommandResult } from "../core/helper-output";
+import { SpawnRequest } from "../core/spawn-request";
+import type { EndpointToolEntry } from "../core/tool-table";
+import { TentaclesClient, TentaclesClientLive } from "./client";
+import { SettingsDefaults } from "./config";
+import { readDefinitions, rejectionText, type Rejected } from "./definitions";
 
 const sessionFields = { sessionId: SessionId };
 

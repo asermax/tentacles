@@ -4,7 +4,7 @@ import type { Repository } from "@tentacles/worker-api/settings";
 import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
-import { testSecrets } from "./secrets.ts";
+import { testSecrets } from "./secrets";
 
 const api = "https://tentacles.asermax.com/api";
 

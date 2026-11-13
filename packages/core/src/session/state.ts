@@ -27,9 +27,9 @@ import * as Semaphore from "effect/Semaphore";
 
 import { AgentsDoc } from "../tools/agents";
 import { SkillsDoc } from "../tools/skills";
-import { toEntries } from "./entries.ts";
-import { QuestionsDoc, type StoredQuestion } from "./questions.ts";
-import { RecordDoc, type SessionRecord } from "./record.ts";
+import { toEntries } from "./entries";
+import { QuestionsDoc, type StoredQuestion } from "./questions";
+import { RecordDoc, type SessionRecord } from "./record";
 
 /** What the status is derived from: the session's documents as last observed. */
 export type Observed = {

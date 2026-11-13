@@ -5,7 +5,7 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 
-import { credentialPlaceholder, EgressHosts, egressCaPath, loopback } from "./egress.ts";
+import { credentialPlaceholder, EgressHosts, egressCaPath, loopback } from "./egress";
 
 /** Every session reaches the same Claude container. */
 export const claudeObjectName = "claude";

@@ -18,22 +18,22 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
-import { browserLayer } from "./browser.ts";
-import { claudeObjectName, ClaudeObject } from "./claude-object.ts";
-import { codemodeSandboxClass, codeSandboxLayer } from "./codemode-sandbox.ts";
-import type { CodemodeSandbox } from "./codemode-worker.ts";
-import { sendableCode } from "./close-code.ts";
-import { loopback } from "./egress.ts";
-import { modelProvidersLayer } from "./model-providers.ts";
-import { CloudflarePreviewRouter } from "./preview-router.ts";
-import { RegistryObject, registryStoreLayer } from "./registry-object.ts";
-import { skillsArchiveLayer } from "./skills-archive.ts";
+import { browserLayer } from "./browser";
+import { claudeObjectName, ClaudeObject } from "./claude-object";
+import { codemodeSandboxClass, codeSandboxLayer } from "./codemode-sandbox";
+import type { CodemodeSandbox } from "./codemode-worker";
+import { sendableCode } from "./close-code";
+import { loopback } from "./egress";
+import { modelProvidersLayer } from "./model-providers";
+import { CloudflarePreviewRouter } from "./preview-router";
+import { RegistryObject, registryStoreLayer } from "./registry-object";
+import { skillsArchiveLayer } from "./skills-archive";
 import {
   ContainerSettings,
   unsupportedSettings,
   WorkspaceContainer,
   workspaceLayer,
-} from "./workspace.ts";
+} from "./workspace";
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
 export interface SessionOperations {

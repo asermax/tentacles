@@ -9,8 +9,8 @@ import {
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
-import { RecordDoc } from "./record.ts";
-import { pendingWork } from "./repository.ts";
+import { RecordDoc } from "./record";
+import { pendingWork } from "./repository";
 
 // Each commit prompt starts a run that asks the afterRun hook again; after
 // this many in one run, the run ends with the work still pending.

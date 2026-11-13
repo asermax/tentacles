@@ -13,7 +13,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
-import type { Glue, ToolOutcome, ToolRun, WatchProcess } from "./glue.ts";
+import type { Glue, ToolOutcome, ToolRun, WatchProcess } from "./glue";
 import {
   CommandResultJson,
   HelperError,
@@ -21,11 +21,11 @@ import {
   WatchLineJson,
   type CommandResult,
   type WatchLine,
-} from "./helper-output.ts";
-import { LocalState } from "./local-state.ts";
-import { createLineSplitter, isOpen, renderStatusLine } from "./status-line.ts";
-import { ToolEntry, ToolNames, toolsFor, type EndpointToolEntry } from "./tool-table.ts";
-import { failureWake, finishWake, questionWake } from "./wake-texts.ts";
+} from "./helper-output";
+import { LocalState } from "./local-state";
+import { createLineSplitter, isOpen, renderStatusLine } from "./status-line";
+import { ToolEntry, ToolNames, toolsFor, type EndpointToolEntry } from "./tool-table";
+import { failureWake, finishWake, questionWake } from "./wake-texts";
 
 export interface StartOptions {
   readonly parentSessionId: string;

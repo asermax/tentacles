@@ -5,11 +5,11 @@ import { SessionState } from "@tentacles/worker-api/session-state";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
-import { definitionArchives, skillsArchive } from "./support/archives.ts";
-import { eventually } from "./support/eventually.ts";
-import { type Archives, createRequest, detailsOf } from "./support/fixtures.ts";
-import { bareRepository, remoteUrl } from "./support/workspace.ts";
-import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { definitionArchives, skillsArchive } from "./support/archives";
+import { eventually } from "./support/eventually";
+import { type Archives, createRequest, detailsOf } from "./support/fixtures";
+import { bareRepository, remoteUrl } from "./support/workspace";
+import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 const bash = (command: string) =>
   fauxAssistantMessage(fauxToolCall("bash", { command }), { stopReason: "toolUse" });
