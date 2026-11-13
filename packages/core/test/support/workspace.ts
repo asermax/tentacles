@@ -118,7 +118,6 @@ export const testWorkspace = (
   Effect.acquireRelease(
     Effect.sync(() => {
       const directory = join(root, "workspace");
-      const state = { isStarted: false };
 
       mkdirSync(directory, { recursive: true });
 
@@ -126,18 +125,23 @@ export const testWorkspace = (
         ensures: [],
         directory,
         forward: () => new Response("no app", { status: 502 }),
-        restart: () => void (state.isStarted = false),
+        restart: () => undefined,
       };
 
       return {
         record,
-        state,
         connection: new Connection({ command: sandboxed(directory, shared) }),
       };
     }),
     ({ connection }) => Effect.sync(() => connection.close()),
   ).pipe(
-    Effect.map(({ record, state, connection }) => {
+    Effect.map(({ record, connection }) => {
+      let isStarted = false;
+
+      record.restart = () => {
+        isStarted = false;
+      };
+
       const clone = (repository: Repository) =>
         Effect.promise(async () => {
           const env = new RemoteExecutionEnv({ connection, id: "clone", cwd: "/" });
@@ -195,7 +199,7 @@ export const testWorkspace = (
           Effect.gen(function* () {
             record.ensures.push(settings);
 
-            if (state.isStarted) {
+            if (isStarted) {
               return;
             }
 
@@ -220,11 +224,11 @@ export const testWorkspace = (
               ),
             );
 
-            state.isStarted = true;
+            isStarted = true;
           }),
         connection: () => Effect.succeed(connection),
         forward: (port, request) => Effect.sync(() => record.forward(port, request)),
-        isRunning: () => Effect.sync(() => state.isStarted),
+        isRunning: () => Effect.sync(() => isStarted),
       });
 
       return { record, workspace };

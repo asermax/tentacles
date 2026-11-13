@@ -61,12 +61,15 @@ const problemOf = (path: string, message: string): Problem => ({ path, message }
 const isNotFound = (cause: unknown) =>
   Predicate.hasProperty(cause, "code") && cause.code === "ENOENT";
 
-const inspect = (path: string, kind: "folder" | "file") =>
+const statPath = (path: string) =>
   Effect.tryPromise({
     try: () => stat(path),
     catch: (cause) =>
       problemOf(path, isNotFound(cause) ? "does not exist" : `cannot be read: ${String(cause)}`),
-  }).pipe(
+  });
+
+const inspect = (path: string, kind: "folder" | "file") =>
+  statPath(path).pipe(
     Effect.filterOrFail(
       (info) => (kind === "folder" ? info.isDirectory() : info.isFile()),
       () => problemOf(path, `is not a ${kind}`),
@@ -126,12 +129,7 @@ const readSkill = (path: string) =>
 /** A context path: a file becomes one entry at its name, a folder its regular files under its name. */
 const readContext = (path: string) =>
   Effect.gen(function* () {
-    const info = yield* Effect.tryPromise({
-      try: () => stat(path),
-      catch: (cause) =>
-        problemOf(path, isNotFound(cause) ? "does not exist" : `cannot be read: ${String(cause)}`),
-    });
-
+    const info = yield* statPath(path);
     const name = basename(resolve(path));
 
     if (info.isDirectory()) {
