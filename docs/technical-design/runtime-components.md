@@ -102,10 +102,11 @@ Each component above plays a role that any provider has to fill. Several roles a
 |---|---|---|---|---|
 | Session host: one live instance per session, revived on demand | session Durable Object | `SessionHost` | reach a session by id and run one of its operations: create, prompt, answer, close, messages, status, connect a socket, forward a preview request, delete | pi-durable's Harness opens over any host |
 | Session storage | Durable Object SQLite | `SessionStorage` | pi-durable's storage for one session | pi-durable's storage adapter |
+| Skills archive storage | the session object's key-value storage | `SkillsArchive` | save the skills archive at create, read it at a fresh workspace start, nothing when the spawn sent none | none |
 | Wake-up timer | the object's alarm | `WakeTimer` | set or clear the one timer that resumes a run after an eviction | pi-durable's `onWake`; the host writes the timer |
 | Parent socket | Durable Object WebSocket | `ParentChannel` | send the session state to every socket the parent holds open | none |
 | Registry of sessions and their preview | registry Durable Object | `RegistryStore` | add an entry, record a status and the time a run stops, list one parent's sessions, open a preview and return its token, resolve and clear a preview, remove an entry, find the sessions stopped before a given time | none |
-| Workspace: a container with exec | container started by the session object | `Workspace` | `ensure(settings)`: make sure the container is up, from the session's repository, image, size and lifetime and its skills archive, passed on every call, cloning the repository and expanding the session's skills archive on a fresh start; `isRunning`: whether the container is running, without starting it; `connection`: the connection pi-env runs its tools over; `forward`: forward a request to a port | pi-env's `RemoteExecutionEnv` over a connection |
+| Workspace: a container with exec | container started by the session object | `Workspace` | `ensure(settings)`: make sure the container is up, from the session's repository, image, size and lifetime passed on every call. On a fresh start it clones the repository and expands the skills archive it reads from the skills archive storage; `isRunning`: whether the container is running, without starting it; `connection`: the connection pi-env runs its tools over; `forward`: forward a request to a port | pi-env's `RemoteExecutionEnv` over a connection |
 | Browser | Browser Run through the binding | `Browser` | open a browser for the session's preview, returning its CDP address, and close it | agent-browser speaks CDP to any URL |
 | Preview routing | Worker preview route and registry | `PreviewRouter` | the public URL a preview token is served on | none |
 | Models | shared Claude container for Claude, AI Gateway through `env.AI` for the rest | `ModelProviders` | every model provider the session's settings can name | pi-ai providers |
@@ -113,7 +114,7 @@ Each component above plays a role that any provider has to fill. Several roles a
 | Codemode sandbox | a Durable Object in a separate Worker | `CodeSandbox` | the sandbox codemode scripts run in | pi-durable's codemode sandbox |
 | API entry: auth and routing | Worker | none, the Worker API itself | nothing: the Worker runs the API handlers | [worker-api](worker-api.md) |
 
-A provider implements the eleven contracts. The common logic (the API handlers, the session logic with its lifecycle and deletion, the preview handler, the cleanup job and the remote agent's tools) and the pi libraries are the same for every provider. A deploy uses one provider for every role, and a variable read by the deploy picks the provider.
+A provider implements every contract in the table. The common logic (the API handlers, the session logic with its lifecycle and deletion, the preview handler, the cleanup job and the remote agent's tools) and the pi libraries are the same for every provider. A deploy uses one provider for every role, and a variable read by the deploy picks the provider.
 
 ```mermaid
 flowchart LR
@@ -126,7 +127,7 @@ flowchart LR
         Pi@{ shape: hex, label: "pi libraries<br/>pi-durable, pi-env, pi-ai" }
         Logic --> Pi
     end
-    Contracts@{ shape: braces, label: "The eleven contracts" }
+    Contracts@{ shape: braces, label: "The contracts" }
     In -->|"call"| Logic
     Logic -->|"reaches each role through"| Contracts
     Impl -.->|"implements"| Contracts
@@ -160,9 +161,9 @@ Shapes the API defines, such as the session state, pass through the contracts wi
 A member that can fail declares a tagged error with a message: `Workspace.ensure` fails with `WorkspaceUnavailable`, `Browser.open` with `BrowserUnavailable`, and every `RegistryStore` member with `RegistryUnavailable`. The common logic handles each by its tag: a failed `ensure` fails the tool call's operation and the next operation tries again, the preview tool closes the browser it opened when the registry fails, and the cleanup job logs a registry failure.
 
 > [!NOTE] Why the roles pi already defines get contracts of their own
-> Storage, the wake-up timer, the workspace connection and the model providers already have interfaces in pi, and their contracts often hand pi's object through unchanged. Every role gets a contract anyway, so all roles are defined one way, and a reader and a new provider find all eleven in the same form.
+> Storage, the wake-up timer, the workspace connection and the model providers already have interfaces in pi, and their contracts often hand pi's object through unchanged. Every role gets a contract anyway, so all roles are defined one way, and a reader and a new provider find every contract in the same form.
 
-A provider is one package that declares its own infrastructure. It exports a stack, which a deploy runs with Alchemy on the stage `prod`. The stack declares the provider's resources, and the code that runs in those resources builds the Layer of the eleven contracts from the same declarations.
+A provider is one package that declares its own infrastructure. It exports a stack, which a deploy runs with Alchemy on the stage `prod`. The stack declares the provider's resources, and the code that runs in those resources builds the Layer of the contracts from the same declarations.
 
 > [!NOTE] Why each implementation declares its own infrastructure
 > A provider plugs an implementation in once, and both the running code and the deploy use it. When the declaration of a resource and the code that uses it are the same code, a resource the code needs cannot be missing from the deploy.

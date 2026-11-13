@@ -238,7 +238,9 @@ Skills and agents are each one pi-durable extension that owns its document, its 
 The parent passes skill folder paths and agent definition paths to the spawn tool, on pi and on Claude Code alike. The plugin's helper reads every path, checks every file, and packs two archives, each a gzip-compressed tar file of at most 5 MB:
 
 - The skills archive holds one folder per skill at its top level: `<name>/SKILL.md` and everything beside it.
-- The agents archive holds one agent definition file per agent at its top level.
+- The agents archive holds one agent definition file per agent at its top level, named `<name>.md` after the agent.
+
+Each file keeps its permission bits, so a skill's executable scripts stay executable in `/skills`.
 
 Both are optional, and a spawn can send either one without the other. The create call carries them next to the name, the parent, the settings and the first prompt (see [worker-api](worker-api.md)).
 
@@ -251,7 +253,7 @@ flowchart TD
         SU -->|Yes| SZ{"packed skills archive within 5 MB?"}
     end
     subgraph agents["Agents, each file on its own"]
-        AP{"path exists and holds a file?"} -->|Yes| AF{"frontmatter: name follows the rules, description 1-1024, body not empty?"}
+        AP{"path exists and holds a file?"} -->|Yes| AF{"frontmatter: name matches file name and follows the rules, description 1-1024, body not empty?"}
         AF -->|Yes| AU{"name unique among the agents?"}
         AU -->|Yes| AZ{"packed agents archive within 5 MB?"}
     end
@@ -271,7 +273,11 @@ flowchart TD
     class SE,AE,N red
 ```
 
-The helper checks the skills and the agents apart, every file on its own, and keeps going after a problem so it reports them all. A skill follows the Agent Skills specification. Its name is 1 to 64 lowercase letters, digits and hyphens, with no leading, trailing or doubled hyphen, and equals its folder's name. Its description is 1 to 1024 characters. An agent definition is a file whose frontmatter name and description follow the same rules as a skill's, with no folder to match, and whose body is not empty. Names are unique within each group, and each packed archive stays within 5 MB. When anything fails, the spawn tool returns every problem with its path, the skills' in one group and the agents' in another, and nothing reaches tentacles.
+The helper checks the skills and the agents apart, every file on its own, and keeps going after a problem so it reports them all. A skill follows the Agent Skills specification. Its name is 1 to 64 lowercase letters, digits and hyphens, with no leading, trailing or doubled hyphen, and equals its folder's name. Its description is 1 to 1024 characters. An agent definition is a file whose frontmatter name and description follow the same rules as a skill's, whose name equals the file's name without `.md`, and whose body is not empty. Names are unique within each group, and each packed archive stays within 5 MB. When anything fails, the spawn tool returns every problem with its path, the skills' in one group and the agents' in another, and nothing reaches tentacles.
+
+Frontmatter is read as YAML. A top-level value on one line that YAML rejects as written, such as a description holding `: `, is read as a quoted string. The helper then packs the file with that value quoted, so the session reads valid frontmatter. Frontmatter that is still not valid YAML is a problem with its path.
+
+> Definitions written for other assistants often carry such values, and those assistants accept them. Reading them as quoted strings keeps those definitions usable without editing them.
 
 The session takes these values from an agent definition:
 
@@ -366,7 +372,7 @@ sequenceDiagram
     end
 ```
 
-The session expands every prompt, the first one included, before the conversation admits it (1, 2). `/skill:<name>` and `/<name>` name a skill anywhere in the text when the word after the slash is one of the session's skill names. For each one, the session takes the skill's path from the skills document (3, 4) and replaces the `/skill:<name>` or `/<name>` in place with a block that points at the skill (5); a skill named twice gets a block at each one. A prompt with no such name reaches the conversation as written (6), and so does any `/word` that names no skill. The conversation keeps the expanded prompt, so the session's messages show what the agent saw.
+The session expands every prompt, the first one included, before the conversation admits it (1, 2). `/skill:<name>` and `/<name>` name a skill when the word after the slash is one of the session's skill names and the trigger stands on its own, with whitespace or the start or end of the text on each side. For each one, the session takes the skill's path from the skills document (3, 4) and replaces the `/skill:<name>` or `/<name>` in place with a block that points at the skill (5); a skill named twice gets a block at each one. A prompt with no such name reaches the conversation as written (6), and so does any `/word` that names no skill, sits inside a path or has punctuation attached. The conversation keeps the expanded prompt, so the session's messages show what the agent saw.
 
 The prompt "Run /implement on the api repo" reaches the agent as:
 

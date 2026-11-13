@@ -26,7 +26,7 @@ While a remote agent works, the parent can send it a prompt as a follow-up, whic
 
 Nobody watches a remote agent live. The parent reads what it did through the messages tool: its last message by default, or the last N, where a message is any entry of its conversation (prompts, its text, tool calls and results, subagent results). On pi, the parent can also block on a remote agent with the wait tool.
 
-A prompt can name one of the remote agent's skills, as `/skill:<name>` or `/<name>` anywhere in its text. The remote agent receives a short block in its place that points at the skill's instructions, and reads the instructions before acting on the skill. A name the remote agent does not hold stays as written.
+A prompt can name one of the remote agent's skills, as `/skill:<name>` or `/<name>` standing on its own, with a space or the start or end of the prompt on each side. The remote agent receives a short block in its place that points at the skill's instructions, and reads the instructions before acting on the skill. A name the remote agent does not hold, or one inside a path or with punctuation attached, stays as written.
 
 ## 📊 The status line
 

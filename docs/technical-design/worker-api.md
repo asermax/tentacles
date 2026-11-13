@@ -46,7 +46,7 @@ The plugin fills every unset setting from its defaults, so create always carries
 
 The plugin's helper checks the skills and agent definitions on the parent's machine and packs the archives only when every check passes, so the problems it finds reach the parent as the spawn tool's result and no create call is sent. [sessions](sessions.md) covers the checks, in its Skills and agents section, and what the session does with each archive.
 
-The session reads each archive again and runs the same checks. When it cannot read one, because the file is not a gzip-compressed tar, a skill folder has no SKILL.md, or a skill or agent definition breaks a rule, create returns an error naming the archive and the problem. The session then stores nothing and starts no run.
+The session reads each archive again and runs the same checks, reading frontmatter the same way the helper does. When it cannot read one, create returns an error naming the archive and the problem. That happens when the file is not a gzip-compressed tar, a file in the skills archive sits outside a skill folder, a skill folder has no SKILL.md, a file in the agents archive is not at its top level, or a skill or agent definition breaks a rule. The session then stores nothing and starts no run. It keeps the skills archive as sent. A create that does not come through the helper therefore puts every definition in `/skills` as written, including one the helper would have quoted.
 
 ## 📡 Session state
 
