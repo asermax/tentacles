@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { runHelperWatch, variablesFor } from "./helper-run.ts";
 import { startStubWorker, type ScriptedSession, type StubWorker } from "./stub-worker.ts";
 import {
-  details,
+  details as baseDetails,
   Failed,
   Idle,
   questionOf,
@@ -15,11 +15,13 @@ import {
   Waiting,
 } from "./values.ts";
 
-const running = Running.make(details);
+const named = { ...baseDetails, skills: ["implement"], agents: ["reviewer"] };
+
+const running = Running.make(named);
 
 const lastEntry = TextEntry.make({ text: "Pushed the branch." });
 
-const finished = Idle.make({ ...details, lastEntry });
+const finished = Idle.make({ ...named, lastEntry });
 
 let worker: StubWorker | undefined;
 
@@ -42,7 +44,7 @@ describe("helper watch", () => {
       [
         sessionId,
         {
-          states: [{ state: Idle.make(details) }],
+          states: [{ state: Idle.make(named) }],
           entries: [TextEntry.make({ text: "older" }), lastEntry],
         },
       ],
@@ -82,7 +84,7 @@ describe("helper watch", () => {
 
   it("prints waiting with the question", async () => {
     const sessionId = sessionIdOf(1);
-    const waiting = Waiting.make({ ...details, question: questionOf("q-1", "Which branch?") });
+    const waiting = Waiting.make({ ...named, question: questionOf("q-1", "Which branch?") });
     const stub = await startWorker([[sessionId, { states: [{ state: waiting }], entries: [] }]]);
 
     const lines = await runHelperWatch(
@@ -96,7 +98,7 @@ describe("helper watch", () => {
 
   it("prints failed with the failure", async () => {
     const sessionId = sessionIdOf(1);
-    const failed = Failed.make({ ...details, failure: "The model refused the key." });
+    const failed = Failed.make({ ...named, failure: "The model refused the key." });
     const stub = await startWorker([[sessionId, { states: [{ state: failed }], entries: [] }]]);
 
     const lines = await runHelperWatch(
@@ -110,7 +112,7 @@ describe("helper watch", () => {
 
   it("holds one socket per session and names its session on every line", async () => {
     const [first, second, third] = [sessionIdOf(1), sessionIdOf(2), sessionIdOf(3)];
-    const waiting = Waiting.make({ ...details, question: questionOf("q-2", "Merge?") });
+    const waiting = Waiting.make({ ...named, question: questionOf("q-2", "Merge?") });
 
     const stub = await startWorker([
       [first, { states: [{ state: running }], entries: [] }],
