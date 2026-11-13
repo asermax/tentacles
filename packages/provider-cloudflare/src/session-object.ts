@@ -27,6 +27,7 @@ import { loopback } from "./egress.ts";
 import { modelProvidersLayer } from "./model-providers.ts";
 import { CloudflarePreviewRouter } from "./preview-router.ts";
 import { RegistryObject, registryStoreLayer } from "./registry-object.ts";
+import { skillsArchiveLayer } from "./skills-archive.ts";
 import {
   ContainerSettings,
   unsupportedSettings,
@@ -139,6 +140,7 @@ export const SessionObjectLive = SessionObject.make(
               }),
           }),
         ),
+        skillsArchiveLayer(raw.storage),
         workspaceLayer({ sessionId, container, egress }),
         browserLayer(yield* browser.raw, cdpSecret, raw.storage),
         CloudflarePreviewRouter,
