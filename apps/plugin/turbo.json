@@ -3,6 +3,7 @@
   "extends": ["//"],
   "tasks": {
     "build": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/VERSION"],
       "outputs": ["dist/**", "build/out/**"]
     }
   }
