@@ -1,7 +1,7 @@
 name: CI
 
 # Pull requests run the Checks workflow alone; a push to master runs it here,
-# then publishes.
+# then releases with semantic-release.
 on:
   push:
     branches: [master]
@@ -11,33 +11,21 @@ jobs:
     name: Check & test
     uses: ./.github/workflows/checks.yml
 
-  marketplace:
-    name: Publish the Claude marketplace
-    runs-on: ubuntu-24.04
-    needs: test
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: apps/plugin/scripts/publish-marketplace.sh
-
-  npm:
-    name: Publish the pi package
+  release:
+    name: Release
     runs-on: ubuntu-24.04
     needs: test
     # id-token lets npm trade GitHub's OIDC token for a publish token when the
     # package has a trusted publisher, and signs the provenance attestation.
     permissions:
-      contents: read
+      contents: write
+      issues: write
+      pull-requests: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       # Node 24.18 bundles npm 11.16, past the 11.5.1 that trusted publishing needs.
       - uses: actions/setup-node@v4
@@ -46,6 +34,12 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
-      - run: apps/plugin/scripts/publish-npm.sh
+      # semantic-release rebuilds at the new version in its prepare step, but
+      # the npm plugin reads the pi package's manifest before that, so it must
+      # exist already.
+      - run: pnpm --filter @tentacles/plugin build
+      - run: pnpm exec semantic-release
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

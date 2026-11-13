@@ -5,6 +5,7 @@
     "tools/oxlint/anti-slop/**",
     "**/migrations/**",
     "pnpm-lock.yaml",
+    "CHANGELOG.md",
     ".scratch/**"
   ]
 }
