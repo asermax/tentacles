@@ -15,10 +15,11 @@ import {
   type ToolExecutionApi,
   type Tx,
 } from "@earendil-works/pi-durable";
-import { lit, obj, oneOf, str, union } from "@earendil-works/pi-schema";
+import { lit, obj, oneOf, opt, str, union } from "@earendil-works/pi-schema";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { AgentsDoc } from "./agents-doc.ts";
 import { subagentReportKind, ToolNames } from "./tool-names.ts";
 
 type Child = {
@@ -202,14 +203,44 @@ const findChild = (children: readonly Child[], id: string) => {
   return child;
 };
 
+const agentArgument = opt(
+  str({
+    description:
+      "An agent name from available_agents; the subagent starts with that agent's prompt as its instructions.",
+  }),
+);
+
+// The agent a call names, or null when it names none.
+const agentNamed = async (
+  name: string | undefined,
+  api: Pick<ToolExecutionApi, "snapshot">,
+  context: Context,
+) => {
+  if (name == null) {
+    return null;
+  }
+
+  const agents = (await api.snapshot(AgentsDoc, context))?.agents ?? [];
+  const agent = agents.find((held) => held.name === name);
+
+  if (agent == null) {
+    const names = agents.map((held) => held.name).join(", ");
+
+    throw new Error(`No agent ${name}. Agents: ${names === "" ? "none" : names}`);
+  }
+
+  return agent;
+};
+
 /**
  * The subagent tool: run waits for a foreground child's answer (pi-durable's
  * example 21); spawn, message, wait, stop and list manage background children
  * (example 22). Children start as a copy of this conversation's agent without
- * `withheld`, the extension holding this tool and the question tool, so they
- * neither nest nor ask the parent.
+ * the extensions `withheld` names for this conversation, so a child never asks
+ * the parent and a grandchild cannot start subagents. A child starts with the
+ * instructions of the agent the call names, or with none of its owner's.
  */
-export const subagentTool = (withheld: () => Extension) =>
+export const subagentTool = (withheld: (caller: ConversationId) => readonly Extension[]) =>
   defineTool({
     name: ToolNames.subagent,
     description:
@@ -218,11 +249,16 @@ export const subagentTool = (withheld: () => Extension) =>
       "message: sends a follow-up or a steer to a background subagent. wait: waits for its answer to " +
       "the last message. stop: stops its current work. list: each subagent's id, name and status.",
     parameters: union([
-      obj({ action: lit("run"), task: str({ description: "A self-contained task." }) }),
+      obj({
+        action: lit("run"),
+        task: str({ description: "A self-contained task." }),
+        agent: agentArgument,
+      }),
       obj({
         action: lit("spawn"),
         task: str(),
         name: str({ description: "A short label for list." }),
+        agent: agentArgument,
       }),
       obj({ action: lit("message"), id: str(), text: str(), mode: oneOf(["followUp", "steer"]) }),
       obj({ action: lit("wait"), id: str() }),
@@ -238,12 +274,17 @@ export const subagentTool = (withheld: () => Extension) =>
 
       switch (args.action) {
         case "run": {
+          const agent = await agentNamed(args.agent, api, context);
+
           const child = await api.commit(async (tx) => {
             const created = await tx.createConversation({
               ownership: { kind: "task", taskId: api.taskId },
             });
 
-            await configure(tx, created.id, { extensions: { remove: [withheld()] } });
+            await configure(tx, created.id, {
+              extensions: { remove: withheld(api.conversationId) },
+              instructions: agent?.prompt ?? null,
+            });
 
             return created.id;
           }, context);
@@ -268,6 +309,8 @@ export const subagentTool = (withheld: () => Extension) =>
         }
 
         case "spawn": {
+          const agent = await agentNamed(args.agent, api, context);
+
           const id = await api.commit(async (tx) => {
             const anchor = await tx.createTask(Anchor, null, background);
 
@@ -276,8 +319,10 @@ export const subagentTool = (withheld: () => Extension) =>
             });
 
             await configure(tx, created.id, {
-              extensions: { remove: [withheld()] },
-              instructions: `You are the subagent "${args.name}". Answer the requests of the agent that started you.`,
+              extensions: { remove: withheld(api.conversationId) },
+              instructions:
+                agent?.prompt ??
+                `You are the subagent "${args.name}". Answer the requests of the agent that started you.`,
             });
 
             const reporter = await tx.createTask(
