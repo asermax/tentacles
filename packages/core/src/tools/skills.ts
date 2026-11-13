@@ -1,8 +1,10 @@
 import { defineDoc, defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 import { skillsDirectory } from "@tentacles/contracts/workspace";
-import type { Skill } from "@tentacles/worker-api/definitions";
+import { skillFile } from "@tentacles/worker-api/archives";
+import { nameGrammar, type Skill } from "@tentacles/worker-api/definitions";
 
+import { findNamed } from "./find-named.ts";
 import { ToolNames } from "./tool-names.ts";
 
 /** A skill as the session keeps it: its definition and where its SKILL.md is in the workspace. */
@@ -19,13 +21,21 @@ export const SkillsDoc = defineDoc<{ skills: SkillEntry[] }>({
   checkpointWhen: () => false,
 });
 
+const skillFolder = (skill: Skill) => `${skillsDirectory}/${skill.name}`;
+
+/** A skill with its place in the workspace, where the archive's extraction puts its folder. */
+export const toSkillEntry = (skill: Skill): SkillEntry => ({
+  ...skill,
+  path: `${skillFolder(skill)}/${skillFile}`,
+});
+
 /** What the skill tool answers and a prompt expansion inserts: a pointer to the skill's SKILL.md. */
 export const skillBlock = (skill: SkillEntry) =>
   `<skill name="${skill.name}" location="${skill.path}">\n` +
-  `Read ${skill.path} before acting on this skill. Paths it names, such as references/ or scripts/, are relative to ${skillsDirectory}/${skill.name}/.\n` +
+  `Read ${skill.path} before acting on this skill. Paths it names, such as references/ or scripts/, are relative to ${skillFolder(skill)}/.\n` +
   "</skill>";
 
-const triggerPattern = /(?<=^|\s)\/(?:skill:)?([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g;
+const triggerPattern = new RegExp(`(?<=^|\\s)/(?:skill:)?(${nameGrammar})(?=\\s|$)`, "g");
 
 /**
  * Replaces each `/skill:<name>` and `/<name>` of a held skill with its block.
@@ -34,13 +44,11 @@ const triggerPattern = /(?<=^|\s)\/(?:skill:)?([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)
  * stays as written, like an unheld name.
  */
 export const expandSkills = (text: string, skills: readonly SkillEntry[]) =>
-  skills.length === 0
-    ? text
-    : text.replace(triggerPattern, (trigger, name: string) => {
-        const skill = skills.find((held) => held.name === name);
+  text.replace(triggerPattern, (trigger, name: string) => {
+    const skill = skills.find((held) => held.name === name);
 
-        return skill == null ? trigger : skillBlock(skill);
-      });
+    return skill == null ? trigger : skillBlock(skill);
+  });
 
 const listing = (skills: readonly SkillEntry[]) =>
   "Skills are instructions for specific kinds of work. When a task matches a skill's description, " +
@@ -72,15 +80,17 @@ export const skillsExtension = defineExtension({
       replay: "safe",
       execute: async (args, api, context) => {
         const skills = (await api.snapshot(SkillsDoc, context))?.skills ?? [];
-        const skill = skills.find((held) => held.name === args.name);
 
-        if (skill == null) {
-          const names = skills.map((held) => held.name).join(", ");
-
-          throw new Error(`No skill ${args.name}. Skills: ${names === "" ? "none" : names}`);
-        }
-
-        return { output: [{ type: "text" as const, text: skillBlock(skill) }] };
+        return {
+          output: [
+            {
+              type: "text" as const,
+              text: skillBlock(
+                findNamed({ singular: "skill", plural: "Skills" }, skills, args.name),
+              ),
+            },
+          ],
+        };
       },
     }),
   ],

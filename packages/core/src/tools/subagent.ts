@@ -20,6 +20,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { AgentsDoc } from "./agents-doc.ts";
+import { findNamed } from "./find-named.ts";
 import { subagentReportKind, ToolNames } from "./tool-names.ts";
 
 type Child = {
@@ -221,15 +222,8 @@ const agentNamed = async (
   }
 
   const agents = (await api.snapshot(AgentsDoc, context))?.agents ?? [];
-  const agent = agents.find((held) => held.name === name);
 
-  if (agent == null) {
-    const names = agents.map((held) => held.name).join(", ");
-
-    throw new Error(`No agent ${name}. Agents: ${names === "" ? "none" : names}`);
-  }
-
-  return agent;
+  return findNamed({ singular: "agent", plural: "Agents" }, agents, name);
 };
 
 /**

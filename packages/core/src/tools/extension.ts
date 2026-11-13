@@ -45,10 +45,10 @@ export const remoteAgentExtensions = (sessionId: SessionId) =>
       sections: [section("tentacles", () => remoteAgentInstructions, { tag: false })],
     });
 
-    const agents: Extension = agentsExtension((caller) => withheld(caller));
-
     const withheld = (caller: ConversationId) =>
       caller === ROOT_CONVERSATION_ID ? [rootAgent] : [rootAgent, agents];
+
+    const agents: Extension = agentsExtension(withheld);
 
     return [
       CodingTools,

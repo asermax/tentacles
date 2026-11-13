@@ -20,7 +20,7 @@ import type { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
 import { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
-import { skillsDirectory, Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
+import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
 import { readAgentsArchive, readSkillsArchive } from "@tentacles/worker-api/archives";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
@@ -35,7 +35,7 @@ import * as Semaphore from "effect/Semaphore";
 
 import { AgentsDoc } from "../tools/agents-doc.ts";
 import { remoteAgentExtensions } from "../tools/extension.ts";
-import { expandSkills, SkillsDoc } from "../tools/skills.ts";
+import { expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills.ts";
 import { toEntries } from "./entries.ts";
 import { QuestionsDoc } from "./questions.ts";
 import { RecordDoc, type SessionRecord } from "./record.ts";
@@ -203,10 +203,7 @@ const make = (sessionId: SessionId) =>
           // cannot be read leaves no trace.
           const skills = (
             request.skills == null ? [] : yield* readSkillsArchive(request.skills)
-          ).map((skill) => ({
-            ...skill,
-            path: `${skillsDirectory}/${skill.name}/SKILL.md`,
-          }));
+          ).map(toSkillEntry);
 
           const agents = request.agents == null ? [] : yield* readAgentsArchive(request.agents);
 
