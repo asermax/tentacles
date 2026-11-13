@@ -1,37 +1,19 @@
 name: CI
 
+# Pull requests run the Checks workflow alone; a push to master runs it here,
+# then publishes.
 on:
   push:
-    branches: [master]
-  pull_request:
     branches: [master]
 
 jobs:
   test:
     name: Check & test
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      # core's tests run pi-env's daemon in a bubblewrap sandbox. Ubuntu 24.04
-      # lets AppArmor block unprivileged user namespaces, which bwrap needs.
-      - name: Set up bubblewrap
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bubblewrap
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - run: pnpm test
+    uses: ./.github/workflows/checks.yml
 
   marketplace:
     name: Publish the Claude marketplace
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: test
     permissions:
       contents: write
@@ -48,7 +30,6 @@ jobs:
   npm:
     name: Publish the pi package
     runs-on: ubuntu-24.04
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: test
     # id-token lets npm trade GitHub's OIDC token for a publish token when the
     # package has a trusted publisher, and signs the provenance attestation.
