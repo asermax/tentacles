@@ -230,27 +230,8 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
        * baseline, never reported; every later change is.
        */
       attach: Effect.gen(function* () {
-        yield* attachOne<Readonly<LiveState>>(
-          (target) => harness.observeDoc(LiveDoc, ROOT_CONVERSATION_ID, target, BACKGROUND_CONTEXT),
-          (value) => {
-            observed.live = value;
-          },
-        );
-        yield* attachOne<Readonly<{ questions: StoredQuestion[] }>>(
-          (target) => harness.observeDoc(QuestionsDoc, target, BACKGROUND_CONTEXT),
-          (value) => {
-            observed.questions = value.questions;
-          },
-        );
-        yield* attachOne<Readonly<SessionRecord>>(
-          (target) => harness.observeDoc(RecordDoc, sessionId, target, BACKGROUND_CONTEXT),
-          (value) => {
-            observed.record = value;
-          },
-        );
-
         // The documents never change after create, so one read serves every state.
-        observed.names = yield* Effect.promise(async (): Promise<Observed["names"]> => {
+        const readNames = Effect.promise(async (): Promise<Observed["names"]> => {
           const [skills, agents] = await Promise.all([
             harness.snapshot(SkillsDoc, BACKGROUND_CONTEXT),
             harness.snapshot(AgentsDoc, BACKGROUND_CONTEXT),
@@ -262,6 +243,33 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
           };
         });
 
+        const attachObservers = Effect.gen(function* () {
+          yield* attachOne<Readonly<LiveState>>(
+            (target) =>
+              harness.observeDoc(LiveDoc, ROOT_CONVERSATION_ID, target, BACKGROUND_CONTEXT),
+            (value) => {
+              observed.live = value;
+            },
+          );
+          yield* attachOne<Readonly<{ questions: StoredQuestion[] }>>(
+            (target) => harness.observeDoc(QuestionsDoc, target, BACKGROUND_CONTEXT),
+            (value) => {
+              observed.questions = value.questions;
+            },
+          );
+          yield* attachOne<Readonly<SessionRecord>>(
+            (target) => harness.observeDoc(RecordDoc, sessionId, target, BACKGROUND_CONTEXT),
+            (value) => {
+              observed.record = value;
+            },
+          );
+        });
+
+        const [, names] = yield* Effect.all([attachObservers, readNames], {
+          concurrency: "unbounded",
+        });
+
+        observed.names = names;
         current = deriveState(observed);
         isAttached = true;
       }),
