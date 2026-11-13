@@ -1,27 +1,27 @@
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { parse } from "yaml";
+
+import { readFrontmatter } from "./frontmatter.ts";
 
 const nameFormat =
   "name must be 1 to 64 lowercase letters, digits and hyphens, with no leading, trailing or doubled hyphen";
 
 const descriptionLength = "description must be 1 to 1024 characters";
 
-export const DefinitionName = Schema.String.check(
-  Schema.isPattern(/^[a-z0-9]+(-[a-z0-9]+)*$/, { message: nameFormat }),
+const descriptionMissing = "description is missing; it must be 1 to 1024 characters";
+
+/** What a definition's name is made of, as a regular expression source: lowercase words joined by single hyphens. */
+export const nameGrammar = "[a-z0-9]+(?:-[a-z0-9]+)*";
+
+const nameField = Schema.String.check(
+  Schema.isPattern(new RegExp(`^${nameGrammar}$`), { message: nameFormat }),
   Schema.isMaxLength(64, { message: nameFormat }),
-);
+).annotateKey({ messageMissingKey: "name is missing" });
 
-export const DefinitionDescription = Schema.String.check(
-  Schema.isMinLength(1, { message: "description is missing; it must be 1 to 1024 characters" }),
+const descriptionField = Schema.String.check(
+  Schema.isMinLength(1, { message: descriptionMissing }),
   Schema.isMaxLength(1024, { message: descriptionLength }),
-);
-
-const nameField = DefinitionName.annotateKey({ messageMissingKey: "name is missing" });
-
-const descriptionField = DefinitionDescription.annotateKey({
-  messageMissingKey: "description is missing; it must be 1 to 1024 characters",
-});
+).annotateKey({ messageMissingKey: descriptionMissing });
 
 export const Skill = Schema.Struct({
   name: nameField,
@@ -31,8 +31,7 @@ export const Skill = Schema.Struct({
 export type Skill = typeof Skill.Type;
 
 export const Agent = Schema.Struct({
-  name: nameField,
-  description: descriptionField,
+  ...Skill.fields,
   prompt: Schema.String.check(Schema.isPattern(/\S/, { message: "body is empty" })),
 });
 
@@ -56,92 +55,6 @@ export interface AgentSource {
   readonly path: string;
   readonly text: string;
 }
-
-const frontmatterPattern = /^(---[ \t]*\r?\n)(?:([\s\S]*?)(\r?\n))?(---[ \t]*(?:\r?\n|$))/;
-
-const plainLinePattern = /^([A-Za-z0-9_][\w.-]*):[ \t]+(\S.*?)[ \t]*(\r?)$/;
-
-const indentedPattern = /^[ \t]+\S/;
-
-const isPlainValue = (value: string) => !/^["'|>]/.test(value);
-
-const failsAlone = (line: string) => {
-  try {
-    parse(line);
-
-    return false;
-  } catch {
-    return true;
-  }
-};
-
-// Claude Code accepts values that strict YAML rejects (`description: Does a
-// thing: with a colon`, `argument-hint: [a] [b]`); quoting only the plain
-// single-line values that fail on their own keeps their text and leaves every
-// valid line as written.
-const quoteFailingValues = (block: string) => {
-  const lines = block.split("\n");
-
-  return lines
-    .map((line, index) => {
-      const match = plainLinePattern.exec(line);
-
-      if (match == null || !isPlainValue(match[2] ?? "")) {
-        return line;
-      }
-
-      if (indentedPattern.test(lines[index + 1] ?? "") || !failsAlone(line.trimEnd())) {
-        return line;
-      }
-
-      return `${match[1]}: ${JSON.stringify(match[2])}${match[3]}`;
-    })
-    .join("\n");
-};
-
-export interface Frontmatter {
-  readonly attributes: unknown;
-  readonly body: string;
-  /** The text with its frontmatter repaired when strict YAML rejected it, otherwise the text as read. */
-  readonly text: string;
-}
-
-/** Splits the leading `---` block off a markdown text; throws the strict YAML error when neither the block nor its repaired form is valid YAML. */
-export const readFrontmatter = (text: string): Frontmatter => {
-  const match = frontmatterPattern.exec(text);
-
-  if (match == null) {
-    return { attributes: {}, body: text, text };
-  }
-
-  const [whole, open = "", block = "", lineBreak = "", close = ""] = match;
-  const body = text.slice(whole.length);
-
-  try {
-    return { attributes: parse(block) ?? {}, body, text };
-  } catch (strict) {
-    const repaired = quoteFailingValues(block);
-
-    try {
-      return {
-        attributes: parse(repaired) ?? {},
-        body,
-        text: `${open}${repaired}${lineBreak}${close}${body}`,
-      };
-    } catch {
-      throw strict;
-    }
-  }
-};
-
-/** The text a definition is sent as: its frontmatter repaired when strict YAML rejects it; a text that is not valid even then comes back as it is. */
-export const repairFrontmatter = (text: string) => {
-  try {
-    return readFrontmatter(text).text;
-  } catch {
-    return text;
-  }
-};
 
 const decodeSkill = Schema.decodeUnknownResult(Skill);
 
@@ -211,7 +124,7 @@ export const checkSkills = (sources: ReadonlyArray<SkillSource>) => {
 export const checkAgents = (sources: ReadonlyArray<AgentSource>) => {
   const { items, problems } = check(sources, (source) =>
     Result.flatMap(readDefinition(source.text), ({ attributes, body }) =>
-      Result.mapError(decodeAgent({ ...Object(attributes), prompt: body }), messageOf),
+      Result.mapError(decodeAgent(Object.assign({}, attributes, { prompt: body })), messageOf),
     ),
   );
 

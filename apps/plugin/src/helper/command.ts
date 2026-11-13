@@ -5,9 +5,7 @@ import { Answer, MessageCount, Prompt } from "@tentacles/worker-api/sessions";
 import type * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
-import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import * as Struct from "effect/Struct";
 import type * as HttpClient from "effect/http/HttpClient";
 import type * as HttpClientError from "effect/http/HttpClientError";
 
@@ -76,17 +74,13 @@ const commands: Record<EndpointToolEntry["name"], Command> = {
         agents: request.agents ?? [],
       });
 
-      if (Predicate.isTagged(archives, "Rejected")) {
-        return yield* Effect.fail(archives);
-      }
-
       return yield* client.sessions.create({
         payload: {
           name: request.name,
           parent: request.parent,
           prompt: request.prompt,
           settings: { ...defaults, repository: null, ...request.settings },
-          ...Struct.omit(archives, ["_tag"]),
+          ...archives,
         },
       });
     }),

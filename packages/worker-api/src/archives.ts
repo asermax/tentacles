@@ -1,8 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { unpackTar } from "modern-tar";
+import { packTar, unpackTar } from "modern-tar";
 
-import { checkAgents, checkSkills, type Problem } from "./definitions.ts";
+import { checkAgents, checkSkills, type Problem, type SkillSource } from "./definitions.ts";
 import { InvalidArchive } from "./errors.ts";
 
 export class ArchiveUnreadable extends Schema.TaggedError<ArchiveUnreadable>()(
@@ -10,26 +10,41 @@ export class ArchiveUnreadable extends Schema.TaggedError<ArchiveUnreadable>()(
   { message: Schema.String },
 ) {}
 
+/** A regular file of an archive; `mode` holds its permission bits, as in `stat`'s mode & 0o777. */
 export interface ArchiveEntry {
   readonly path: string;
   readonly bytes: Uint8Array;
-  /** The file's permission bits, as in `stat`'s mode & 0o777. */
   readonly mode: number;
 }
 
-const skillFile = "SKILL.md";
+export const skillFile = "SKILL.md";
+
+export const permissionBits = 0o777;
 
 const defaultMode = 0o644;
 
-const permissionBits = 0o777;
-
 const gunzip = (bytes: Uint8Array) =>
-  new ReadableStream<Uint8Array<ArrayBuffer>>({
-    start: (controller) => {
-      controller.enqueue(new Uint8Array(bytes));
-      controller.close();
-    },
-  }).pipeThrough(new DecompressionStream("gzip"));
+  new Blob([new Uint8Array(bytes)]).stream().pipeThrough(new DecompressionStream("gzip"));
+
+const gzip = async (bytes: Uint8Array<ArrayBuffer>) =>
+  new Uint8Array(
+    await new Response(
+      new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer(),
+  );
+
+/** Packs entries into a tar.gz, the form `readArchive` reads. */
+export const packArchive = (entries: ReadonlyArray<ArchiveEntry>) =>
+  Effect.promise(async () =>
+    gzip(
+      await packTar(
+        entries.map((entry) => ({
+          header: { name: entry.path, size: entry.bytes.byteLength, mode: entry.mode },
+          body: entry.bytes,
+        })),
+      ),
+    ),
+  );
 
 /** The regular files of a tar.gz, with their paths normalized (no leading `./`). */
 export const readArchive = (bytes: Uint8Array) =>
@@ -51,15 +66,21 @@ export const readArchive = (bytes: Uint8Array) =>
 
 const decoder = new TextDecoder();
 
-const invalid = (kind: string, problems: ReadonlyArray<Problem>) =>
-  new InvalidArchive({
-    message: `The ${kind} archive is invalid: ${problems
-      .map((problem) => `${problem.path}: ${problem.message}`)
-      .join("; ")}`,
-  });
+const invalid = (kind: string, text: string) =>
+  new InvalidArchive({ message: `The ${kind} archive is invalid: ${text}` });
 
-const unreadable = (kind: string) => (error: ArchiveUnreadable) =>
-  new InvalidArchive({ message: `The ${kind} archive is invalid: ${error.message}` });
+const unreadable = (kind: string) => (error: ArchiveUnreadable) => invalid(kind, error.message);
+
+const succeedUnlessInvalid = <Item>(
+  kind: string,
+  items: ReadonlyArray<Item>,
+  problems: ReadonlyArray<Problem>,
+) =>
+  problems.length === 0
+    ? Effect.succeed(items)
+    : Effect.fail(
+        invalid(kind, problems.map((problem) => `${problem.path}: ${problem.message}`).join("; ")),
+      );
 
 /** The skills of a skills archive: one folder per skill at its top level, each with a SKILL.md. */
 export const readSkillsArchive = (bytes: Uint8Array) =>
@@ -68,7 +89,7 @@ export const readSkillsArchive = (bytes: Uint8Array) =>
     Effect.flatMap((entries) => {
       const folders = new Set<string>();
       const problems: Array<Problem> = [];
-      const sources: Array<{ folder: string; path: string; text: string }> = [];
+      const sources: Array<SkillSource> = [];
 
       for (const entry of entries) {
         const [folder = "", ...rest] = entry.path.split("/");
@@ -93,11 +114,8 @@ export const readSkillsArchive = (bytes: Uint8Array) =>
       }
 
       const checked = checkSkills(sources);
-      const all = [...problems, ...checked.problems];
 
-      return all.length === 0
-        ? Effect.succeed(checked.skills)
-        : Effect.fail(invalid("skills", all));
+      return succeedUnlessInvalid("skills", checked.skills, [...problems, ...checked.problems]);
     }),
   );
 
@@ -116,10 +134,6 @@ export const readAgentsArchive = (bytes: Uint8Array) =>
           .map((entry) => ({ path: entry.path, text: decoder.decode(entry.bytes) })),
       );
 
-      const all = [...nested, ...checked.problems];
-
-      return all.length === 0
-        ? Effect.succeed(checked.agents)
-        : Effect.fail(invalid("agents", all));
+      return succeedUnlessInvalid("agents", checked.agents, [...nested, ...checked.problems]);
     }),
   );

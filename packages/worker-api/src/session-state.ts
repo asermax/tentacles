@@ -34,14 +34,14 @@ export type SessionDetails = typeof SessionDetails.Type;
 // The idle state carries the run's last entry only when it is sent because a
 // run just finished; on connect and from status it has none.
 export const SessionState = Schema.Union([
-  Schema.TaggedStruct(SessionStatuses.running, { ...SessionDetails.fields }),
+  Schema.TaggedStruct(SessionStatuses.running, SessionDetails.fields),
   Schema.TaggedStruct(SessionStatuses.waiting, { ...SessionDetails.fields, question: Question }),
   Schema.TaggedStruct(SessionStatuses.idle, {
     ...SessionDetails.fields,
     lastEntry: Schema.optionalKey(Entry),
   }),
   Schema.TaggedStruct(SessionStatuses.failed, { ...SessionDetails.fields, failure: Schema.String }),
-  Schema.TaggedStruct(SessionStatuses.closed, { ...SessionDetails.fields }),
+  Schema.TaggedStruct(SessionStatuses.closed, SessionDetails.fields),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
 export type SessionState = typeof SessionState.Type;
