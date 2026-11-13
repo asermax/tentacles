@@ -1,6 +1,7 @@
 export const ToolNames = {
   askParent: "ask_parent",
   preview: "preview",
+  skill: "skill",
   subagent: "subagent",
 } as const;
 
