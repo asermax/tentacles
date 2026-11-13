@@ -13,6 +13,7 @@ import {
 } from "@tentacles/contracts/workspace";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 
 /** What the test reads back from one session's workspace. */
 export interface WorkspaceRecord {
@@ -179,15 +180,29 @@ export const testWorkspace = (
               return;
             }
 
-            if (settings.repository != null) {
-              yield* clone(settings.repository);
-            }
+            yield* Effect.all(
+              [
+                Effect.result(
+                  settings.repository == null ? Effect.void : clone(settings.repository),
+                ),
+                Effect.result(
+                  Effect.flatMap(skillsArchive.read(), (archive) =>
+                    archive == null ? Effect.void : extractSkills(archive),
+                  ),
+                ),
+              ],
+              { concurrency: 2 },
+            ).pipe(
+              Effect.flatMap((results) => {
+                const messages = results.flatMap((result) =>
+                  Result.isFailure(result) ? [result.failure.message] : [],
+                );
 
-            const archive = yield* skillsArchive.read();
-
-            if (archive != null) {
-              yield* extractSkills(archive);
-            }
+                return messages.length === 0
+                  ? Effect.void
+                  : Effect.fail(new WorkspaceUnavailable({ message: messages.join("; ") }));
+              }),
+            );
 
             isStarted = true;
           }),

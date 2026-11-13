@@ -18,6 +18,7 @@ import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Result from "effect/Result";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -220,6 +221,47 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
       });
     });
 
+  // The clone and the extraction write to different directories, so a cold start runs them
+  // together and reports every step that failed.
+  const prepare = (
+    repository: Repository | null | undefined,
+    readArchive: Effect.Effect<Uint8Array | null>,
+  ) =>
+    Effect.all(
+      [
+        Effect.result(repository == null ? Effect.void : clone(repository)),
+        Effect.result(
+          Effect.flatMap(readArchive, (archive) =>
+            archive == null ? Effect.void : extractSkills(archive),
+          ),
+        ),
+      ],
+      { concurrency: 2 },
+    ).pipe(
+      Effect.flatMap((results) => {
+        const messages = results.flatMap((result) =>
+          Result.isFailure(result) ? [result.failure.message] : [],
+        );
+
+        return messages.length === 0
+          ? Effect.void
+          : Effect.fail(new WorkspaceUnavailable({ message: messages.join("; ") }));
+      }),
+    );
+
+  // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
+  // plain HTTP.
+  const forward = (port: number, request: Request) =>
+    Effect.tryPromise(() => {
+      const url = new URL(request.url);
+
+      url.protocol = "http:";
+
+      return container().getTcpPort(port).fetch(new Request(url, request));
+    }).pipe(
+      Effect.orElseSucceed(() => new Response(`Nothing answers on port ${port}`, { status: 502 })),
+    );
+
   return Layer.effect(
     Workspace,
     Effect.gen(function* () {
@@ -235,16 +277,7 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
 
               yield* start(settings);
               yield* daemonReady;
-
-              if (settings.repository != null) {
-                yield* clone(settings.repository);
-              }
-
-              const archive = yield* skillsArchive.read();
-
-              if (archive != null) {
-                yield* extractSkills(archive);
-              }
+              yield* prepare(settings.repository, skillsArchive.read());
             }),
           ),
 
@@ -252,20 +285,7 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
 
         isRunning: () => Effect.sync(() => container().running),
 
-        // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
-        // plain HTTP.
-        forward: (port, request) =>
-          Effect.tryPromise(() => {
-            const url = new URL(request.url);
-
-            url.protocol = "http:";
-
-            return container().getTcpPort(port).fetch(new Request(url, request));
-          }).pipe(
-            Effect.orElseSucceed(
-              () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
-            ),
-          ),
+        forward,
       });
     }),
   );
