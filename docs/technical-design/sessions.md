@@ -251,7 +251,7 @@ flowchart TD
         SU -->|Yes| SZ{"packed skills archive within 5 MB?"}
     end
     subgraph agents["Agents, each file on its own"]
-        AP{"path exists and holds a file?"} -->|Yes| AF{"frontmatter with a name and a description, body not empty?"}
+        AP{"path exists and holds a file?"} -->|Yes| AF{"frontmatter: name follows the rules, description 1-1024, body not empty?"}
         AF -->|Yes| AU{"name unique among the agents?"}
         AU -->|Yes| AZ{"packed agents archive within 5 MB?"}
     end
@@ -271,7 +271,7 @@ flowchart TD
     class SE,AE,N red
 ```
 
-The helper checks the skills and the agents apart, every file on its own, and keeps going after a problem so it reports them all. A skill follows the Agent Skills specification. Its name is 1 to 64 lowercase letters, digits and hyphens, with no leading, trailing or doubled hyphen, and equals its folder's name. Its description is 1 to 1024 characters. An agent definition is a file whose frontmatter has a non-empty name and description and whose body is not empty. Names are unique within each group, and each packed archive stays within 5 MB. When anything fails, the spawn tool returns every problem with its path, the skills' in one group and the agents' in another, and nothing reaches tentacles.
+The helper checks the skills and the agents apart, every file on its own, and keeps going after a problem so it reports them all. A skill follows the Agent Skills specification. Its name is 1 to 64 lowercase letters, digits and hyphens, with no leading, trailing or doubled hyphen, and equals its folder's name. Its description is 1 to 1024 characters. An agent definition is a file whose frontmatter name and description follow the same rules as a skill's, with no folder to match, and whose body is not empty. Names are unique within each group, and each packed archive stays within 5 MB. When anything fails, the spawn tool returns every problem with its path, the skills' in one group and the agents' in another, and nothing reaches tentacles.
 
 The session takes these values from an agent definition:
 
