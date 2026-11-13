@@ -271,6 +271,9 @@ importers:
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2
+      modern-tar:
+        specifier: 0.8.6
+        version: 0.8.6
       rolldown:
         specifier: 1.2.13
         version: 1.2.13

@@ -15,7 +15,13 @@ export default makeWorkerBridge(WorkerEntrypoint, meta);
 
 const DurableObjectBridge = makeDurableObjectBridge(DurableObject, meta);
 
-export class SessionObject extends DurableObjectBridge("SessionObject") {}
+// The key-value entry the provider keeps the skills archive under, which no operation of the
+// object returns, read through the bridge the way a test reaches it over RPC.
+export class SessionObject extends DurableObjectBridge("SessionObject") {
+  storedSkillsArchive() {
+    return this.ctx.storage.kv.get("tentacles.skills-archive") ?? null;
+  }
+}
 
 export class RegistryObject extends DurableObjectBridge("RegistryObject") {}
 

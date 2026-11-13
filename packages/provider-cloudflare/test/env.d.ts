@@ -9,6 +9,7 @@ import type {
 // The session object's RPC as a test calls it, the way the Worker's SessionHost does.
 interface SessionRpc extends Rpc.DurableObjectBranded {
   create(request: CreateSession): void;
+  storedSkillsArchive(): Uint8Array | null;
 }
 
 // The registry object's RPC as a test calls it from outside the Worker: each member of
