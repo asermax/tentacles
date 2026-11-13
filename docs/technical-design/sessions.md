@@ -115,7 +115,7 @@ erDiagram
         text prompt
     }
     SKILLS_ARCHIVE {
-        blob archive "tar.gz as sent, at most 5 MB"
+        blob archive "one key-value entry, tar.gz as sent, at most 5 MB"
     }
 ```
 
@@ -146,7 +146,7 @@ QUESTION is a question the session's agent asked with `ask_parent`: its id, its 
 
 A skill is a folder that holds a SKILL.md and whatever the skill points to. An agent definition is a file whose frontmatter names a subagent and whose body is that subagent's prompt. The skills document and the agents document are pi-durable documents of the session, written once at spawn. A skill entry holds the skill's name and description, which the prompt lists. It also holds the full path of its SKILL.md in the workspace, which the skill tool and a prompt expansion point the agent to. An agent entry holds the agent's name, description and prompt, which the subagent tool starts a subagent with. Agent definitions live only here and never enter the container.
 
-SKILLS_ARCHIVE is the skills archive exactly as the spawn sent it, stored as one row in a table tentacles keeps in the session's own SQLite database, next to pi-durable's tables. Only a container start reads it. Deleting the session clears the documents and the archive with the rest of its storage.
+SKILLS_ARCHIVE is the skills archive exactly as the spawn sent it. The session object stores it as one value under a fixed key in its key-value storage, which lives in the same SQLite database as pi-durable's tables. Only a container start reads it. Deleting the session clears the documents and the archive with the rest of its storage.
 
 The API key and the Claude and GitHub credentials are Worker secrets, and none of these entities stores them.
 
@@ -314,7 +314,7 @@ sequenceDiagram
     end
 ```
 
-The parent calls the spawn tool with paths (1). The plugin's helper reads and checks every folder and file (2). On any failure, the helper returns every problem as the spawn tool's result and sends nothing (3). Otherwise it packs the skills archive and the agents archive (4) and sends create with them (5), which the Worker hands to the session (6). The session reads both archives again to build the skills and agents documents and stores the skills archive unchanged (7). It adds its registry entry with the settings and the skill and agent names it read (8), and only then starts the first run (9). create answers with the session id once the run has started (10 to 12).
+The parent calls the spawn tool with paths (1). The plugin's helper reads and checks every folder and file (2). On any failure, the helper returns every problem as the spawn tool's result and sends nothing (3). Otherwise it packs the skills archive and the agents archive (4) and sends create with them (5), which the Worker hands to the session (6). The session reads both archives again to build the skills and agents documents and stores the skills archive unchanged (7). When it cannot read an archive, create returns an error naming the archive and the problem, and the session stores nothing (see [worker-api](worker-api.md)). It adds its registry entry with the settings and the skill and agent names it read (8), and only then starts the first run (9). create answers with the session id once the run has started (10 to 12).
 
 #### 📦 At every container start
 
@@ -327,7 +327,7 @@ sequenceDiagram
     participant C as Workspace container
     T->>+S: needs the workspace
     alt container running
-        S-->>T: ready, skills already in /skills
+        S-->>T: ready, /skills as its start left it
     else cold start
         S->>C: start
         S->>C: clone the repository into /workspace
@@ -336,12 +336,12 @@ sequenceDiagram
         alt copy and expansion succeed
             S-->>T: ready
         else copy or expansion fails
-            S-->>-T: workspace unavailable, the next tool call starts over
+            S-->>-T: workspace unavailable, the container stays up as it is
         end
     end
 ```
 
-Before a tool uses the workspace, the session makes sure the container is up (1). A running container already holds the skills (2). On a cold start, the first one or one after an eviction, the session starts the container (3) and clones the repository when the settings name one (4). It then reads the skills archive from its storage (5), copies it into the container and expands it into `/skills`, one folder per skill (6), and the tool runs (7). A failed copy or expansion fails the workspace the way a failed clone does (8). The tool call that needed the workspace fails with "workspace unavailable", and the next tool call starts over. Rendering the prompt's sections never starts the container. The session passes the archive as the standard input of a command it runs in the container, and the image's `tar` expands it there. [workspace](workspace.md) covers the rest of the container's start.
+Before a tool uses the workspace, the session makes sure the container is up (1). A running container already holds whatever its start put in `/skills` (2). On a cold start, the first one or one after an eviction, the session starts the container (3) and clones the repository when the settings name one (4). It then reads the skills archive from its storage (5), copies it into the container and expands it into `/skills`, one folder per skill (6), and the tool runs (7). A failed copy or expansion fails the workspace the way a failed clone does (8). The tool call that needed the workspace fails with "workspace unavailable". The container stays running, so later tool calls use it without the repository or the skills that failed to arrive. Nothing clones or expands again until the container next starts cold. Rendering the prompt's sections never starts the container. The session passes the archive as the standard input of a command it runs in the container, and the image's `tar` expands it there. [workspace](workspace.md) covers the rest of the container's start.
 
 > [!NOTE] Why the session keeps the archive whole
 > Only the container uses the skills' files, and it needs all of them at once. The session keeps the archive as it arrived and lets the container's own `tar` expand it, so the files move in one copy and the session never handles them one by one.
@@ -387,6 +387,8 @@ Read /skills/implement/SKILL.md before acting on this skill. Paths it names, suc
 | skill tool | given a skill name, the same pointer block a prompt expansion adds; an unknown name fails the call, naming the skills that exist | the model, when a task matches a listed skill |
 | agents section | each agent's name and description, and how to spawn one with the subagent tool | the model, in the root and its children, when the session holds agents |
 | subagent tool, run and spawn | an optional agent name: with one, the subagent starts with that agent's prompt as its instructions; an unknown name fails the call, naming the agents that exist | the model, in the root and its children |
+
+Without an agent name, run starts the subagent with no instructions of its own, and spawn starts it with a line giving the subagent's name.
 
 > [!WARNING] A skill that names a skill the session does not hold
 > Skills often load other skills by name, sometimes with a plugin prefix such as `plugin:skill`, and refer to their own files through variables such as `${CLAUDE_PLUGIN_ROOT}`. tentacles resolves neither. The model works them out from the listing and the `/skills/<name>/` layout, and a skill the parent did not send is missing: the agent finds no such name and carries on without it.

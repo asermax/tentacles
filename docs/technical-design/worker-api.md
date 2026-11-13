@@ -40,9 +40,13 @@ A call or a socket on a deleted or unknown session, or an answer to a question t
 | skills | optional; a gzip-compressed tar file of at most 5 MB with one skill folder per top-level entry |
 | agents | optional; a gzip-compressed tar file of at most 5 MB with one agent definition file per top-level entry |
 
+Create's body is JSON and carries each archive base64-encoded, which makes it a third larger than the file. Two archives at the 5 MB limit come to about 13.4 MB.
+
 The plugin fills every unset setting from its defaults, so create always carries provider, model, effort, image, size and lifetime. A repository is optional; tentacles clones it into `/workspace` (see [workspace](workspace.md)).
 
-The plugin's helper checks the skills and agent definitions on the parent's machine and packs the archives only when every check passes, so a problem reaches the parent as the spawn tool's result and never as a create call. [sessions](sessions.md) covers the checks, in its Skills and agents section, and what the session does with each archive.
+The plugin's helper checks the skills and agent definitions on the parent's machine and packs the archives only when every check passes, so the problems it finds reach the parent as the spawn tool's result and no create call is sent. [sessions](sessions.md) covers the checks, in its Skills and agents section, and what the session does with each archive.
+
+The session reads each archive again and runs the same checks. When it cannot read one, because the file is not a gzip-compressed tar, a skill folder has no SKILL.md, or a skill or agent definition breaks a rule, create returns an error naming the archive and the problem. The session then stores nothing and starts no run.
 
 ## 📡 Session state
 
