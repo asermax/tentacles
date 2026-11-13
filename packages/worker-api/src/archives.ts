@@ -119,6 +119,10 @@ export const readSkillsArchive = (bytes: Uint8Array) =>
     }),
   );
 
+/** The files of a context archive; nothing in it is checked beyond being readable. */
+export const readContextArchive = (bytes: Uint8Array) =>
+  readArchive(bytes).pipe(Effect.mapError(unreadable("context")));
+
 /** The agents of an agents archive: one definition file per agent at its top level. */
 export const readAgentsArchive = (bytes: Uint8Array) =>
   readArchive(bytes).pipe(

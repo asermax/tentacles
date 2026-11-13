@@ -21,6 +21,7 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore, RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
+import { ContextArchive } from "@tentacles/contracts/context-archive";
 import { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace } from "@tentacles/contracts/workspace";
@@ -186,6 +187,7 @@ export class TestWorld extends Context.Service<
     readonly registryCalls: string[];
     readonly records: (sessionId: SessionId) => SessionRecords;
     readonly skillsArchives: ReadonlyMap<SessionId, Uint8Array>;
+    readonly contextArchives: ReadonlyMap<SessionId, Uint8Array>;
     /** The running instance's handle, made on first use as a host makes one on a request. */
     readonly handle: (sessionId: SessionId) => Effect.Effect<SessionHandle>;
     /** Drops the instance, its harness closed mid-work, and keeps its storage. */
@@ -276,12 +278,19 @@ const makeWorld = Effect.gen(function* () {
 
   const workspaces = new Map<SessionId, Workspace["Service"]>();
   const archives = new Map<SessionId, Uint8Array>();
+  const contexts = new Map<SessionId, Uint8Array>();
 
   // The archive lives beside the storage, so an eviction keeps it.
   const archiveOf = (sessionId: SessionId) =>
     SkillsArchive.of({
       save: (archive) => Effect.sync(() => void archives.set(sessionId, archive)),
       read: () => Effect.sync(() => archives.get(sessionId) ?? null),
+    });
+
+  const contextOf = (sessionId: SessionId) =>
+    ContextArchive.of({
+      save: (archive) => Effect.sync(() => void contexts.set(sessionId, archive)),
+      read: () => Effect.sync(() => contexts.get(sessionId) ?? null),
     });
 
   const recordsOf = (sessionId: SessionId) =>
@@ -296,6 +305,7 @@ const makeWorld = Effect.gen(function* () {
         join(root, sessionId),
         shared,
         archiveOf(sessionId),
+        contextOf(sessionId),
       ).pipe(Scope.provide(worldScope));
 
       const record: SessionRecords = {
@@ -366,6 +376,7 @@ const makeWorld = Effect.gen(function* () {
       ),
       Context.add(Workspace, workspaceOf(sessionId)),
       Context.add(SkillsArchive, archiveOf(sessionId)),
+      Context.add(ContextArchive, contextOf(sessionId)),
       Context.merge(shareds),
     );
 
@@ -449,6 +460,7 @@ const makeWorld = Effect.gen(function* () {
             yield* drop(sessionId);
             storages.delete(sessionId);
             archives.delete(sessionId);
+            contexts.delete(sessionId);
           }),
   });
 
@@ -467,6 +479,7 @@ const makeWorld = Effect.gen(function* () {
       return found;
     },
     skillsArchives: archives,
+    contextArchives: contexts,
     handle,
     evict: drop,
     crash: crashOne,

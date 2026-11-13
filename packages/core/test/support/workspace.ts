@@ -4,8 +4,10 @@ import { dirname, join } from "node:path";
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
+import type { ContextArchive } from "@tentacles/contracts/context-archive";
 import type { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import {
+  contextDirectory,
   skillsDirectory,
   Workspace,
   type WorkspaceSettings,
@@ -97,18 +99,19 @@ const sandboxed = (directory: string, shared: string) => {
   ];
 };
 
-const archivePath = "/tmp/skills.tar.gz";
+const archivePath = (label: string) => `/tmp/${label}.tar.gz`;
 
 /**
  * A session's Workspace over a local sandboxed daemon. ensure starts the
  * workspace on its first call, clones the repository and expands the skills
- * archive into /skills then, as a container that just started would; a failed
+ * and context archives into /skills and /context then, as a container that just started would; a failed
  * clone or expansion leaves it not started.
  */
 export const testWorkspace = (
   root: string,
   shared: string,
   skillsArchive: SkillsArchive["Service"],
+  contextArchive: ContextArchive["Service"],
 ) =>
   Effect.acquireRelease(
     Effect.sync(() => {
@@ -154,10 +157,10 @@ export const testWorkspace = (
         );
 
       // pi-env's exec takes no standard input, so the archive goes in as a file.
-      const extractSkills = (archive: Uint8Array) =>
+      const extract = (label: string, directory: string, archive: Uint8Array) =>
         Effect.promise(async () => {
-          const env = new RemoteExecutionEnv({ connection, id: "skills", cwd: "/" });
-          const written = await env.writeFile(archivePath, archive, BACKGROUND_CONTEXT);
+          const env = new RemoteExecutionEnv({ connection, id: label, cwd: "/" });
+          const written = await env.writeFile(archivePath(label), archive, BACKGROUND_CONTEXT);
 
           if (!written.ok) {
             return String(written.error);
@@ -169,7 +172,7 @@ export const testWorkspace = (
             [
               "sh",
               "-c",
-              `mkdir -p ${skillsDirectory} && tar -xzf ${archivePath} -C ${skillsDirectory}`,
+              `mkdir -p ${directory} && tar -xzf ${archivePath(label)} -C ${directory}`,
             ],
             { onOutput: (text) => (output += text) },
             BACKGROUND_CONTEXT,
@@ -181,7 +184,7 @@ export const testWorkspace = (
             failure == null
               ? Effect.void
               : Effect.fail(
-                  new WorkspaceUnavailable({ message: `Expanding the skills failed: ${failure}` }),
+                  new WorkspaceUnavailable({ message: `Expanding the ${label} failed: ${failure}` }),
                 ),
           ),
         );
@@ -199,11 +202,14 @@ export const testWorkspace = (
               [
                 settings.repository == null ? Effect.void : clone(settings.repository),
                 Effect.flatMap(skillsArchive.read(), (archive) =>
-                  archive == null ? Effect.void : extractSkills(archive),
+                  archive == null ? Effect.void : extract("skills", skillsDirectory, archive),
+                ),
+                Effect.flatMap(contextArchive.read(), (archive) =>
+                  archive == null ? Effect.void : extract("context", contextDirectory, archive),
                 ),
               ],
               (step) => step,
-              { concurrency: 2, discard: true },
+              { concurrency: 3, discard: true },
             ).pipe(
               Effect.mapError(
                 (failures) =>

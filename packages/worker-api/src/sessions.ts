@@ -30,6 +30,7 @@ export const CreateSession = Schema.Struct({
   prompt: Schema.String,
   skills: Schema.optionalKey(Archive),
   agents: Schema.optionalKey(Archive),
+  context: Schema.optionalKey(Archive),
 });
 
 export type CreateSession = typeof CreateSession.Type;

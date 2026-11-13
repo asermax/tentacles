@@ -18,6 +18,7 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
+import { ContextArchive } from "@tentacles/contracts/context-archive";
 import { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
@@ -34,6 +35,7 @@ import * as Semaphore from "effect/Semaphore";
 
 import { AgentsDoc } from "../tools/agents";
 import { remoteAgentExtensions } from "../tools/extension";
+import { ContextDoc } from "../tools/context";
 import { expandPrompt, expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills";
 import { toEntries } from "./entries";
 import { QuestionsDoc } from "./questions";
@@ -77,6 +79,7 @@ const make = (sessionId: SessionId) =>
     >();
 
     const skillsArchive = yield* SkillsArchive;
+    const contextArchive = yield* ContextArchive;
 
     const run = Effect.runPromiseWith(services);
     const fork = Effect.runForkWith(services);
@@ -199,7 +202,7 @@ const make = (sessionId: SessionId) =>
     const handle: SessionHandle = {
       create: (request) =>
         Effect.gen(function* () {
-          // Both archives are read before anything is stored, so one that
+          // The archives are read before anything is stored, so one that
           // cannot be read leaves no trace.
           const archives = yield* readArchives(request);
           const skills = archives.skills.map(toSkillEntry);
@@ -207,6 +210,10 @@ const make = (sessionId: SessionId) =>
 
           if (request.skills != null) {
             yield* skillsArchive.save(request.skills);
+          }
+
+          if (request.context != null) {
+            yield* contextArchive.save(request.context);
           }
 
           yield* status.register(request.name, request.parent, {
@@ -235,6 +242,7 @@ const make = (sessionId: SessionId) =>
                 await tx.doc(QuestionsDoc);
                 (await tx.doc(SkillsDoc)).skills.push(...skills);
                 (await tx.doc(AgentsDoc)).agents.push(...agents);
+                (await tx.doc(ContextDoc)).sent = archives.context;
               },
             }),
           );

@@ -17,6 +17,9 @@ export const workspaceDirectory = "/workspace";
 /** Where the skills archive expands in the workspace container. */
 export const skillsDirectory = "/skills";
 
+/** Where the context archive expands in the workspace container. */
+export const contextDirectory = "/context";
+
 /** The session's settings a workspace starts from. */
 export type WorkspaceSettings = Pick<Settings, "repository" | "image" | "size" | "lifetime">;
 
