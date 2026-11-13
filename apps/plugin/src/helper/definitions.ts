@@ -28,11 +28,12 @@ import type { SpawnRequest } from "../core/spawn-request";
 export const Rejected = Schema.TaggedStruct("Rejected", {
   skills: Schema.Array(Problem),
   agents: Schema.Array(Problem),
+  context: Schema.Array(Problem),
 });
 
 export type Rejected = typeof Rejected.Type;
 
-export type DefinitionPaths = Required<Pick<SpawnRequest, "skills" | "agents">>;
+export type DefinitionPaths = Required<Pick<SpawnRequest, "skills" | "agents" | "context">>;
 
 const decoder = new TextDecoder();
 
@@ -122,6 +123,51 @@ const readSkill = (path: string) =>
     };
   });
 
+/** A context path: a file becomes one entry at its name, a folder its regular files under its name. */
+const readContext = (path: string) =>
+  Effect.gen(function* () {
+    const info = yield* Effect.tryPromise({
+      try: () => stat(path),
+      catch: (cause) =>
+        problemOf(path, isNotFound(cause) ? "does not exist" : `cannot be read: ${String(cause)}`),
+    });
+
+    const name = basename(resolve(path));
+
+    if (info.isDirectory()) {
+      return yield* readFolder(path, name);
+    }
+
+    if (!info.isFile()) {
+      return yield* Effect.fail(problemOf(path, "is not a file or a folder"));
+    }
+
+    const bytes = yield* Effect.tryPromise({
+      try: () => readFile(path),
+      catch: (cause) => problemOf(path, `cannot be read: ${String(cause)}`),
+    });
+
+    return [{ path: name, bytes, mode: info.mode & permissionBits }] satisfies ArchiveEntry[];
+  });
+
+/** A problem on every context path whose name an earlier path already has. */
+const duplicateNames = (paths: ReadonlyArray<string>) => {
+  const firstByName = new Map<string, string>();
+
+  return paths.flatMap((path) => {
+    const name = basename(resolve(path));
+    const first = firstByName.get(name);
+
+    if (first == null) {
+      firstByName.set(name, path);
+
+      return [];
+    }
+
+    return [problemOf(path, `has the same name as ${first}`)];
+  });
+};
+
 const readAgent = (path: string) =>
   Effect.gen(function* () {
     const info = yield* inspect(path, "file");
@@ -142,7 +188,7 @@ const readAgent = (path: string) =>
 // A group with problems is not packed: its size would count definitions the
 // agent has to fix anyway. A group with nothing to pack succeeds with no archive.
 const packGroup = (
-  kind: "skills" | "agents",
+  kind: "skills" | "agents" | "context",
   problems: ReadonlyArray<Problem>,
   entries: ReadonlyArray<ArchiveEntry>,
 ) =>
@@ -170,17 +216,26 @@ const packGroup = (
   }).pipe(Effect.result);
 
 /** Reads every path the agent passed, runs worker-api's checks on each group and packs the archives, each present only when its group had paths; fails with every problem of every path, never at the first. */
-export const readDefinitions = ({ skills: skillPaths, agents: agentPaths }: DefinitionPaths) =>
+export const readDefinitions = ({
+  skills: skillPaths,
+  agents: agentPaths,
+  context: contextPaths,
+}: DefinitionPaths) =>
   Effect.gen(function* () {
-    const [[skillReads, skillUnreadable], [agentReads, agentUnreadable]] = yield* Effect.all(
+    const [
+      [skillReads, skillUnreadable],
+      [agentReads, agentUnreadable],
+      [contextReads, contextUnreadable],
+    ] = yield* Effect.all(
       [
         Effect.partition(skillPaths, readSkill, { concurrency: "unbounded" }),
         Effect.partition(agentPaths, readAgent, { concurrency: "unbounded" }),
+        Effect.partition(contextPaths, readContext, { concurrency: "unbounded" }),
       ],
-      { concurrency: 2 },
+      { concurrency: 3 },
     );
 
-    const [skills, agents] = yield* Effect.all(
+    const [skills, agents, context] = yield* Effect.all(
       [
         packGroup(
           "skills",
@@ -192,20 +247,26 @@ export const readDefinitions = ({ skills: skillPaths, agents: agentPaths }: Defi
           [...agentUnreadable, ...checkAgents(agentReads.map((read) => read.source)).problems],
           agentReads.flatMap((read) => read.entries),
         ),
+        packGroup(
+          "context",
+          [...contextUnreadable, ...duplicateNames(contextPaths)],
+          contextReads.flat(),
+        ),
       ],
-      { concurrency: 2 },
+      { concurrency: 3 },
     );
 
-    if (Result.isFailure(skills) || Result.isFailure(agents)) {
+    if (Result.isFailure(skills) || Result.isFailure(agents) || Result.isFailure(context)) {
       return yield* Effect.fail(
         Rejected.make({
           skills: Result.isFailure(skills) ? skills.failure : [],
           agents: Result.isFailure(agents) ? agents.failure : [],
+          context: Result.isFailure(context) ? context.failure : [],
         }),
       );
     }
 
-    const archives: Types.Mutable<Pick<CreateSession, "skills" | "agents">> = {};
+    const archives: Types.Mutable<Pick<CreateSession, "skills" | "agents" | "context">> = {};
 
     if (skills.success != null) {
       archives.skills = skills.success;
@@ -213,6 +274,10 @@ export const readDefinitions = ({ skills: skillPaths, agents: agentPaths }: Defi
 
     if (agents.success != null) {
       archives.agents = agents.success;
+    }
+
+    if (context.success != null) {
+      archives.context = context.success;
     }
 
     return archives;
@@ -224,7 +289,8 @@ const section = (heading: string, problems: ReadonlyArray<Problem>) =>
 /** The tool's error text: every problem with its path, the skills' under one heading and the agents' under another. */
 export const rejectionText = (rejected: Rejected) =>
   [
-    "No session was created: some skills or agents have problems.",
+    "No session was created: some skills, agents or context have problems.",
     ...(rejected.skills.length > 0 ? [section("Skills", rejected.skills)] : []),
     ...(rejected.agents.length > 0 ? [section("Agents", rejected.agents)] : []),
+    ...(rejected.context.length > 0 ? [section("Context", rejected.context)] : []),
   ].join("\n\n");

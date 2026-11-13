@@ -72,6 +72,7 @@ const commands: Record<EndpointToolEntry["name"], Command> = {
       const archives = yield* readDefinitions({
         skills: request.skills ?? [],
         agents: request.agents ?? [],
+        context: request.context ?? [],
       });
 
       return yield* client.sessions.create({

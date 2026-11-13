@@ -38,6 +38,9 @@ const expectSpawnSection = (skill: string) => {
   expect(skill).toContain(
     "returns every problem with its path, the skills' problems in one group and the agents' in another",
   );
+  expect(skill).toContain("## Context files");
+  expect(skill).toContain("`/context/<file name>`");
+  expect(skill).toContain("fixed at spawn");
   expect(skill).not.toMatch(/mahou/i);
 };
 
