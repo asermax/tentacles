@@ -35,14 +35,14 @@ A call or a socket on a deleted or unknown session, or an answer to a question t
 |---|---|
 | name | required; the status line shows the session by it |
 | parent | the parent's harness (pi or claude) and that harness's session id |
-| settings | provider, model, effort, image, size and lifetime, and optionally a repository: its URL and a shallow-or-full clone flag |
+| settings | provider, model, effort, image, size and lifetime, and optionally a repository: its `https://` (or `http://`) URL and a shallow-or-full clone flag |
 | prompt | the first prompt; the run starts on it |
 | skills | optional; a gzip-compressed tar file of at most 5 MB with one skill folder per top-level entry |
 | agents | optional; a gzip-compressed tar file of at most 5 MB with one agent definition file per top-level entry |
 
 Create's body is JSON and carries each archive base64-encoded, which makes it a third larger than the file. Two archives at the 5 MB limit come to about 13.4 MB.
 
-The plugin fills every unset setting from its defaults, so create always carries provider, model, effort, image, size and lifetime. A repository is optional; tentacles clones it into `/workspace` (see [workspace](workspace.md)).
+The plugin fills every unset setting from its defaults, so create always carries provider, model, effort, image, size and lifetime. A repository is optional; tentacles clones it into `/workspace` (see [workspace](workspace.md)). Its URL is an `https://` (or `http://`) URL, since the clone's credentials are added at egress for HTTPS only, and a create with any other form, such as a bare `github.com/owner/name` or `git@github.com:owner/name`, fails the schema check.
 
 The plugin's helper checks the skills and agent definitions on the parent's machine and packs the archives only when every check passes, so the problems it finds reach the parent as the spawn tool's result and no create call is sent. [sessions](sessions.md) covers the checks, in its Skills and agents section, and what the session does with each archive.
 

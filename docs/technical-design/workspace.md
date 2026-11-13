@@ -17,7 +17,7 @@ Each session has one workspace container, started by the first file or command o
 | image | the container image: `default`, the only image tentacles offers; create rejects any other | `default` |
 | size | the container's instance type | basic |
 | lifetime | inactivity time before the container stops | 15 minutes |
-| repository | a repository URL and a shallow-or-full clone flag | nothing is cloned |
+| repository | an `https://` (or `http://`) repository URL and a shallow-or-full clone flag; create rejects any other URL form | nothing is cloned |
 
 The plugin fills every absent value except the repository from its defaults, which environment variables can change, so the session always holds a full set (see [worker-api](worker-api.md)).
 
