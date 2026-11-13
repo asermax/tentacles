@@ -1,15 +1,23 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
 import { Entry } from "@tentacles/worker-api/entries";
-import { SessionNotFound } from "@tentacles/worker-api/errors";
+import { InvalidArchive, SessionNotFound } from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
 import { SessionState } from "@tentacles/worker-api/session-state";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { post, serveApi } from "./support/api.ts";
+import { skillBlock } from "../src/tools/skills.ts";
+import { createBody, post, serveApi } from "./support/api.ts";
+import {
+  agentWithoutBody,
+  definitionArchives,
+  definitionNames,
+  oversizedSkillsArchive,
+  skillsArchive,
+} from "./support/archives.ts";
 import { eventually } from "./support/eventually.ts";
-import { createRequest, details, parent } from "./support/fixtures.ts";
+import { createRequest, detailsOf, details, parent } from "./support/fixtures.ts";
 import { heldAnswer, routedModel } from "./support/model.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
@@ -31,6 +39,17 @@ const createOver = (api: Effect.Success<typeof serveApi>, prompt: string) =>
 
     return decodeCreated(yield* json(response)).sessionId;
   });
+
+const decodeInvalidArchive = Schema.decodeUnknownSync(InvalidArchive);
+
+const bash = (command: string) =>
+  fauxAssistantMessage(fauxToolCall("bash", { command }), { stopReason: "toolUse" });
+
+const skillAt = (name: string) => ({
+  name,
+  description: "",
+  path: `/skills/${name}/SKILL.md`,
+});
 
 const finishedSession = (api: Effect.Success<typeof serveApi>, answer: string) =>
   Effect.gen(function* () {
@@ -75,6 +94,166 @@ describe("the sessions API", () => {
 
       expect(response.status).toBe(400);
       expect(world.registryCalls).toEqual([]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live(
+    "create with skills and agents lists their names and stores the skills archive as sent",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* TestWorld;
+        const api = yield* serveApi;
+        const archives = yield* definitionArchives();
+        const request = createRequest("go", null, archives);
+
+        world.faux.setResponses([
+          bash("cat /skills/implement/SKILL.md"),
+          fauxAssistantMessage("read it"),
+        ]);
+
+        const response = yield* api("/sessions", post(createBody(request)));
+
+        expect(response.status).toBe(200);
+
+        const { sessionId } = decodeCreated(yield* json(response));
+        const named = detailsOf(request, definitionNames);
+
+        yield* eventually(
+          Effect.sync(() => expect(world.records(sessionId).states).toHaveLength(2)),
+        );
+
+        expect(world.skillsArchives.get(sessionId)).toEqual(archives.skills);
+        expect(
+          yield* json(yield* api(`/sessions?harness=pi&sessionId=${parent.sessionId}`)),
+        ).toEqual([{ sessionId, name: "worker", status: "idle", ...named }]);
+        expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toEqual(
+          SessionState.cases.idle.make(named),
+        );
+
+        const results = (yield* (yield* world.handle(sessionId)).messages(10)).filter(
+          Entry.guards.toolResult,
+        );
+
+        expect(results[0]?.isError).toBe(false);
+        expect(results[0]?.output).toContain("name: implement");
+      }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live(
+    "create with a skills archive that is not a gzip tar fails InvalidArchive and stores nothing",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* TestWorld;
+        const api = yield* serveApi;
+
+        world.faux.setResponses([fauxAssistantMessage("never")]);
+
+        const response = yield* api(
+          "/sessions",
+          post(
+            createBody({
+              ...createRequest("go"),
+              skills: crypto.getRandomValues(new Uint8Array(512)),
+            }),
+          ),
+        );
+
+        expect(response.status).toBe(400);
+        expect(decodeInvalidArchive(yield* json(response)).message).toContain("skills archive");
+        expect(world.registryCalls).toEqual([]);
+        expect(world.skillsArchives.size).toBe(0);
+        expect(world.faux.getPendingResponseCount()).toBe(1);
+      }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live(
+    "create with a skill whose name differs from its folder fails InvalidArchive and stores nothing",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* TestWorld;
+        const api = yield* serveApi;
+        const archives = yield* definitionArchives();
+
+        const skills = yield* Effect.promise(() =>
+          skillsArchive({ name: "impl", folder: "implement" }),
+        );
+
+        const response = yield* api(
+          "/sessions",
+          post(createBody(createRequest("go", null, { ...archives, skills }))),
+        );
+
+        const { message } = decodeInvalidArchive(yield* json(response));
+
+        expect(response.status).toBe(400);
+        expect(message).toContain("skills archive");
+        expect(message).toContain("name 'impl' does not match the folder 'implement'");
+        expect(world.registryCalls).toEqual([]);
+        expect(world.skillsArchives.size).toBe(0);
+      }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("create with an agent whose body is empty fails InvalidArchive and stores nothing", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const api = yield* serveApi;
+      const archives = yield* definitionArchives();
+      const agents = yield* Effect.promise(() => agentWithoutBody("reviewer"));
+
+      const response = yield* api(
+        "/sessions",
+        post(createBody(createRequest("go", null, { ...archives, agents }))),
+      );
+
+      const { message } = decodeInvalidArchive(yield* json(response));
+
+      expect(response.status).toBe(400);
+      expect(message).toContain("agents archive");
+      expect(message).toMatch(/reviewer\.md: .*(body|prompt)/);
+      expect(world.registryCalls).toEqual([]);
+      expect(world.skillsArchives.size).toBe(0);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("create with a skills archive over 5 MB fails the schema and creates nothing", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const api = yield* serveApi;
+
+      const skills = yield* Effect.promise(oversizedSkillsArchive);
+
+      const response = yield* api(
+        "/sessions",
+        post(createBody(createRequest("go", null, { skills }))),
+      );
+
+      expect(response.status).toBe(400);
+      expect(world.registryCalls).toEqual([]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("create expands the skill triggers of its first prompt into their blocks", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const api = yield* serveApi;
+      const archives = yield* definitionArchives();
+
+      world.faux.setResponses([fauxAssistantMessage("on it")]);
+
+      const response = yield* api(
+        "/sessions",
+        post(createBody(createRequest("Run /implement and then /skill:review", null, archives))),
+      );
+
+      const { sessionId } = decodeCreated(yield* json(response));
+
+      yield* eventually(Effect.sync(() => expect(world.records(sessionId).states).toHaveLength(2)));
+
+      expect((yield* (yield* world.handle(sessionId)).messages(10))[0]).toEqual(
+        Entry.cases.prompt.make({
+          text: `Run ${skillBlock(skillAt("implement"))} and then ${skillBlock(skillAt("review"))}`,
+        }),
+      );
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -127,7 +306,7 @@ describe("the sessions API", () => {
 
       world.faux.setResponses(
         routedModel((request) => {
-          if (!request.tools.has("subagent")) {
+          if (!request.tools.has("ask_parent")) {
             return fauxAssistantMessage("4");
           }
 

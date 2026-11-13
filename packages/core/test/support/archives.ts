@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 
+import * as Effect from "effect/Effect";
 import { packTar } from "modern-tar";
 
 /** One file of an archive fixture. */
@@ -80,3 +81,26 @@ export const oversizedSkillsArchive = () =>
     name: "bulky",
     files: [{ path: "filler.bin", content: randomBytes(6 * 1024 * 1024) }],
   });
+
+const heldSkills: readonly SkillFixture[] = [
+  { name: "implement", description: "Implement a change from its design" },
+  { name: "review", description: "Review a change before it is merged" },
+];
+
+const heldAgents: readonly AgentFixture[] = [
+  { name: "reviewer", description: "Reviews a change", prompt: "You review changes." },
+  { name: "planner", description: "Plans a change", prompt: "You plan changes." },
+];
+
+/** The names of the skills and agents `definitionArchives` packs. */
+export const definitionNames = {
+  skills: heldSkills.map((skill) => skill.name),
+  agents: heldAgents.map((agent) => agent.name),
+};
+
+/** The skills `implement` and `review` and the agents `reviewer` and `planner`, packed. */
+export const definitionArchives = () =>
+  Effect.promise(async () => ({
+    skills: await skillsArchive(...heldSkills),
+    agents: await agentsArchive(...heldAgents),
+  }));

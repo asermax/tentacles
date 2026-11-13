@@ -7,9 +7,12 @@ import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 
 import { eventually } from "./support/eventually.ts";
-import { createRequest, details, parent } from "./support/fixtures.ts";
+import { definitionArchives, definitionNames } from "./support/archives.ts";
+import { createRequest, detailsOf, parent } from "./support/fixtures.ts";
 import { heldAnswer } from "./support/model.ts";
 import { BrowserCalls, newSessionId, TestWorld, testWorld } from "./support/world.ts";
+
+const details = detailsOf(createRequest(""), definitionNames);
 
 const running = SessionState.cases.running.make(details);
 
@@ -23,7 +26,7 @@ const startSession = (prompt = "start") =>
     const sessionId = newSessionId();
     const handle = yield* world.handle(sessionId);
 
-    yield* handle.create(createRequest(prompt));
+    yield* handle.create(createRequest(prompt, null, yield* definitionArchives()));
 
     return { world, sessionId, handle, records: world.records(sessionId) };
   });

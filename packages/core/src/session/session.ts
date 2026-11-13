@@ -18,8 +18,10 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
+import { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
-import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
+import { skillsDirectory, Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
+import { readAgentsArchive, readSkillsArchive } from "@tentacles/worker-api/archives";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
@@ -31,7 +33,9 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
+import { AgentsDoc } from "../tools/agents-doc.ts";
 import { remoteAgentExtensions } from "../tools/extension.ts";
+import { expandSkills, SkillsDoc } from "../tools/skills.ts";
 import { toEntries } from "./entries.ts";
 import { QuestionsDoc } from "./questions.ts";
 import { RecordDoc, type SessionRecord } from "./record.ts";
@@ -71,6 +75,8 @@ const make = (sessionId: SessionId) =>
     const services = yield* Effect.context<
       Browser | CodeSandbox | ParentChannel | PreviewRouter | RegistryStore | Workspace
     >();
+
+    const skillsArchive = yield* SkillsArchive;
 
     const run = Effect.runPromiseWith(services);
     const fork = Effect.runForkWith(services);
@@ -193,10 +199,25 @@ const make = (sessionId: SessionId) =>
     const handle: SessionHandle = {
       create: (request) =>
         Effect.gen(function* () {
+          // Both archives are read before anything is stored, so one that
+          // cannot be read leaves no trace.
+          const skills = (
+            request.skills == null ? [] : yield* readSkillsArchive(request.skills)
+          ).map((skill) => ({
+            ...skill,
+            path: `${skillsDirectory}/${skill.name}/SKILL.md`,
+          }));
+
+          const agents = request.agents == null ? [] : yield* readAgentsArchive(request.agents);
+
+          if (request.skills != null) {
+            yield* skillsArchive.save(request.skills);
+          }
+
           yield* status.register(request.name, request.parent, {
             settings: request.settings,
-            skills: [],
-            agents: [],
+            skills: skills.map((skill) => skill.name),
+            agents: agents.map((agent) => agent.name),
           });
 
           const conversation = yield* Effect.promise(() =>
@@ -217,6 +238,8 @@ const make = (sessionId: SessionId) =>
                   commitPrompts: 0,
                 });
                 await tx.doc(QuestionsDoc);
+                (await tx.doc(SkillsDoc)).skills.push(...skills);
+                (await tx.doc(AgentsDoc)).agents.push(...agents);
               },
             }),
           );
@@ -225,7 +248,11 @@ const make = (sessionId: SessionId) =>
           yield* armActive;
           yield* Effect.promise(() =>
             conversation.submit(
-              { type: "input", content: request.prompt, requestId: "create" },
+              {
+                type: "input",
+                content: expandSkills(request.prompt, skills),
+                requestId: "create",
+              },
               BACKGROUND_CONTEXT,
             ),
           );
@@ -241,9 +268,13 @@ const make = (sessionId: SessionId) =>
           // pi-durable places after the answer's tool round.
           const steers = request.mode === PromptModes.steer || SessionState.guards.waiting(state);
 
+          const skills = yield* Effect.promise(() =>
+            harness.snapshot(SkillsDoc, BACKGROUND_CONTEXT),
+          );
+
           const draft: SubmissionDraft = {
             type: "input",
-            content: request.text,
+            content: expandSkills(request.text, skills?.skills ?? []),
             whenBusy: steers ? "steer" : "followUp",
           };
 

@@ -25,6 +25,8 @@ import * as Effect from "effect/Effect";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
+import { AgentsDoc } from "../tools/agents-doc.ts";
+import { SkillsDoc } from "../tools/skills.ts";
 import { toEntries } from "./entries.ts";
 import { QuestionsDoc, type StoredQuestion } from "./questions.ts";
 import { RecordDoc, type SessionRecord } from "./record.ts";
@@ -34,6 +36,7 @@ export type Observed = {
   live: LiveState | undefined;
   questions: readonly StoredQuestion[];
   record: SessionRecord | undefined;
+  names: Pick<SessionDetails, "skills" | "agents">;
 };
 
 const describeFailure = (failure: NonNullable<LiveState["runFailure"]>) =>
@@ -50,10 +53,9 @@ const liveQuestions = (observed: Observed) => {
 const waitingQuestion = (observed: Observed) =>
   liveQuestions(observed).find((question) => question.answer == null);
 
-const detailsOf = (record: SessionRecord): SessionDetails => ({
+const detailsOf = (record: SessionRecord, names: Observed["names"]): SessionDetails => ({
   settings: record.settings,
-  skills: [],
-  agents: [],
+  ...names,
 });
 
 /** The session's state as its documents show it; null before create stored the record. */
@@ -62,7 +64,7 @@ export const deriveState = (observed: Observed): SessionState | null => {
     return null;
   }
 
-  const details = detailsOf(observed.record);
+  const details = detailsOf(observed.record, observed.names);
 
   if (observed.live?.run != null) {
     const question = waitingQuestion(observed);
@@ -91,7 +93,20 @@ export const deriveState = (observed: Observed): SessionState | null => {
 const changeKey = (state: SessionState) =>
   SessionState.guards.waiting(state) ? `waiting ${state.question.id}` : statusOf(state);
 
-const readObserved = (harness: Harness, sessionId: SessionId) =>
+const readNames = (harness: Harness) =>
+  Effect.promise(async (): Promise<Observed["names"]> => {
+    const [skills, agents] = await Promise.all([
+      harness.snapshot(SkillsDoc, BACKGROUND_CONTEXT),
+      harness.snapshot(AgentsDoc, BACKGROUND_CONTEXT),
+    ]);
+
+    return {
+      skills: (skills?.skills ?? []).map((skill) => skill.name),
+      agents: (agents?.agents ?? []).map((agent) => agent.name),
+    };
+  });
+
+const readObserved = (harness: Harness, sessionId: SessionId, names: Observed["names"]) =>
   Effect.promise(async (): Promise<Observed> => {
     const [live, questions, record] = await Promise.all([
       harness.snapshot(LiveDoc, ROOT_CONVERSATION_ID, BACKGROUND_CONTEXT),
@@ -99,7 +114,7 @@ const readObserved = (harness: Harness, sessionId: SessionId) =>
       harness.snapshot(RecordDoc, sessionId, BACKGROUND_CONTEXT),
     ]);
 
-    return { live, questions: questions?.questions ?? [], record };
+    return { live, questions: questions?.questions ?? [], record, names };
   });
 
 const lastEntry = (harness: Harness) =>
@@ -125,7 +140,13 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
     const reporting = yield* Semaphore.make(1);
     const reported = yield* Deferred.make<void>();
 
-    const observed: Observed = { live: undefined, questions: [], record: undefined };
+    const observed: Observed = {
+      live: undefined,
+      questions: [],
+      record: undefined,
+      names: { skills: [], agents: [] },
+    };
+
     let current: SessionState | null = null;
     let isScheduled = false;
     let isAttached = false;
@@ -246,6 +267,8 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
           },
         );
 
+        // The documents never change after create, so one read serves every state.
+        observed.names = yield* readNames(harness);
         current = deriveState(observed);
         isAttached = true;
       }),
@@ -260,11 +283,13 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
       questionCallLive: () => liveQuestions(observed).length > 0,
 
       /** The state as the documents show it now, without a run's last entry. */
-      current: readObserved(harness, sessionId).pipe(Effect.map(deriveState)),
+      current: Effect.suspend(() => readObserved(harness, sessionId, observed.names)).pipe(
+        Effect.map(deriveState),
+      ),
 
       /** The state as `current` gives it, with the record it was derived from, both from one read. */
-      currentWithRecord: readObserved(harness, sessionId).pipe(
-        Effect.map((read) => ({ state: deriveState(read), record: read.record })),
-      ),
+      currentWithRecord: Effect.suspend(() =>
+        readObserved(harness, sessionId, observed.names),
+      ).pipe(Effect.map((read) => ({ state: deriveState(read), record: read.record }))),
     };
   });

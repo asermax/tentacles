@@ -32,7 +32,7 @@ export interface ModelRequest {
   readonly tools: ReadonlySet<string>;
   /** The prompt sections in effect, by name, after every system message of the request. */
   readonly sections: ReadonlyMap<string, string>;
-  /** The instructions the system messages add, in order, joined by blank lines. */
+  /** The conversation's own instructions, which pi-durable renders as the `instructions` section; empty when it has none. */
   readonly instructions: string;
   readonly signal: AbortSignal | undefined;
 }
@@ -41,6 +41,9 @@ const textOf = (
   content: string | ReadonlyArray<{ readonly type: string; readonly text?: string }>,
 ) => (Predicate.isString(content) ? content : content.map((part) => part.text ?? "").join(""));
 
+const instructionsOf = (section: string | undefined) =>
+  section?.replace(/^<instructions>\s*|\s*<\/instructions>$/g, "") ?? "";
+
 /** A model that answers each request by what it sees, for conversations that interleave. */
 export const routedModel = (
   answer: (request: ModelRequest) => AssistantMessage | Promise<AssistantMessage>,
@@ -48,16 +51,9 @@ export const routedModel = (
   const response: FauxResponseFactory = (context, options) => {
     const tools = new Set<string>();
     const sections = new Map<string, string>();
-    const instructions: string[] = [];
 
     for (const message of context.messages) {
       if (message.role === "system") {
-        const text = textOf(message.content);
-
-        if (text !== "") {
-          instructions.push(text);
-        }
-
         for (const [name, content] of Object.entries(message.sections ?? {})) {
           if (content == null) {
             sections.delete(name);
@@ -83,7 +79,7 @@ export const routedModel = (
       lastRole: last?.role ?? "",
       tools,
       sections,
-      instructions: instructions.join("\n\n"),
+      instructions: instructionsOf(sections.get("instructions")),
       signal: options?.signal,
     });
   };

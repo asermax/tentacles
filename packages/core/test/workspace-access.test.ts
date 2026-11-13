@@ -5,8 +5,9 @@ import { SessionState } from "@tentacles/worker-api/session-state";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
+import { definitionArchives } from "./support/archives.ts";
 import { eventually } from "./support/eventually.ts";
-import { createRequest, detailsOf } from "./support/fixtures.ts";
+import { type Archives, createRequest, detailsOf } from "./support/fixtures.ts";
 import { bareRepository } from "./support/workspace.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
 
@@ -17,13 +18,13 @@ const write = (path: string, content: string) =>
   fauxAssistantMessage(fauxToolCall("write", { path, content }), { stopReason: "toolUse" });
 
 /** Runs a session to its end and returns the results of its tool calls. */
-const runSession = (repository: Repository | null) =>
+const runSession = (repository: Repository | null, archives: Archives = {}) =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
     const sessionId = newSessionId();
     const handle = yield* world.handle(sessionId);
 
-    const request = createRequest("work", repository);
+    const request = createRequest("work", repository, archives);
 
     yield* handle.create(request);
     yield* eventually(Effect.sync(() => expect(world.records(sessionId).states).toHaveLength(2)));
@@ -55,6 +56,41 @@ describe("the workspace before each tool call", () => {
       expect(results).toHaveLength(1);
       expect(results[0]?.isError).toBe(false);
       expect(results[0]?.output).toContain("# app");
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("the first tool call finds the skills in /skills beside the cloned repository", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const repository = { url: bareRepository(world.shared, "app"), shallow: true };
+
+      world.faux.setResponses([
+        bash("cat /skills/implement/SKILL.md /workspace/README.md; ls /skills"),
+        fauxAssistantMessage("read both"),
+      ]);
+
+      const { results } = yield* runSession(repository, yield* definitionArchives());
+
+      expect(results).toHaveLength(1);
+      expect(results[0]?.isError).toBe(false);
+      expect(results[0]?.output).toContain("name: implement");
+      expect(results[0]?.output).toContain("# app");
+      expect(results[0]?.output).toMatch(/implement\nreview\n$/);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("without a repository the skills are in /skills and /workspace is empty", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+
+      world.faux.setResponses([
+        bash("ls /skills; ls -A /workspace | wc -l"),
+        fauxAssistantMessage("listed"),
+      ]);
+
+      const { results } = yield* runSession(null, yield* definitionArchives());
+
+      expect(results[0]?.output).toBe("implement\nreview\n0\n");
     }).pipe(Effect.provide(testWorld)),
   );
 

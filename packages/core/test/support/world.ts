@@ -185,8 +185,8 @@ export class TestWorld extends Context.Service<
     /** RegistryStore's add, setStatus and openPreview calls, as "add <id>", "<status> <id>" and "openPreview <id>". */
     readonly registryCalls: string[];
     readonly records: (sessionId: SessionId) => SessionRecords;
-    /** The skills archive the session stored, as the spawn sent it; null when it has none. */
-    readonly skillsArchive: (sessionId: SessionId) => Uint8Array | null;
+    /** The skills archives sessions stored, as the spawns sent them. */
+    readonly skillsArchives: ReadonlyMap<SessionId, Uint8Array>;
     /** The running instance's handle, made on first use as a host makes one on a request. */
     readonly handle: (sessionId: SessionId) => Effect.Effect<SessionHandle>;
     /** Drops the instance, its harness closed mid-work, and keeps its storage. */
@@ -467,7 +467,7 @@ const makeWorld = Effect.gen(function* () {
 
       return found;
     },
-    skillsArchive: (sessionId) => archives.get(sessionId) ?? null,
+    skillsArchives: archives,
     handle,
     evict: drop,
     crash: crashOne,

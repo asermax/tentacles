@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import { post, serveApi } from "./support/api.ts";
 import { script, scriptOutput } from "./support/codemode.ts";
 import { eventually } from "./support/eventually.ts";
+import { definitionArchives, definitionNames } from "./support/archives.ts";
 import { createRequest, detailsOf } from "./support/fixtures.ts";
 import { bareRepository } from "./support/workspace.ts";
 import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
@@ -28,11 +29,16 @@ const startSession = (repository: Repository | null) =>
     const sessionId = newSessionId();
     const handle = yield* world.handle(sessionId);
 
-    const request = createRequest("work", repository);
+    const request = createRequest("work", repository, yield* definitionArchives());
 
     yield* handle.create(request);
 
-    return { sessionId, handle, records: world.records(sessionId), details: detailsOf(request) };
+    return {
+      sessionId,
+      handle,
+      records: world.records(sessionId),
+      details: detailsOf(request, definitionNames),
+    };
   });
 
 const repositoryIn = (shared: string): Repository => ({
