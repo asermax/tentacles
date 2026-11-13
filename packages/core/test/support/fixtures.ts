@@ -21,20 +21,29 @@ export const settings = (repository: Repository | null = null): Settings => ({
   repository,
 });
 
+/** The archives of a create request. */
+export type Archives = Pick<CreateSession, "skills" | "agents">;
+
 export const createRequest = (
   prompt: string,
   repository: Repository | null = null,
+  archives: Archives = {},
 ): CreateSession => ({
   name: "worker",
   parent,
   settings: settings(repository),
   prompt,
+  ...archives,
 });
 
-export const detailsOf = (request: CreateSession): SessionDetails => ({
+/** The details a session reports for a request, given the names its archives hold. */
+export const detailsOf = (
+  request: CreateSession,
+  names: Partial<Pick<SessionDetails, "skills" | "agents">> = {},
+): SessionDetails => ({
   settings: request.settings,
-  skills: [],
-  agents: [],
+  skills: names.skills ?? [],
+  agents: names.agents ?? [],
 });
 
 export const details = detailsOf(createRequest(""));

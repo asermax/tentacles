@@ -28,6 +28,7 @@
     "@types/node": "24.19.2",
     "better-sqlite3": "13.0.3",
     "drizzle-orm": "0.45.4",
+    "modern-tar": "0.8.6",
     "vitest": "5.1.0"
   }
 }

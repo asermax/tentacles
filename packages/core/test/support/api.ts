@@ -2,6 +2,7 @@ import { RegistryStore } from "@tentacles/contracts/registry-store";
 import { SessionHost } from "@tentacles/contracts/session-host";
 import { TentaclesApi } from "@tentacles/worker-api/api";
 import { ApiKey } from "@tentacles/worker-api/middleware";
+import type { CreateSession } from "@tentacles/worker-api/sessions";
 import * as Effect from "effect/Effect";
 import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServer from "effect/http/HttpServer";
@@ -41,3 +42,10 @@ export const serveApi = Effect.gen(function* () {
 });
 
 export const post = (json: string): RequestInit => ({ method: "POST", body: json });
+
+const base64 = (archive: Uint8Array | undefined) =>
+  archive == null ? undefined : Buffer.from(archive).toString("base64");
+
+/** A create request as the Worker receives it: the archives are base64 strings. */
+export const createBody = (request: CreateSession) =>
+  JSON.stringify({ ...request, skills: base64(request.skills), agents: base64(request.agents) });

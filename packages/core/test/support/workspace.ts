@@ -4,7 +4,9 @@ import { dirname, join } from "node:path";
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
+import type { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import {
+  skillsDirectory,
   Workspace,
   type WorkspaceSettings,
   WorkspaceUnavailable,
@@ -79,12 +81,19 @@ const sandboxed = (directory: string, shared: string) => {
   ];
 };
 
+const archivePath = "/tmp/skills.tar.gz";
+
 /**
  * A session's Workspace over a local sandboxed daemon. ensure starts the
- * workspace on its first call and clones the repository then, as a container
- * that just started would; a failed clone leaves it not started.
+ * workspace on its first call, clones the repository and expands the skills
+ * archive into /skills then, as a container that just started would; a failed
+ * clone or expansion leaves it not started.
  */
-export const testWorkspace = (root: string, shared: string) =>
+export const testWorkspace = (
+  root: string,
+  shared: string,
+  skillsArchive: SkillsArchive["Service"],
+) =>
   Effect.acquireRelease(
     Effect.sync(() => {
       const directory = join(root, "workspace");
@@ -128,6 +137,39 @@ export const testWorkspace = (root: string, shared: string) =>
           ),
         );
 
+      // pi-env's exec takes no standard input, so the archive goes in as a file.
+      const extractSkills = (archive: Uint8Array) =>
+        Effect.promise(async () => {
+          const env = new RemoteExecutionEnv({ connection, id: "skills", cwd: "/" });
+          const written = await env.writeFile(archivePath, archive, BACKGROUND_CONTEXT);
+
+          if (!written.ok) {
+            return String(written.error);
+          }
+
+          let output = "";
+
+          const result = await env.exec(
+            [
+              "sh",
+              "-c",
+              `mkdir -p ${skillsDirectory} && tar -xzf ${archivePath} -C ${skillsDirectory}`,
+            ],
+            { onOutput: (text) => (output += text) },
+            BACKGROUND_CONTEXT,
+          );
+
+          return result.ok && result.value.exitCode === 0 ? null : output;
+        }).pipe(
+          Effect.flatMap((failure) =>
+            failure == null
+              ? Effect.void
+              : Effect.fail(
+                  new WorkspaceUnavailable({ message: `Expanding the skills failed: ${failure}` }),
+                ),
+          ),
+        );
+
       const workspace = Workspace.of({
         ensure: (settings) =>
           Effect.gen(function* () {
@@ -139,6 +181,12 @@ export const testWorkspace = (root: string, shared: string) =>
 
             if (settings.repository != null) {
               yield* clone(settings.repository);
+            }
+
+            const archive = yield* skillsArchive.read();
+
+            if (archive != null) {
+              yield* extractSkills(archive);
             }
 
             isStarted = true;
