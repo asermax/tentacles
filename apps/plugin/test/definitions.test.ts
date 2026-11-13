@@ -357,7 +357,7 @@ describe("spawn with skill and agent definitions", () => {
 
     expect(message).toMatch(
       new RegExp(
-        `^${intro}\\n\\nSkills:\\n- the skills archive: is \\d+\\.\\d MB, over the 5 MB limit$`,
+        `^${intro}\\n\\nSkills:\\n- the skills archive: is \\d+\\.\\d MB, over the 5\\.0 MB limit$`,
       ),
     );
     expect(stubWorker().requests).toEqual([]);
@@ -425,7 +425,7 @@ describe("spawn with skill and agent definitions", () => {
 
     expect(message).toMatch(
       new RegExp(
-        `^${intro}\\n\\nAgents:\\n- the agents archive: is \\d+\\.\\d MB, over the 5 MB limit$`,
+        `^${intro}\\n\\nAgents:\\n- the agents archive: is \\d+\\.\\d MB, over the 5\\.0 MB limit$`,
       ),
     );
     expect(stubWorker().requests).toEqual([]);

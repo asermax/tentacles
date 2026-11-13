@@ -53,6 +53,8 @@ const definitionFile = (path: string, bytes: Uint8Array, mode: number) => {
   };
 };
 
+const megabytes = (bytes: number) => `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+
 const problemOf = (path: string, message: string): Problem => ({ path, message });
 
 const isNotFound = (cause: unknown) =>
@@ -159,7 +161,7 @@ const packGroup = (
       return yield* Effect.fail([
         problemOf(
           `the ${kind} archive`,
-          `is ${(archive.byteLength / 1024 ** 2).toFixed(1)} MB, over the ${maxArchiveBytes / 1024 ** 2} MB limit`,
+          `is ${megabytes(archive.byteLength)}, over the ${megabytes(maxArchiveBytes)} limit`,
         ),
       ]);
     }
