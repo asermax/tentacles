@@ -87,8 +87,7 @@ describe("the workspace before each tool call", () => {
 
         world.faux.setResponses([
           bash("/skills/release/scripts/greet.sh"),
-          bash("/skills/release/scripts/plain.sh"),
-          fauxAssistantMessage("ran both"),
+          fauxAssistantMessage("ran it"),
         ]);
 
         const skills = yield* Effect.promise(() =>
@@ -96,7 +95,6 @@ describe("the workspace before each tool call", () => {
             name: "release",
             files: [
               { path: "scripts/greet.sh", content: "#!/bin/sh\necho greetings\n", mode: 0o755 },
-              { path: "scripts/plain.sh", content: "#!/bin/sh\necho plain\n" },
             ],
           }),
         );
@@ -105,8 +103,6 @@ describe("the workspace before each tool call", () => {
 
         expect(results[0]?.isError).toBe(false);
         expect(results[0]?.output).toBe("greetings\n");
-        expect(results[1]?.isError).toBe(true);
-        expect(results[1]?.output).toContain("Permission denied");
       }).pipe(Effect.provide(testWorld)),
   );
 

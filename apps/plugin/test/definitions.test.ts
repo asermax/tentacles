@@ -157,6 +157,7 @@ describe("spawn with skill and agent definitions", () => {
 
     const planner = agentFile("planner.md", { name: "planner", description: "Plans the work." });
 
+    chmodSync(join(implement, "SKILL.md"), 0o644);
     chmodSync(join(implement, "scripts/run.sh"), 0o755);
     chmodSync(join(implement, "notes.md"), 0o644);
     chmodSync(planner, 0o600);

@@ -5,8 +5,7 @@ import { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
-import { skillBlock } from "../src/tools/skills.ts";
-import { definitionArchives } from "./support/archives.ts";
+import { definitionArchives, skillBlockOf } from "./support/archives.ts";
 import { eventually } from "./support/eventually.ts";
 import { type Archives, createRequest } from "./support/fixtures.ts";
 import { type ModelRequest, routedModel } from "./support/model.ts";
@@ -17,19 +16,14 @@ const say = (text: string) => fauxAssistantMessage(text);
 const toolUse = (name: string, args: Readonly<Record<string, string>>) =>
   fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
 
-const implement = skillBlock({
-  name: "implement",
-  description: "",
-  path: "/skills/implement/SKILL.md",
-});
+const implement = skillBlockOf("implement");
 
-const review = skillBlock({ name: "review", description: "", path: "/skills/review/SKILL.md" });
+const review = skillBlockOf("review");
 
 const isRoot = (request: ModelRequest) => request.tools.has("ask_parent");
 
 const isGrandchild = (request: ModelRequest) => !request.tools.has("subagent");
 
-/** Starts a session on a model that answers by what each request shows. */
 const startSession = (
   answer: (request: ModelRequest) => AssistantMessage | Promise<AssistantMessage>,
   archives: Archives,
@@ -62,7 +56,6 @@ const toolResultsOf = (sessionId: SessionId) =>
     return (yield* (yield* world.handle(sessionId)).messages(100)).filter(Entry.guards.toolResult);
   });
 
-/** Creates a session with the held skills, then sends the text as a follow-up and returns the prompt entries. */
 const promptWith = (text: string, archives: Archives) =>
   Effect.gen(function* () {
     const { sessionId, handle, world } = yield* startSession(() => say("ok"), archives);
@@ -217,11 +210,12 @@ describe("the skill tool and the skills section", () => {
 
       const [skills] = sections;
 
-      expect(skills).toContain("implement");
-      expect(skills).toContain("Implement a change from its design");
-      expect(skills).toContain("/skills/implement/SKILL.md");
-      expect(skills).toContain("review");
-      expect(skills).toContain("Review a change before it is merged");
+      expect(skills).toContain("<name>implement</name>");
+      expect(skills).toContain("<description>Implement a change from its design</description>");
+      expect(skills).toContain("<location>/skills/implement/SKILL.md</location>");
+      expect(skills).toContain("<name>review</name>");
+      expect(skills).toContain("<description>Review a change before it is merged</description>");
+      expect(skills).toContain("<location>/skills/review/SKILL.md</location>");
     }).pipe(Effect.provide(testWorld)),
   );
 

@@ -2,8 +2,11 @@
 // writes: the Worker bridge as the default export and one bridge class per Durable Object the
 // Worker hosts.
 import { makeDurableObjectBridge, makeWorkerBridge } from "@alchemy.run/cloudflare";
+import { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
+import * as Effect from "effect/Effect";
 
+import { skillsArchiveLayer } from "../src/skills-archive.ts";
 import TentaclesWorker from "../src/worker.ts";
 
 const meta = {
@@ -15,11 +18,17 @@ export default makeWorkerBridge(WorkerEntrypoint, meta);
 
 const DurableObjectBridge = makeDurableObjectBridge(DurableObject, meta);
 
-// The key-value entry the provider keeps the skills archive under, which no operation of the
-// object returns, read through the bridge the way a test reaches it over RPC.
+// The skills archive the provider stores, which no operation of the object returns, read through
+// the provider's own layer the way a test reaches it over RPC.
 export class SessionObject extends DurableObjectBridge("SessionObject") {
   storedSkillsArchive() {
-    return this.ctx.storage.kv.get("tentacles.skills-archive") ?? null;
+    return Effect.runPromise(
+      Effect.gen(function* () {
+        const archive = yield* SkillsArchive;
+
+        return yield* archive.read();
+      }).pipe(Effect.provide(skillsArchiveLayer(this.ctx.storage))),
+    );
   }
 }
 

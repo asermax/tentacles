@@ -7,13 +7,13 @@ import { SessionState } from "@tentacles/worker-api/session-state";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { skillBlock } from "../src/tools/skills.ts";
 import { createBody, post, serveApi } from "./support/api.ts";
 import {
   agentWithoutBody,
   definitionArchives,
   definitionNames,
   oversizedSkillsArchive,
+  skillBlockOf,
   skillsArchive,
 } from "./support/archives.ts";
 import { eventually } from "./support/eventually.ts";
@@ -44,12 +44,6 @@ const decodeInvalidArchive = Schema.decodeUnknownSync(InvalidArchive);
 
 const bash = (command: string) =>
   fauxAssistantMessage(fauxToolCall("bash", { command }), { stopReason: "toolUse" });
-
-const skillAt = (name: string) => ({
-  name,
-  description: "",
-  path: `/skills/${name}/SKILL.md`,
-});
 
 const finishedSession = (api: Effect.Success<typeof serveApi>, answer: string) =>
   Effect.gen(function* () {
@@ -278,7 +272,7 @@ describe("the sessions API", () => {
 
       expect((yield* (yield* world.handle(sessionId)).messages(10))[0]).toEqual(
         Entry.cases.prompt.make({
-          text: `Run ${skillBlock(skillAt("implement"))} and then ${skillBlock(skillAt("review"))}`,
+          text: `Run ${skillBlockOf("implement")} and then ${skillBlockOf("review")}`,
         }),
       );
     }).pipe(Effect.provide(testWorld)),

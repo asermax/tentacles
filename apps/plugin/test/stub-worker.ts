@@ -40,9 +40,9 @@ export interface ScriptedSession {
   readonly entries: ReadonlyArray<Entry>;
 }
 
+/** What the stub answers; `createFailure` makes create answer with that error instead of the created id. */
 export interface StubScript {
   readonly createdId?: SessionId;
-  /** Create answers with this error instead of the created id. */
   readonly createFailure?: InvalidArchive;
   readonly sessions?: ReadonlyMap<SessionId, ScriptedSession>;
   readonly listed?: ReadonlyArray<SessionRef>;
@@ -59,10 +59,10 @@ export interface ReceivedRequest {
   readonly query?: { readonly count: number } | Parent;
 }
 
+/** A running stub; `creates` holds the create payloads received, archives included. */
 export interface StubWorker {
   readonly url: string;
   readonly requests: Array<ReceivedRequest>;
-  /** The create payloads received, archives included. */
   readonly creates: Array<CreateSession>;
   readonly stop: () => Promise<void>;
 }

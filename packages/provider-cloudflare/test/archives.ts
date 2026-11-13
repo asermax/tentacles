@@ -1,22 +1,24 @@
-import { packTar } from "modern-tar";
+import { packArchive as packEntries } from "@tentacles/worker-api/archives";
+import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 
 interface ArchiveFile {
   readonly path: string;
   readonly content: string | Uint8Array;
 }
 
-const packArchive = async (files: ReadonlyArray<ArchiveFile>) => {
-  const tar = await packTar(
-    files.map((file) => ({
-      header: { name: file.path, size: Buffer.byteLength(file.content) },
-      body: file.content,
-    })),
+const encoder = new TextEncoder();
+
+const packArchive = (files: ReadonlyArray<ArchiveFile>) =>
+  Effect.runPromise(
+    packEntries(
+      files.map((file) => ({
+        path: file.path,
+        bytes: Predicate.isString(file.content) ? encoder.encode(file.content) : file.content,
+        mode: 0o644,
+      })),
+    ),
   );
-
-  const gzipped = new Blob([tar]).stream().pipeThrough(new CompressionStream("gzip"));
-
-  return new Uint8Array(await new Response(gzipped).arrayBuffer());
-};
 
 // getRandomValues takes at most 64 KiB at a time.
 const incompressible = (size: number) => {

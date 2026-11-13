@@ -23,16 +23,14 @@ export const heldAnswer = (text: string) => {
   return { response, answer, release: () => released.resolve() };
 };
 
-/** What a routed model sees of one request. */
+/** What a routed model sees of one request; `sections` are the prompt sections in effect by name, after every system message, and `instructions` the conversation's own instructions, which pi-durable renders as the `instructions` section (empty when it has none). */
 export interface ModelRequest {
   /** The text of the newest message that is not a system message. */
   readonly last: string;
   readonly lastRole: string;
   /** The names of the tools the request offers. */
   readonly tools: ReadonlySet<string>;
-  /** The prompt sections in effect, by name, after every system message of the request. */
   readonly sections: ReadonlyMap<string, string>;
-  /** The conversation's own instructions, which pi-durable renders as the `instructions` section; empty when it has none. */
   readonly instructions: string;
   readonly signal: AbortSignal | undefined;
 }

@@ -42,7 +42,6 @@ export const waitUntilIdle = async (sessionId: string) => {
   throw new Error(`Session ${sessionId} never went idle`);
 };
 
-/** The settings every test session runs with. */
 export const testSettings = {
   provider: "cloudflare",
   model: "glm-5.2",

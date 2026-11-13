@@ -21,7 +21,6 @@ export const settings = (repository: Repository | null = null): Settings => ({
   repository,
 });
 
-/** The archives of a create request. */
 export type Archives = Pick<CreateSession, "skills" | "agents">;
 
 export const createRequest = (
