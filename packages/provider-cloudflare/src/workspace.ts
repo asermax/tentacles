@@ -6,7 +6,9 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import { ALCHEMY_PHASE } from "alchemy";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, RemoteExecutionEnv } from "@earendil-works/pi-env";
+import { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import {
+  skillsDirectory,
   Workspace,
   type WorkspaceSettings,
   WorkspaceUnavailable,
@@ -158,6 +160,29 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
       ),
     );
 
+  const extractSkills = (archive: Uint8Array) =>
+    Effect.tryPromise({
+      try: async () => {
+        const extraction = await container().exec(
+          ["sh", "-c", `mkdir -p ${skillsDirectory} && tar -xzf - -C ${skillsDirectory}`],
+          { stdin: new Blob([archive]).stream() },
+        );
+
+        return extraction.exitCode;
+      },
+      catch: unavailable,
+    }).pipe(
+      Effect.flatMap((exitCode) =>
+        exitCode === 0
+          ? Effect.void
+          : Effect.fail(
+              new WorkspaceUnavailable({
+                message: `Expanding the skills into ${skillsDirectory} failed`,
+              }),
+            ),
+      ),
+    );
+
   // Concurrent tool calls share one start and one clone.
   const starting = Semaphore.makeUnsafe(1);
 
@@ -195,43 +220,53 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
       });
     });
 
-  return Layer.succeed(
+  return Layer.effect(
     Workspace,
-    Workspace.of({
-      ensure: (settings) =>
-        starting.withPermit(
-          Effect.gen(function* () {
-            if (container().running) {
-              return;
-            }
+    Effect.gen(function* () {
+      const skillsArchive = yield* SkillsArchive;
 
-            yield* start(settings);
-            yield* daemonReady;
+      return Workspace.of({
+        ensure: (settings) =>
+          starting.withPermit(
+            Effect.gen(function* () {
+              if (container().running) {
+                return;
+              }
 
-            if (settings.repository != null) {
-              yield* clone(settings.repository);
-            }
-          }),
-        ),
+              yield* start(settings);
+              yield* daemonReady;
 
-      connection: () => Effect.succeed(connection),
+              if (settings.repository != null) {
+                yield* clone(settings.repository);
+              }
 
-      isRunning: () => Effect.sync(() => container().running),
+              const archive = yield* skillsArchive.read();
 
-      // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
-      // plain HTTP.
-      forward: (port, request) =>
-        Effect.tryPromise(() => {
-          const url = new URL(request.url);
-
-          url.protocol = "http:";
-
-          return container().getTcpPort(port).fetch(new Request(url, request));
-        }).pipe(
-          Effect.orElseSucceed(
-            () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
+              if (archive != null) {
+                yield* extractSkills(archive);
+              }
+            }),
           ),
-        ),
+
+        connection: () => Effect.succeed(connection),
+
+        isRunning: () => Effect.sync(() => container().running),
+
+        // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
+        // plain HTTP.
+        forward: (port, request) =>
+          Effect.tryPromise(() => {
+            const url = new URL(request.url);
+
+            url.protocol = "http:";
+
+            return container().getTcpPort(port).fetch(new Request(url, request));
+          }).pipe(
+            Effect.orElseSucceed(
+              () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
+            ),
+          ),
+      });
     }),
   );
 };

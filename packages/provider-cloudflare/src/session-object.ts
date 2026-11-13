@@ -114,6 +114,8 @@ export const SessionObjectLive = SessionObject.make(
       const claudeObjects: DurableObjectNamespace = env[claude.name];
       const codemodeSandboxes: DurableObjectNamespace<CodemodeSandbox> = env[codemodeSandboxClass];
 
+      const skillsArchive = skillsArchiveLayer(raw.storage);
+
       const contracts = Layer.mergeAll(
         Layer.succeed(
           SessionStorage,
@@ -140,8 +142,8 @@ export const SessionObjectLive = SessionObject.make(
               }),
           }),
         ),
-        skillsArchiveLayer(raw.storage),
-        workspaceLayer({ sessionId, container, egress }),
+        skillsArchive,
+        workspaceLayer({ sessionId, container, egress }).pipe(Layer.provide(skillsArchive)),
         browserLayer(yield* browser.raw, cdpSecret, raw.storage),
         CloudflarePreviewRouter,
         registryStoreLayer(registries),
