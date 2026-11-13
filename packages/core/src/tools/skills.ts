@@ -25,11 +25,13 @@ export const skillBlock = (skill: SkillEntry) =>
   `Read ${skill.path} before acting on this skill. Paths it names, such as references/ or scripts/, are relative to ${skillsDirectory}/${skill.name}/.\n` +
   "</skill>";
 
-const triggerPattern = /\/(?:skill:)?([a-z0-9]+(?:-[a-z0-9]+)*)/g;
+const triggerPattern = /(?<=^|\s)\/(?:skill:)?([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g;
 
 /**
- * Replaces each `/skill:<name>` and `/<name>` of a held skill with its block;
- * any other text, a path or an unheld name, stays as written.
+ * Replaces each `/skill:<name>` and `/<name>` of a held skill with its block.
+ * A trigger counts only when whitespace or the start or end of the text is on
+ * both sides, so one inside a path or a word, or with punctuation attached,
+ * stays as written, like an unheld name.
  */
 export const expandSkills = (text: string, skills: readonly SkillEntry[]) =>
   skills.length === 0

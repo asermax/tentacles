@@ -102,12 +102,21 @@ describe("prompt expansion", () => {
     }).pipe(Effect.provide(testWorld)),
   );
 
+  it.live("a trigger inside a path or with punctuation attached stays as written", () =>
+    Effect.gen(function* () {
+      const archives = yield* definitionArchives();
+      const text = "read /skills/implement/SKILL.md, then /implement. Also (/review) and x/review";
+
+      expect((yield* promptWith(text, archives)).at(-1)).toBe(text);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
   it.live("a held name twice becomes two blocks, one at each trigger", () =>
     Effect.gen(function* () {
       const archives = yield* definitionArchives();
 
-      expect((yield* promptWith("/implement, then /implement again", archives)).at(-1)).toBe(
-        `${implement}, then ${implement} again`,
+      expect((yield* promptWith("/implement then /implement again", archives)).at(-1)).toBe(
+        `${implement} then ${implement} again`,
       );
     }).pipe(Effect.provide(testWorld)),
   );
