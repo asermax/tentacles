@@ -2,27 +2,38 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { parse } from "yaml";
 
+const nameFormat =
+  "name must be 1 to 64 lowercase letters, digits and hyphens, with no leading, trailing or doubled hyphen";
+
+const descriptionLength = "description must be 1 to 1024 characters";
+
 export const DefinitionName = Schema.String.check(
-  Schema.isPattern(/^[a-z0-9]+(-[a-z0-9]+)*$/),
-  Schema.isMaxLength(64),
+  Schema.isPattern(/^[a-z0-9]+(-[a-z0-9]+)*$/, { message: nameFormat }),
+  Schema.isMaxLength(64, { message: nameFormat }),
 );
 
 export const DefinitionDescription = Schema.String.check(
-  Schema.isMinLength(1),
-  Schema.isMaxLength(1024),
+  Schema.isMinLength(1, { message: "description is missing; it must be 1 to 1024 characters" }),
+  Schema.isMaxLength(1024, { message: descriptionLength }),
 );
 
+const nameField = DefinitionName.annotateKey({ messageMissingKey: "name is missing" });
+
+const descriptionField = DefinitionDescription.annotateKey({
+  messageMissingKey: "description is missing; it must be 1 to 1024 characters",
+});
+
 export const Skill = Schema.Struct({
-  name: DefinitionName,
-  description: DefinitionDescription,
+  name: nameField,
+  description: descriptionField,
 });
 
 export type Skill = typeof Skill.Type;
 
 export const Agent = Schema.Struct({
-  name: DefinitionName,
-  description: DefinitionDescription,
-  prompt: Schema.String.check(Schema.isPattern(/\S/)),
+  name: nameField,
+  description: descriptionField,
+  prompt: Schema.String.check(Schema.isPattern(/\S/, { message: "body is empty" })),
 });
 
 export type Agent = typeof Agent.Type;
