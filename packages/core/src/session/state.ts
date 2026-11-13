@@ -13,22 +13,30 @@ import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Parent } from "@tentacles/worker-api/parent";
-import { isActive, SessionState, statusOf } from "@tentacles/worker-api/session-state";
+import {
+  isActive,
+  type SessionDetails,
+  SessionState,
+  statusOf,
+} from "@tentacles/worker-api/session-state";
 import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
-import { toEntries } from "./entries.ts";
-import { QuestionsDoc, type StoredQuestion } from "./questions.ts";
-import { RecordDoc, type SessionRecord } from "./record.ts";
+import { AgentsDoc } from "../tools/agents";
+import { SkillsDoc } from "../tools/skills";
+import { toEntries } from "./entries";
+import { QuestionsDoc, type StoredQuestion } from "./questions";
+import { RecordDoc, type SessionRecord } from "./record";
 
 /** What the status is derived from: the session's documents as last observed. */
 export type Observed = {
   live: LiveState | undefined;
   questions: readonly StoredQuestion[];
   record: SessionRecord | undefined;
+  names: Pick<SessionDetails, "skills" | "agents">;
 };
 
 const describeFailure = (failure: NonNullable<LiveState["runFailure"]>) =>
@@ -51,23 +59,28 @@ export const deriveState = (observed: Observed): SessionState | null => {
     return null;
   }
 
+  const details: SessionDetails = { settings: observed.record.settings, ...observed.names };
+
   if (observed.live?.run != null) {
     const question = waitingQuestion(observed);
 
     return question == null
-      ? SessionState.cases.running.make({})
-      : SessionState.cases.waiting.make({ question: { id: question.id, text: question.text } });
+      ? SessionState.cases.running.make(details)
+      : SessionState.cases.waiting.make({
+          ...details,
+          question: { id: question.id, text: question.text },
+        });
   }
 
   if (observed.record.closed) {
-    return SessionState.cases.closed.make({});
+    return SessionState.cases.closed.make(details);
   }
 
   const failure = observed.live?.runFailure;
 
   return failure == null
-    ? SessionState.cases.idle.make({})
-    : SessionState.cases.failed.make({ failure: describeFailure(failure) });
+    ? SessionState.cases.idle.make(details)
+    : SessionState.cases.failed.make({ ...details, failure: describeFailure(failure) });
 };
 
 // Two states are the same change when their status is, and, while waiting,
@@ -76,7 +89,7 @@ const changeKey = (state: SessionState) =>
   SessionState.guards.waiting(state) ? `waiting ${state.question.id}` : statusOf(state);
 
 const readObserved = (harness: Harness, sessionId: SessionId) =>
-  Effect.promise(async (): Promise<Observed> => {
+  Effect.promise(async (): Promise<Omit<Observed, "names">> => {
     const [live, questions, record] = await Promise.all([
       harness.snapshot(LiveDoc, ROOT_CONVERSATION_ID, BACKGROUND_CONTEXT),
       harness.snapshot(QuestionsDoc, BACKGROUND_CONTEXT),
@@ -109,7 +122,13 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
     const reporting = yield* Semaphore.make(1);
     const reported = yield* Deferred.make<void>();
 
-    const observed: Observed = { live: undefined, questions: [], record: undefined };
+    const observed: Observed = {
+      live: undefined,
+      questions: [],
+      record: undefined,
+      names: { skills: [], agents: [] },
+    };
+
     let current: SessionState | null = null;
     let isScheduled = false;
     let isAttached = false;
@@ -203,33 +222,54 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
 
     return {
       /** RegistryStore.add, with no status until the first report. */
-      register: (name: string, parent: Parent) =>
-        registry.add(sessionId, name, parent).pipe(Effect.orDie),
+      register: (name: string, parent: Parent, details: SessionDetails) =>
+        registry.add(sessionId, name, parent, details).pipe(Effect.orDie),
 
       /**
        * Start observing a session whose record exists. What it shows now is the
        * baseline, never reported; every later change is.
        */
       attach: Effect.gen(function* () {
-        yield* attachOne<Readonly<LiveState>>(
-          (target) => harness.observeDoc(LiveDoc, ROOT_CONVERSATION_ID, target, BACKGROUND_CONTEXT),
-          (value) => {
-            observed.live = value;
-          },
-        );
-        yield* attachOne<Readonly<{ questions: StoredQuestion[] }>>(
-          (target) => harness.observeDoc(QuestionsDoc, target, BACKGROUND_CONTEXT),
-          (value) => {
-            observed.questions = value.questions;
-          },
-        );
-        yield* attachOne<Readonly<SessionRecord>>(
-          (target) => harness.observeDoc(RecordDoc, sessionId, target, BACKGROUND_CONTEXT),
-          (value) => {
-            observed.record = value;
-          },
-        );
+        // The documents never change after create, so one read serves every state.
+        const readNames = Effect.promise(async (): Promise<Observed["names"]> => {
+          const [skills, agents] = await Promise.all([
+            harness.snapshot(SkillsDoc, BACKGROUND_CONTEXT),
+            harness.snapshot(AgentsDoc, BACKGROUND_CONTEXT),
+          ]);
 
+          return {
+            skills: (skills?.skills ?? []).map((skill) => skill.name),
+            agents: (agents?.agents ?? []).map((agent) => agent.name),
+          };
+        });
+
+        const attachObservers = Effect.gen(function* () {
+          yield* attachOne<Readonly<LiveState>>(
+            (target) =>
+              harness.observeDoc(LiveDoc, ROOT_CONVERSATION_ID, target, BACKGROUND_CONTEXT),
+            (value) => {
+              observed.live = value;
+            },
+          );
+          yield* attachOne<Readonly<{ questions: StoredQuestion[] }>>(
+            (target) => harness.observeDoc(QuestionsDoc, target, BACKGROUND_CONTEXT),
+            (value) => {
+              observed.questions = value.questions;
+            },
+          );
+          yield* attachOne<Readonly<SessionRecord>>(
+            (target) => harness.observeDoc(RecordDoc, sessionId, target, BACKGROUND_CONTEXT),
+            (value) => {
+              observed.record = value;
+            },
+          );
+        });
+
+        const [, names] = yield* Effect.all([attachObservers, readNames], {
+          concurrency: "unbounded",
+        });
+
+        observed.names = names;
         current = deriveState(observed);
         isAttached = true;
       }),
@@ -244,11 +284,16 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
       questionCallLive: () => liveQuestions(observed).length > 0,
 
       /** The state as the documents show it now, without a run's last entry. */
-      current: readObserved(harness, sessionId).pipe(Effect.map(deriveState)),
+      current: readObserved(harness, sessionId).pipe(
+        Effect.map((read) => deriveState({ ...read, names: observed.names })),
+      ),
 
       /** The state as `current` gives it, with the record it was derived from, both from one read. */
       currentWithRecord: readObserved(harness, sessionId).pipe(
-        Effect.map((read) => ({ state: deriveState(read), record: read.record })),
+        Effect.map((read) => ({
+          state: deriveState({ ...read, names: observed.names }),
+          record: read.record,
+        })),
       ),
     };
   });

@@ -9,7 +9,7 @@ import {
   WatchLineJson,
   type CommandResult,
   type WatchLine,
-} from "../src/core/helper-output.ts";
+} from "../src/core/helper-output";
 
 export interface FakeHelper {
   readonly path: string;

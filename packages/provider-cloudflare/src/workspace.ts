@@ -6,7 +6,9 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import { ALCHEMY_PHASE } from "alchemy";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, RemoteExecutionEnv } from "@earendil-works/pi-env";
+import { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import {
+  skillsDirectory,
   Workspace,
   type WorkspaceSettings,
   WorkspaceUnavailable,
@@ -20,8 +22,8 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
-import { credentialPlaceholder, EgressHosts, egressCaPath } from "./egress.ts";
-import { registerExec } from "./spawn-shim.ts";
+import { credentialPlaceholder, EgressHosts, egressCaPath } from "./egress";
+import { registerExec } from "./spawn-shim";
 
 const InstanceTypes = {
   lite: "lite",
@@ -158,6 +160,29 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
       ),
     );
 
+  const extractSkills = (archive: Uint8Array) =>
+    Effect.tryPromise({
+      try: async () => {
+        const extraction = await container().exec(
+          ["sh", "-c", `mkdir -p ${skillsDirectory} && tar -xzf - -C ${skillsDirectory}`],
+          { stdin: new Blob([archive]).stream() },
+        );
+
+        return extraction.exitCode;
+      },
+      catch: unavailable,
+    }).pipe(
+      Effect.flatMap((exitCode) =>
+        exitCode === 0
+          ? Effect.void
+          : Effect.fail(
+              new WorkspaceUnavailable({
+                message: `Expanding the skills into ${skillsDirectory} failed`,
+              }),
+            ),
+      ),
+    );
+
   // Concurrent tool calls share one start and one clone.
   const starting = Semaphore.makeUnsafe(1);
 
@@ -195,43 +220,68 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
       });
     });
 
-  return Layer.succeed(
-    Workspace,
-    Workspace.of({
-      ensure: (settings) =>
-        starting.withPermit(
-          Effect.gen(function* () {
-            if (container().running) {
-              return;
-            }
-
-            yield* start(settings);
-            yield* daemonReady;
-
-            if (settings.repository != null) {
-              yield* clone(settings.repository);
-            }
+  // The clone and the extraction write to different directories, so a cold start runs them
+  // together and reports every step that failed.
+  const prepare = (
+    repository: Repository | null | undefined,
+    readArchive: Effect.Effect<Uint8Array | null>,
+  ) =>
+    Effect.validate(
+      [
+        repository == null ? Effect.void : clone(repository),
+        Effect.flatMap(readArchive, (archive) =>
+          archive == null ? Effect.void : extractSkills(archive),
+        ),
+      ],
+      (step) => step,
+      { concurrency: 2, discard: true },
+    ).pipe(
+      Effect.mapError(
+        (failures) =>
+          new WorkspaceUnavailable({
+            message: failures.map((failure) => failure.message).join("; "),
           }),
-        ),
+      ),
+    );
 
-      connection: () => Effect.succeed(connection),
+  // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
+  // plain HTTP.
+  const forward = (port: number, request: Request) =>
+    Effect.tryPromise(() => {
+      const url = new URL(request.url);
 
-      isRunning: () => Effect.sync(() => container().running),
+      url.protocol = "http:";
 
-      // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
-      // plain HTTP.
-      forward: (port, request) =>
-        Effect.tryPromise(() => {
-          const url = new URL(request.url);
+      return container().getTcpPort(port).fetch(new Request(url, request));
+    }).pipe(
+      Effect.orElseSucceed(() => new Response(`Nothing answers on port ${port}`, { status: 502 })),
+    );
 
-          url.protocol = "http:";
+  return Layer.effect(
+    Workspace,
+    Effect.gen(function* () {
+      const skillsArchive = yield* SkillsArchive;
 
-          return container().getTcpPort(port).fetch(new Request(url, request));
-        }).pipe(
-          Effect.orElseSucceed(
-            () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
+      return Workspace.of({
+        ensure: (settings) =>
+          starting.withPermit(
+            Effect.gen(function* () {
+              if (container().running) {
+                return;
+              }
+
+              yield* start(settings);
+              yield* daemonReady;
+              yield* prepare(settings.repository, skillsArchive.read());
+            }),
           ),
-        ),
+
+        connection: () => Effect.succeed(connection),
+
+        isRunning: () => Effect.sync(() => container().running),
+
+        forward,
+      });
     }),
   );
 };

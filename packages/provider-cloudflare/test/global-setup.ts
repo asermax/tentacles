@@ -1,6 +1,6 @@
 import type { TestProject } from "vitest/node";
 
-import { bundleWorker } from "./bundle-worker.ts";
+import { bundleWorker } from "./bundle-worker";
 
 declare module "vitest" {
   interface ProvidedContext {

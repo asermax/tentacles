@@ -1,8 +1,8 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
-import { bundleDir, compatibility } from "./test/bundle-worker.ts";
-import { lifetimeSessionId, testSecrets } from "./test/secrets.ts";
+import { bundleDir, compatibility } from "./test/bundle-worker";
+import { lifetimeSessionId, testSecrets } from "./test/secrets";
 
 const workerName = "tentacles";
 

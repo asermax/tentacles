@@ -43,7 +43,7 @@ export const registryStoreLayer = (registries: Cloudflare.DurableObject<Registry
   return Layer.succeed(
     RegistryStore,
     RegistryStore.of({
-      add: (sessionId, name, parent) => registry().add(sessionId, name, parent),
+      add: (sessionId, name, parent, details) => registry().add(sessionId, name, parent, details),
       setStatus: (sessionId, status) => registry().setStatus(sessionId, status),
       list: (parent) => registry().list(parent),
       remove: (sessionId) => registry().remove(sessionId),

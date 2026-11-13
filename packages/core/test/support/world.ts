@@ -21,6 +21,7 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore, RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
+import { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace } from "@tentacles/contracts/workspace";
 import { SessionId } from "@tentacles/worker-api/ids";
@@ -33,10 +34,10 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
-import { Session, type SessionHandle } from "../../src/index.ts";
-import { eventually } from "./eventually.ts";
-import { testRegistry } from "./registry.ts";
-import { testWorkspace, type WorkspaceRecord } from "./workspace.ts";
+import { Session, type SessionHandle } from "../../src";
+import { eventually } from "./eventually";
+import { testRegistry } from "./registry";
+import { testWorkspace, type WorkspaceRecord } from "./workspace";
 
 /** A WakeTimer call: the time it was set to, or null for a clear. */
 export type WakeCall = number | null;
@@ -184,6 +185,7 @@ export class TestWorld extends Context.Service<
     /** RegistryStore's add, setStatus and openPreview calls, as "add <id>", "<status> <id>" and "openPreview <id>". */
     readonly registryCalls: string[];
     readonly records: (sessionId: SessionId) => SessionRecords;
+    readonly skillsArchives: ReadonlyMap<SessionId, Uint8Array>;
     /** The running instance's handle, made on first use as a host makes one on a request. */
     readonly handle: (sessionId: SessionId) => Effect.Effect<SessionHandle>;
     /** Drops the instance, its harness closed mid-work, and keeps its storage. */
@@ -231,9 +233,9 @@ const makeWorld = Effect.gen(function* () {
 
   const failing = RegistryStore.of({
     ...registry,
-    add: (sessionId, name, parent) =>
+    add: (sessionId, name, parent, details) =>
       Effect.sync(() => void registryCalls.push(`add ${sessionId}`)).pipe(
-        Effect.andThen(registry.add(sessionId, name, parent)),
+        Effect.andThen(registry.add(sessionId, name, parent, details)),
       ),
     setStatus: (sessionId, status) =>
       Effect.sync(() => void registryCalls.push(`${status} ${sessionId}`)).pipe(
@@ -273,6 +275,14 @@ const makeWorld = Effect.gen(function* () {
   const worldScope = yield* Scope.Scope;
 
   const workspaces = new Map<SessionId, Workspace["Service"]>();
+  const archives = new Map<SessionId, Uint8Array>();
+
+  // The archive lives beside the storage, so an eviction keeps it.
+  const archiveOf = (sessionId: SessionId) =>
+    SkillsArchive.of({
+      save: (archive) => Effect.sync(() => void archives.set(sessionId, archive)),
+      read: () => Effect.sync(() => archives.get(sessionId) ?? null),
+    });
 
   const recordsOf = (sessionId: SessionId) =>
     Effect.gen(function* () {
@@ -282,9 +292,11 @@ const makeWorld = Effect.gen(function* () {
         return found;
       }
 
-      const created = yield* testWorkspace(join(root, sessionId), shared).pipe(
-        Scope.provide(worldScope),
-      );
+      const created = yield* testWorkspace(
+        join(root, sessionId),
+        shared,
+        archiveOf(sessionId),
+      ).pipe(Scope.provide(worldScope));
 
       const record: SessionRecords = {
         states: [],
@@ -353,6 +365,7 @@ const makeWorld = Effect.gen(function* () {
         }),
       ),
       Context.add(Workspace, workspaceOf(sessionId)),
+      Context.add(SkillsArchive, archiveOf(sessionId)),
       Context.merge(shareds),
     );
 
@@ -435,6 +448,7 @@ const makeWorld = Effect.gen(function* () {
             yield* notFoundGuard(sessionId, (made) => made.delete());
             yield* drop(sessionId);
             storages.delete(sessionId);
+            archives.delete(sessionId);
           }),
   });
 
@@ -452,6 +466,7 @@ const makeWorld = Effect.gen(function* () {
 
       return found;
     },
+    skillsArchives: archives,
     handle,
     evict: drop,
     crash: crashOne,

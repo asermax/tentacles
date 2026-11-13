@@ -18,17 +18,23 @@ With a repository in its settings, the remote agent starts with it cloned. Witho
 
 [workspace](../technical-design/workspace.md) covers the container's image, clone and lifetime.
 
+The parent can also give the remote agent skills and agent definitions, by passing their folder and file paths at spawn. They are fixed for the remote agent's life, so the parent includes every one the job needs, and work that needs a different set goes to a new remote agent. The plugin checks every skill and agent definition on the developer's machine before anything is sent; when one fails, spawn returns every problem with its path, skills and agents listed apart, and no remote agent starts.
+
 ## 💬 Prompting and steering
 
 While a remote agent works, the parent can send it a prompt as a follow-up, which the agent takes up after its current turn, or as a steer, which redirects it mid-run. A prompt to an agent that has finished starts it working again.
 
 Nobody watches a remote agent live. The parent reads what it did through the messages tool: its last message by default, or the last N, where a message is any entry of its conversation (prompts, its text, tool calls and results, subagent results). On pi, the parent can also block on a remote agent with the wait tool.
 
+A prompt can name one of the remote agent's skills, as `/skill:<name>` or `/<name>` standing on its own, with a space or the start or end of the prompt on each side. The remote agent receives a short block in its place that points at the skill's instructions, and reads the instructions before acting on the skill. A name the remote agent does not hold, or one inside a path or with punctuation attached, stays as written.
+
 ## 📊 The status line
 
 The harness shows a status line with the name and status of each open remote agent: running, waiting on a question, idle or failed. The status line hides closed ones, but the list tool still returns them.
 
 The list belongs to the parent's harness session. When the harness reopens that session, the plugin refreshes the list from tentacles, so the status line shows each agent's current status, including changes made while the parent was away. A forked parent starts with no remote agents of its own.
+
+The list also returns each remote agent's settings and the names of its skills and agents, so a parent that comes back later knows what each remote agent can do.
 
 ## ⏰ Finish and failure wakes
 
@@ -38,6 +44,10 @@ Before a run finishes, tentacles reminds a remote agent working on a repository 
 
 > [!WARNING] A headless parent is never woken
 > A parent running headless (`claude -p`) gets no wake, as with local subagents. It learns that a remote agent finished or asked something only by calling the tools.
+
+## 🧩 Skills and agents inside a remote agent
+
+A remote agent sees its skills and agent definitions by name and description, and loads a skill when a task matches it, reading its instructions and the files they point to. It installs whatever a skill needs to run in its workspace. It can start subagents from its agent definitions by name, and those subagents can start subagents of their own, which cannot start any. A remote agent running a skill works on its own. Where a skill would stop to ask the person, the parent's handoff tells it to decide and report what it decided at the end. For a stop point it cannot decide, such as a missing credential, the handoff says what to do, which can be asking the parent with the question tool. The plugin's skill teaches the parent to write that handoff. [sessions](../technical-design/sessions.md) covers how the skills and agents reach the remote agent.
 
 ## ❓ Questions
 

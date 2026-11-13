@@ -6,7 +6,7 @@ import { SessionStorage } from "@tentacles/contracts/session-storage";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Session } from "@tentacles/core";
 import type { Entry } from "@tentacles/worker-api/entries";
-import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
+import { InvalidArchive, QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
 import { SessionState } from "@tentacles/worker-api/session-state";
 import type { Answer, CreateSession, Prompt } from "@tentacles/worker-api/sessions";
@@ -18,25 +18,26 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
-import { browserLayer } from "./browser.ts";
-import { claudeObjectName, ClaudeObject } from "./claude-object.ts";
-import { codemodeSandboxClass, codeSandboxLayer } from "./codemode-sandbox.ts";
-import type { CodemodeSandbox } from "./codemode-worker.ts";
-import { sendableCode } from "./close-code.ts";
-import { loopback } from "./egress.ts";
-import { modelProvidersLayer } from "./model-providers.ts";
-import { CloudflarePreviewRouter } from "./preview-router.ts";
-import { RegistryObject, registryStoreLayer } from "./registry-object.ts";
+import { browserLayer } from "./browser";
+import { claudeObjectName, ClaudeObject } from "./claude-object";
+import { codemodeSandboxClass, codeSandboxLayer } from "./codemode-sandbox";
+import type { CodemodeSandbox } from "./codemode-worker";
+import { sendableCode } from "./close-code";
+import { loopback } from "./egress";
+import { modelProvidersLayer } from "./model-providers";
+import { CloudflarePreviewRouter } from "./preview-router";
+import { RegistryObject, registryStoreLayer } from "./registry-object";
+import { skillsArchiveLayer } from "./skills-archive";
 import {
   ContainerSettings,
   unsupportedSettings,
   WorkspaceContainer,
   workspaceLayer,
-} from "./workspace.ts";
+} from "./workspace";
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
 export interface SessionOperations {
-  readonly create: (request: CreateSession) => Effect.Effect<void>;
+  readonly create: (request: CreateSession) => Effect.Effect<void, InvalidArchive>;
   readonly prompt: (request: Prompt) => Effect.Effect<void, SessionNotFound>;
   readonly answer: (request: Answer) => Effect.Effect<void, SessionNotFound | QuestionNotWaiting>;
   readonly close: () => Effect.Effect<void, SessionNotFound>;
@@ -49,7 +50,7 @@ export interface SessionOperations {
 /** One object per session, named by its id. */
 export class SessionObject extends Cloudflare.DurableObject<SessionObject, SessionOperations>()(
   "SessionObject",
-  { errors: [SessionNotFound, QuestionNotWaiting] },
+  { errors: [SessionNotFound, QuestionNotWaiting, InvalidArchive] },
 ) {}
 
 // A request the Worker passes to the object through fetch carries what it is for in a header,
@@ -113,6 +114,8 @@ export const SessionObjectLive = SessionObject.make(
       const claudeObjects: DurableObjectNamespace = env[claude.name];
       const codemodeSandboxes: DurableObjectNamespace<CodemodeSandbox> = env[codemodeSandboxClass];
 
+      const skillsArchive = skillsArchiveLayer(raw.storage);
+
       const contracts = Layer.mergeAll(
         Layer.succeed(
           SessionStorage,
@@ -139,7 +142,8 @@ export const SessionObjectLive = SessionObject.make(
               }),
           }),
         ),
-        workspaceLayer({ sessionId, container, egress }),
+        skillsArchive,
+        workspaceLayer({ sessionId, container, egress }).pipe(Layer.provide(skillsArchive)),
         browserLayer(yield* browser.raw, cdpSecret, raw.storage),
         CloudflarePreviewRouter,
         registryStoreLayer(registries),

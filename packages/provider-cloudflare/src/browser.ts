@@ -6,8 +6,8 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 
-import { sendableCode } from "./close-code.ts";
-import { apiHost } from "./hosts.ts";
+import { sendableCode } from "./close-code";
+import { apiHost } from "./hosts";
 
 // Browser Run's maximum: the session closes after 20 minutes without a CDP message.
 const keepAlive = 20 * 60_000;

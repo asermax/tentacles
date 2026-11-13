@@ -4,7 +4,7 @@ import type {
   TranscriptContext,
 } from "@earendil-works/pi-ai";
 
-import type { ClaudeCodeModel } from "./model-catalog.d.ts";
+import type { ClaudeCodeModel } from "./model-catalog.d";
 
 export declare const streamClaudeCode: (
   model: ClaudeCodeModel,

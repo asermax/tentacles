@@ -7,8 +7,8 @@ import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { PreviewResult, previewResultSchema } from "./preview-result.ts";
-import { ToolNames } from "./tool-names.ts";
+import { PreviewResult, previewResultSchema } from "./preview-result";
+import { ToolNames } from "./tool-names";
 
 /** Runs a preview step with the services the session holds. */
 export type PreviewRunner = <A>(

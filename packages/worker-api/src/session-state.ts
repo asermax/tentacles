@@ -1,7 +1,8 @@
 import * as Schema from "effect/Schema";
 
-import { Entry } from "./entries.ts";
-import { QuestionId, SessionId } from "./ids.ts";
+import { Entry } from "./entries";
+import { QuestionId, SessionId } from "./ids";
+import { Settings } from "./settings";
 
 export const SessionStatuses = {
   running: "running",
@@ -22,14 +23,25 @@ export const Question = Schema.Struct({
 
 export type Question = typeof Question.Type;
 
+export const SessionDetails = Schema.Struct({
+  settings: Settings,
+  skills: Schema.Array(Schema.String),
+  agents: Schema.Array(Schema.String),
+});
+
+export type SessionDetails = typeof SessionDetails.Type;
+
 // The idle state carries the run's last entry only when it is sent because a
 // run just finished; on connect and from status it has none.
 export const SessionState = Schema.Union([
-  Schema.TaggedStruct(SessionStatuses.running, {}),
-  Schema.TaggedStruct(SessionStatuses.waiting, { question: Question }),
-  Schema.TaggedStruct(SessionStatuses.idle, { lastEntry: Schema.optionalKey(Entry) }),
-  Schema.TaggedStruct(SessionStatuses.failed, { failure: Schema.String }),
-  Schema.TaggedStruct(SessionStatuses.closed, {}),
+  Schema.TaggedStruct(SessionStatuses.running, SessionDetails.fields),
+  Schema.TaggedStruct(SessionStatuses.waiting, { ...SessionDetails.fields, question: Question }),
+  Schema.TaggedStruct(SessionStatuses.idle, {
+    ...SessionDetails.fields,
+    lastEntry: Schema.optionalKey(Entry),
+  }),
+  Schema.TaggedStruct(SessionStatuses.failed, { ...SessionDetails.fields, failure: Schema.String }),
+  Schema.TaggedStruct(SessionStatuses.closed, SessionDetails.fields),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 
 export type SessionState = typeof SessionState.Type;
@@ -56,3 +68,10 @@ export const SessionRef = Schema.Struct({
 });
 
 export type SessionRef = typeof SessionRef.Type;
+
+export const SessionListing = Schema.Struct({
+  ...SessionRef.fields,
+  ...SessionDetails.fields,
+});
+
+export type SessionListing = typeof SessionListing.Type;

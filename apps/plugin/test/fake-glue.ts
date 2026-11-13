@@ -1,15 +1,15 @@
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Schema from "effect/Schema";
 
-import type { Glue, ToolOutcome, ToolRun } from "../src/core/glue.ts";
+import type { Glue, ToolOutcome, ToolRun } from "../src/core/glue";
 import {
   CommandResultJson,
   WatchLineJson,
   type CommandResult,
   type WatchLine,
-} from "../src/core/helper-output.ts";
-import type { LocalState } from "../src/core/local-state.ts";
-import type { ToolEntry } from "../src/core/tool-table.ts";
+} from "../src/core/helper-output";
+import type { LocalState } from "../src/core/local-state";
+import type { ToolEntry } from "../src/core/tool-table";
 
 const encodeResult = Schema.encodeSync(CommandResultJson);
 

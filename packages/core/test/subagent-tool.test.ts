@@ -5,14 +5,15 @@ import { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
-import { eventually } from "./support/eventually.ts";
-import { createRequest } from "./support/fixtures.ts";
-import { heldAnswer, type ModelRequest, routedModel } from "./support/model.ts";
-import { newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { definitionArchives } from "./support/archives";
+import { eventually } from "./support/eventually";
+import { createRequest } from "./support/fixtures";
+import { heldAnswer, type ModelRequest, routedModel } from "./support/model";
+import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 type SubagentCall =
-  | { action: "run"; task: string }
-  | { action: "spawn"; task: string; name: string }
+  | { action: "run"; task: string; agent?: string }
+  | { action: "spawn"; task: string; name: string; agent?: string }
   | { action: "message"; id: string; text: string; mode: "followUp" | "steer" }
   | { action: "wait"; id: string }
   | { action: "stop"; id: string }
@@ -23,7 +24,9 @@ const call = (args: SubagentCall) =>
 
 const say = (text: string) => fauxAssistantMessage(text);
 
-const isRoot = (request: ModelRequest) => request.tools.has("subagent");
+const isRoot = (request: ModelRequest) => request.tools.has("ask_parent");
+
+const isGrandchild = (request: ModelRequest) => !request.tools.has("subagent");
 
 const startedId = (text: string) => /with id (\S+)\./.exec(text)?.[1] ?? "unknown";
 
@@ -37,7 +40,7 @@ const startSession = (
     const handle = yield* world.handle(sessionId);
 
     world.faux.setResponses(routedModel(answer));
-    yield* handle.create(createRequest("go"));
+    yield* handle.create(createRequest("go", null, yield* definitionArchives()));
 
     return { sessionId, handle };
   });
@@ -292,27 +295,154 @@ describe("the subagent tool", () => {
     }).pipe(Effect.provide(testWorld)),
   );
 
-  it.live("a child has neither the question tool nor the subagent tool", () =>
+  it.live(
+    "a child runs with the subagent and skill tools, without the question tool or instructions",
+    () =>
+      Effect.gen(function* () {
+        const children: Array<Pick<ModelRequest, "tools" | "instructions">> = [];
+
+        const { sessionId } = yield* startSession((request) => {
+          if (!isRoot(request)) {
+            children.push({ tools: request.tools, instructions: request.instructions });
+
+            return say("done");
+          }
+
+          return request.lastRole === "toolResult"
+            ? say("Finished.")
+            : call({ action: "run", task: "look" });
+        });
+
+        yield* settled(sessionId, "Finished.");
+
+        const [child] = children;
+
+        expect(child?.tools).toContain("bash");
+        expect(child?.tools).toContain("preview");
+        expect(child?.tools).toContain("subagent");
+        expect(child?.tools).toContain("skill");
+        expect(child?.tools).not.toContain("ask_parent");
+        expect(child?.instructions).toBe("");
+      }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("run with an agent starts the child with the agent's prompt as its instructions", () =>
     Effect.gen(function* () {
-      const childTools: string[] = [];
+      const instructions: string[] = [];
 
       const { sessionId } = yield* startSession((request) => {
         if (!isRoot(request)) {
-          childTools.push(...request.tools);
+          instructions.push(request.instructions);
 
-          return say("done");
+          return say("looks fine");
         }
 
         return request.lastRole === "toolResult"
-          ? say("Finished.")
-          : call({ action: "run", task: "look" });
+          ? say("The reviewer says it looks fine")
+          : call({ action: "run", task: "review the change", agent: "reviewer" });
+      });
+
+      yield* settled(sessionId, "The reviewer says it looks fine");
+      expect(instructions).toEqual(["You review changes."]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live(
+    "spawn with an agent that is not held fails naming the held agents and starts no child",
+    () =>
+      Effect.gen(function* () {
+        const { sessionId } = yield* startSession((request) => {
+          if (request.lastRole !== "toolResult") {
+            return call({ action: "spawn", task: "review", name: "checker", agent: "ghost" });
+          }
+
+          return request.last.includes("No agent ghost")
+            ? call({ action: "list" })
+            : say("Listed.");
+        });
+
+        yield* settled(sessionId, "Listed.");
+
+        const [failed, listed] = yield* toolResultsOf(sessionId);
+
+        expect(failed?.isError).toBe(true);
+        expect(failed?.output).toContain("ghost");
+        expect(failed?.output).toContain("reviewer");
+        expect(failed?.output).toContain("planner");
+        expect(listed?.output).toBe("No subagents.");
+      }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live(
+    "a child spawns a subagent that starts with its name and has the skill tool but not the subagent tool",
+    () =>
+      Effect.gen(function* () {
+        const grandchildren: Array<Pick<ModelRequest, "tools" | "instructions">> = [];
+
+        const { sessionId } = yield* startSession((request) => {
+          if (isGrandchild(request)) {
+            grandchildren.push({ tools: request.tools, instructions: request.instructions });
+
+            return say("helped");
+          }
+
+          if (isRoot(request)) {
+            return request.lastRole === "toolResult"
+              ? say("Finished.")
+              : call({ action: "run", task: "delegate" });
+          }
+
+          if (request.lastRole === "toolResult" || request.last.startsWith("[subagent")) {
+            return say("delegated");
+          }
+
+          return call({ action: "spawn", task: "help", name: "helper" });
+        });
+
+        yield* settled(sessionId, "Finished.");
+        yield* eventually(Effect.sync(() => expect(grandchildren).not.toHaveLength(0)));
+
+        const [grandchild] = grandchildren;
+
+        expect(grandchild?.instructions).toContain('You are the subagent "helper".');
+        expect(grandchild?.tools).toContain("skill");
+        expect(grandchild?.tools).not.toContain("subagent");
+        expect(grandchild?.tools).not.toContain("ask_parent");
+      }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("a child started with an agent runs a subagent without that agent's instructions", () =>
+    Effect.gen(function* () {
+      const instructions: Array<{ level: string; text: string }> = [];
+
+      const { sessionId } = yield* startSession((request) => {
+        if (!isRoot(request)) {
+          instructions.push({
+            level: isGrandchild(request) ? "grandchild" : "child",
+            text: request.instructions,
+          });
+        }
+
+        if (isGrandchild(request)) {
+          return say("helped");
+        }
+
+        if (request.lastRole === "toolResult") {
+          return say(isRoot(request) ? "Finished." : "delegated");
+        }
+
+        return isRoot(request)
+          ? call({ action: "run", task: "review", agent: "reviewer" })
+          : call({ action: "run", task: "help" });
       });
 
       yield* settled(sessionId, "Finished.");
-      expect(childTools).toContain("bash");
-      expect(childTools).toContain("preview");
-      expect(childTools).not.toContain("ask_parent");
-      expect(childTools).not.toContain("subagent");
+      expect(instructions.filter((each) => each.level === "child")[0]?.text).toBe(
+        "You review changes.",
+      );
+      expect(instructions.filter((each) => each.level === "grandchild")).toEqual([
+        { level: "grandchild", text: "" },
+      ]);
     }).pipe(Effect.provide(testWorld)),
   );
 

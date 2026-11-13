@@ -4,7 +4,7 @@ import { SessionId } from "@tentacles/worker-api/ids";
 import type { Parent } from "@tentacles/worker-api/parent";
 import {
   activeStatuses,
-  SessionRef,
+  SessionListing,
   SessionStatuses,
   type SessionStatus,
 } from "@tentacles/worker-api/session-state";
@@ -17,14 +17,14 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import { registry } from "./schema.ts";
+import { registry } from "./schema";
 
 /** A synchronous drizzle SQLite database: a Durable Object's storage, or better-sqlite3 in tests. */
 export type RegistryDatabase = BaseSQLiteDatabase<"sync", unknown>;
 
 const stopped = Arr.difference(Object.values(SessionStatuses), activeStatuses);
 
-const decodeRefs = Schema.decodeUnknownEffect(Schema.Array(SessionRef));
+const decodeListings = Schema.decodeUnknownEffect(Schema.Array(SessionListing));
 
 const decodeTarget = Schema.decodeUnknownEffect(
   Schema.NullOr(Schema.Struct({ sessionId: SessionId, port: Schema.Int })),
@@ -78,7 +78,7 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
       const random = yield* SecureRandom.SecureRandom;
 
       return RegistryStore.of({
-        add: (sessionId, name, parent) =>
+        add: (sessionId, name, parent, details) =>
           query(() => {
             db.insert(registry)
               .values({
@@ -86,6 +86,9 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
                 name,
                 parentHarness: parent.harness,
                 parentSessionId: parent.sessionId,
+                settings: details.settings,
+                skillNames: details.skills,
+                agentNames: details.agents,
               })
               .run();
           }),
@@ -109,11 +112,14 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
                 sessionId: registry.sessionId,
                 name: registry.name,
                 status: registry.status,
+                settings: registry.settings,
+                skills: registry.skillNames,
+                agents: registry.agentNames,
               })
               .from(registry)
               .where(and(ofParent(parent), isNotNull(registry.status)))
               .all(),
-          ).pipe(Effect.flatMap(decodeRefs), Effect.mapError(unavailable)),
+          ).pipe(Effect.flatMap(decodeListings), Effect.mapError(unavailable)),
 
         remove: (sessionId) =>
           query(() => {

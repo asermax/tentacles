@@ -1,11 +1,15 @@
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Parent } from "@tentacles/worker-api/parent";
-import type { SessionRef, SessionStatus } from "@tentacles/worker-api/session-state";
+import type {
+  SessionDetails,
+  SessionListing,
+  SessionStatus,
+} from "@tentacles/worker-api/session-state";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import type { PreviewToken } from "./preview-router.ts";
+import type { PreviewToken } from "./preview-router";
 
 export interface OpenedPreview {
   readonly token: PreviewToken;
@@ -22,8 +26,9 @@ export interface PreviewTarget {
   readonly port: number;
 }
 
-// The one store across sessions: an entry per session with its parent, the
-// time its last run stopped and its preview. `add` leaves the entry without a
+// The one store across sessions: an entry per session with its parent, its
+// details (settings, skill and agent names), the time its last run stopped and
+// its preview. `add` leaves the entry without a
 // status until the first `setStatus`. `setStatus` derives the rest from the
 // transition: a run that stops sets lastStopped and clears the preview, a stop
 // that follows a stop keeps lastStopped, and a new run clears it.
@@ -36,6 +41,7 @@ export class RegistryStore extends Context.Service<
       sessionId: SessionId,
       name: string,
       parent: Parent,
+      details: SessionDetails,
     ) => Effect.Effect<void, RegistryUnavailable>;
     readonly setStatus: (
       sessionId: SessionId,
@@ -43,7 +49,7 @@ export class RegistryStore extends Context.Service<
     ) => Effect.Effect<void, RegistryUnavailable>;
     readonly list: (
       parent: Parent,
-    ) => Effect.Effect<ReadonlyArray<SessionRef>, RegistryUnavailable>;
+    ) => Effect.Effect<ReadonlyArray<SessionListing>, RegistryUnavailable>;
     readonly remove: (sessionId: SessionId) => Effect.Effect<void, RegistryUnavailable>;
     readonly openPreview: (
       sessionId: SessionId,

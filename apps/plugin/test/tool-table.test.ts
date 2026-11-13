@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ToolTable } from "../src/core/tool-table.ts";
+import { ToolTable } from "../src/core/tool-table";
 
 const uuid = expect.objectContaining({ type: "string", format: "uuid" });
 
@@ -46,13 +46,23 @@ describe("tool table arguments", () => {
     });
   });
 
-  it("leaves parent out of spawn and makes every setting optional", () => {
+  it("leaves parent out of spawn, makes every setting optional and lists skills and agents as optional string arrays", () => {
     const spawn = ToolTable.spawn.arguments;
 
     expect(
       Object.keys(spawn.properties ?? {}).toSorted((left, right) => left.localeCompare(right)),
-    ).toEqual(["name", "prompt", "settings"]);
+    ).toEqual(["agents", "name", "prompt", "settings", "skills"]);
     expect(spawn.required).toEqual(["name", "prompt"]);
+    expect(spawn).toHaveProperty("properties.skills", {
+      type: "array",
+      items: { type: "string" },
+      description: expect.any(String),
+    });
+    expect(spawn).toHaveProperty("properties.agents", {
+      type: "array",
+      items: { type: "string" },
+      description: expect.any(String),
+    });
     expect(spawn).toHaveProperty("properties.settings", {
       type: "object",
       additionalProperties: true,

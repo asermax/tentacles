@@ -305,6 +305,12 @@ importers:
       effect:
         specifier: 4.1.3
         version: 4.1.3
+      modern-tar:
+        specifier: 0.8.6
+        version: 0.8.6
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
 
 packages:
 

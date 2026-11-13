@@ -3,7 +3,12 @@ import { createServer } from "node:http";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { TentaclesApi } from "@tentacles/worker-api/api";
 import type { Entry } from "@tentacles/worker-api/entries";
-import { QuestionNotWaiting, SessionNotFound, Unauthorized } from "@tentacles/worker-api/errors";
+import {
+  type InvalidArchive,
+  QuestionNotWaiting,
+  SessionNotFound,
+  Unauthorized,
+} from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Parent } from "@tentacles/worker-api/parent";
 import type { Answer, CreateSession, Prompt } from "@tentacles/worker-api/sessions";
@@ -20,6 +25,8 @@ import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServer from "effect/http/HttpServer";
 import { HttpApiBuilder } from "effect/http-api";
 
+import { details } from "./values";
+
 export const stubApiKey = "stub-api-key";
 
 /** One state the session's socket sends, after a pause. */
@@ -33,8 +40,10 @@ export interface ScriptedSession {
   readonly entries: ReadonlyArray<Entry>;
 }
 
+/** What the stub answers; `createFailure` makes create answer with that error instead of the created id. */
 export interface StubScript {
   readonly createdId?: SessionId;
+  readonly createFailure?: InvalidArchive;
   readonly sessions?: ReadonlyMap<SessionId, ScriptedSession>;
   readonly listed?: ReadonlyArray<SessionRef>;
   readonly isQuestionWaiting?: boolean;
@@ -50,15 +59,21 @@ export interface ReceivedRequest {
   readonly query?: { readonly count: number } | Parent;
 }
 
+/** A running stub; `creates` holds the create payloads received, archives included. */
 export interface StubWorker {
   readonly url: string;
   readonly requests: Array<ReceivedRequest>;
+  readonly creates: Array<CreateSession>;
   readonly stop: () => Promise<void>;
 }
 
 const encodeState = Schema.encodeSync(Schema.fromJsonString(SessionState));
 
-const stubLayer = (script: StubScript, requests: Array<ReceivedRequest>) => {
+const stubLayer = (
+  script: StubScript,
+  requests: Array<ReceivedRequest>,
+  creates: Array<CreateSession>,
+) => {
   const sessionOf = (sessionId: SessionId): Effect.Effect<ScriptedSession, SessionNotFound> => {
     const session = script.sessions?.get(sessionId);
 
@@ -74,6 +89,11 @@ const stubLayer = (script: StubScript, requests: Array<ReceivedRequest>) => {
     group
       .handle("create", ({ payload }) => {
         requests.push({ endpoint: "create", payload: payload });
+        creates.push(payload);
+
+        if (script.createFailure != null) {
+          return answering(Effect.fail(script.createFailure));
+        }
 
         return answering(
           script.createdId == null
@@ -119,7 +139,7 @@ const stubLayer = (script: StubScript, requests: Array<ReceivedRequest>) => {
         return answering(
           sessionOf(params.sessionId).pipe(
             Effect.map(
-              (session) => session.states.at(-1)?.state ?? SessionState.cases.running.make({}),
+              (session) => session.states.at(-1)?.state ?? SessionState.cases.running.make(details),
             ),
           ),
         );
@@ -127,7 +147,9 @@ const stubLayer = (script: StubScript, requests: Array<ReceivedRequest>) => {
       .handle("list", ({ query }) => {
         requests.push({ endpoint: "list", query: query });
 
-        return answering(Effect.succeed(script.listed ?? []));
+        return answering(
+          Effect.succeed((script.listed ?? []).map((session) => ({ ...session, ...details }))),
+        );
       })
       .handle("socket", ({ params, request }) => {
         requests.push({ endpoint: "socket", sessionId: params.sessionId });
@@ -170,14 +192,20 @@ const stubLayer = (script: StubScript, requests: Array<ReceivedRequest>) => {
 /** A Worker served from TentaclesApi on a free local port, answering from the script and recording each request. */
 export const startStubWorker = async (script: StubScript = {}): Promise<StubWorker> => {
   const requests: Array<ReceivedRequest> = [];
+  const creates: Array<CreateSession> = [];
   const scope = await Effect.runPromise(Scope.make());
-  const context = await Effect.runPromise(Layer.buildWithScope(stubLayer(script, requests), scope));
+
+  const context = await Effect.runPromise(
+    Layer.buildWithScope(stubLayer(script, requests, creates), scope),
+  );
+
   const address = Context.get(context, HttpServer.HttpServer).address;
   const port = "port" in address ? address.port : 0;
 
   return {
     url: `http://127.0.0.1:${port}`,
     requests,
+    creates,
     stop: () => Effect.runPromise(Scope.close(scope, Exit.void)),
   };
 };

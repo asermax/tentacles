@@ -4,10 +4,10 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 
-import { CommandResultJson, HelperError, WatchLineJson } from "../core/helper-output.ts";
-import { NodeWebSocketConstructor } from "./client.ts";
-import { isCommandName, runCommand } from "./command.ts";
-import { watchSessions } from "./watch.ts";
+import { CommandResultJson, HelperError, WatchLineJson } from "../core/helper-output";
+import { NodeWebSocketConstructor } from "./client";
+import { isCommandName, runCommand } from "./command";
+import { watchSessions } from "./watch";
 
 const encodeResult = Schema.encodeSync(CommandResultJson);
 

@@ -1,12 +1,12 @@
 import { Harnesses } from "@tentacles/worker-api/parent";
 
-import { createController } from "../core/controller.ts";
-import type { Glue } from "../core/glue.ts";
-import { LocalState } from "../core/local-state.ts";
-import { ToolEntry } from "../core/tool-table.ts";
-import { runHelperProcess, startWatchProcess } from "./helper-process.ts";
-import type { PiContext, PiExtensionApi } from "./pi-api.ts";
-import { readStateEntry, writeStateEntry } from "./state-entry.ts";
+import { createController } from "../core/controller";
+import type { Glue } from "../core/glue";
+import { LocalState } from "../core/local-state";
+import { ToolEntry } from "../core/tool-table";
+import { runHelperProcess, startWatchProcess } from "./helper-process";
+import type { PiContext, PiExtensionApi } from "./pi-api";
+import { readStateEntry, writeStateEntry } from "./state-entry";
 
 export const statusWidgetKey = "tentacles";
 

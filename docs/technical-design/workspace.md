@@ -8,7 +8,7 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-Each session has one workspace container, started by the first file or command operation of a tool call, from the image, size and lifetime in the session's settings. The agent works in `/workspace`, where tentacles clones the session's repository when the settings name one. The disk is disposable: work survives only once it is committed and pushed, so tentacles holds the container up and prompts the agent while a managed repository has pending work. The agent's tools run in the container through pi-env, and the agent gets a browser only to validate a preview of the app it started.
+Each session has one workspace container, started by the first file or command operation of a tool call, from the image, size and lifetime in the session's settings. The agent works in `/workspace`, where tentacles clones the session's repository when the settings name one, and finds the session's skills in `/skills`. The disk is disposable: work survives only once it is committed and pushed, so tentacles holds the container up and prompts the agent while a managed repository has pending work. The agent's tools run in the container through pi-env, and the agent gets a browser only to validate a preview of the app it started.
 
 ## 📥 Inputs from the session's settings
 
@@ -17,7 +17,7 @@ Each session has one workspace container, started by the first file or command o
 | image | the container image: `default`, the only image tentacles offers; create rejects any other | `default` |
 | size | the container's instance type | basic |
 | lifetime | inactivity time before the container stops | 15 minutes |
-| repository | a repository URL and a shallow-or-full clone flag | nothing is cloned |
+| repository | an `https://` (or `http://`) repository URL and a shallow-or-full clone flag; create rejects any other URL form | nothing is cloned |
 
 The plugin fills every absent value except the repository from its defaults, which environment variables can change, so the session always holds a full set (see [worker-api](worker-api.md)).
 
@@ -25,7 +25,7 @@ The plugin fills every absent value except the repository from its defaults, whi
 
 The default image holds only what tentacles needs: pi-env's daemon, git and CA certificates, with git set up to authenticate through the token added at egress, and a small process that pings the session with busybox `wget` to keep the container up while work is pending (see below). It has no Node, no Chrome and no Docker. The agent installs anything else it needs.
 
-The agent always works in `/workspace`. The first file or command operation of each tool call makes sure the workspace is up. pi-durable also asks for the execution environment to render prompt sections, and that request alone does not start the container. When the container is not running, tentacles starts it and waits until it is ready. When the settings name a repository, tentacles then clones the repository's default branch there, shallow or full as the setting says. The first tool call and the first one after a restart, even in the middle of a run, find the repository in place. Without a repository setting, the agent clones whatever its prompt names. git reaches GitHub with the GitHub token added at egress; the container never holds it (see [runtime-components](runtime-components.md)).
+The agent always works in `/workspace`. The first file or command operation of each tool call makes sure the workspace is up. pi-durable also asks for the execution environment to render prompt sections, and that request alone does not start the container. When the container is not running, tentacles starts it and waits until it is ready. When the settings name a repository, tentacles then clones the repository's default branch there, shallow or full as the setting says. When the session holds skills, tentacles then copies the skills archive into the container and expands it into `/skills`, one folder per skill. When the clone, copy or expansion fails, the tool call that needed the workspace fails with "workspace unavailable". The container stays running, and later tool calls use it as it is. Nothing clones or expands again until the container next starts cold (see [sessions](sessions.md)). When the clone and the expansion succeed, the first tool call and the first one after a restart, even in the middle of a run, find the repository and the skills in place. Without a repository setting, the agent clones whatever its prompt names. git reaches GitHub with the GitHub token added at egress; the container never holds it (see [runtime-components](runtime-components.md)).
 
 ## ⏱️ Lifetime and pending work
 
@@ -65,11 +65,12 @@ Closing a session stops its run. Without pending work, the container then stops 
 | read, write, edit | work on files in `/workspace`, through pi-env |
 | bash | runs commands in the workspace; agent-browser runs through it |
 | codemode | runs a script that calls the other tools except `ask_parent`; scripts keep `models.*` (the model catalog, classify and generateImages) through the session's providers |
-| subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; subagents have neither `ask_parent` nor the subagent tool, so they do not nest |
+| subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; run and spawn take an optional agent name, and the subagent then starts with that agent definition's prompt. The root and its children have the tool, so a child can start subagents of its own; a grandchild cannot |
+| skill | given the name of one of the session's skills, returns a block pointing at its SKILL.md in `/skills`, which the agent then reads; an unknown name fails, naming the skills that exist |
 | ask_parent | asks the parent; root conversation only, and only the model calls it; while the repository has pending work, returns a refusal with the repository's status |
 | preview | opens a preview, returning a preview URL to a workspace port and a CDP URL to a browser and replacing the open preview if there is one; or closes the open preview |
 
-The coding tools run in the container through pi-env: the session object reaches pi-env's daemon over the container's exec stdio. codemode is pi-durable's own tool; on Cloudflare it runs in a RemoteCodemodeSandbox. pi-durable ships no subagent tool, so tentacles writes one following pi-durable's examples, and that tool leaves `ask_parent` and itself out of every subagent.
+The coding tools run in the container through pi-env: the session object reaches pi-env's daemon over the container's exec stdio. codemode is pi-durable's own tool; on Cloudflare it runs in a RemoteCodemodeSandbox. pi-durable ships no subagent tool, so tentacles writes one following pi-durable's examples. The subagent tool and the skill tool each belong to an extension of their own, described in [sessions](sessions.md); a subagent never gets `ask_parent`.
 
 The model reads each tool's result as text. Only the model calls `ask_parent`: a script's tool call runs as a nested task, which the session does not watch when it derives its status, so a question asked from a script would never show the session as waiting. preview also returns a tagged structured result to a program that calls it, such as a codemode script: `open` with the preview URL and the CDP URL, or `close`.
 

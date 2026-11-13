@@ -12,16 +12,16 @@ import { HttpApiBuilder } from "effect/http-api";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
-import { apiKeyLayer } from "./api-key.ts";
-import { cdpRelay } from "./browser.ts";
-import { ClaudeObject } from "./claude-object.ts";
-import { codemodeSandboxClass, codemodeWorkerName } from "./codemode-sandbox.ts";
-import { egress } from "./egress.ts";
-import { apiHost, zone } from "./hosts.ts";
-import { isPreviewHost, previewRoute, previewTokenOf } from "./preview-router.ts";
-import { RegistryObject, RegistryObjectLive, registryStoreLayer } from "./registry-object.ts";
-import { cloudflareScheduler } from "./scheduler.ts";
-import { SessionObject, SessionObjectLive, sessionHostLayer } from "./session-object.ts";
+import { apiKeyLayer } from "./api-key";
+import { cdpRelay } from "./browser";
+import { ClaudeObject } from "./claude-object";
+import { codemodeSandboxClass, codemodeWorkerName } from "./codemode-sandbox";
+import { egress } from "./egress";
+import { apiHost, zone } from "./hosts";
+import { isPreviewHost, previewRoute, previewTokenOf } from "./preview-router";
+import { RegistryObject, RegistryObjectLive, registryStoreLayer } from "./registry-object";
+import { cloudflareScheduler } from "./scheduler";
+import { SessionObject, SessionObjectLive, sessionHostLayer } from "./session-object";
 
 const cdpPath = /^\/cdp\/([^/]+)$/;
 

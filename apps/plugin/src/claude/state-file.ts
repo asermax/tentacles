@@ -1,8 +1,8 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { LocalState, LocalStateJson } from "../core/local-state.ts";
-import type { Engine } from "./engine.ts";
+import { LocalState, LocalStateJson } from "../core/local-state";
+import type { Engine } from "./engine";
 
 const decodeState = Schema.decodeUnknownOption(LocalStateJson);
 

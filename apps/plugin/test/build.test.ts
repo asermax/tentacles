@@ -8,11 +8,11 @@ import * as Schema from "effect/Schema";
 import { createBuilder } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { assertCoverage } from "../build/coverage.ts";
-import { emitPlugin } from "../build/emit.ts";
-import { skillSources, skillText } from "../build/skill.ts";
-import { CommandResultJson } from "../src/core/helper-output.ts";
-import { helperErrorMessage } from "./values.ts";
+import { assertCoverage } from "../build/coverage";
+import { emitPlugin } from "../build/emit";
+import { skillSources, skillText } from "../build/skill";
+import { CommandResultJson } from "../src/core/helper-output";
+import { helperErrorMessage } from "./values";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -30,6 +30,16 @@ const PiManifest = Schema.Struct({ pi: Schema.Unknown });
 const ClaudeManifest = Schema.Struct({ name: Schema.String });
 
 const HooksFile = Schema.Struct({ modules: Schema.Unknown });
+
+const expectSpawnSection = (skill: string) => {
+  expect(skill).toContain("`skills`, the paths of skill folders on your machine");
+  expect(skill).toContain("`agents`, the paths of agent definition files");
+  expect(skill).toContain("Skills and agents are fixed at spawn.");
+  expect(skill).toContain(
+    "returns every problem with its path, the skills' problems in one group and the agents' in another",
+  );
+  expect(skill).not.toMatch(/mahou/i);
+};
 
 const isExecutable = (...path: ReadonlyArray<string>) => {
   try {
@@ -66,6 +76,7 @@ describe("plugin build", () => {
       readFileSync(join(packageRoot, "src", "shared", "invoke-pi.md"), "utf8").trimEnd(),
     );
     expect(skill).not.toContain("{{");
+    expectSpawnSection(skill);
   });
 
   it("emits the Claude plugin with its manifest, the mod, the helper and the skill with Claude's fragment", () => {
@@ -84,6 +95,7 @@ describe("plugin build", () => {
       readFileSync(join(packageRoot, "src", "shared", "invoke-claude.md"), "utf8").trimEnd(),
     );
     expect(skill).not.toContain("{{");
+    expectSpawnSection(skill);
   });
 
   it("bundles a helper that runs on its own and prints its result line", () => {

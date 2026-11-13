@@ -4,8 +4,8 @@ import * as Data from "effect/Data";
 import type * as JsonSchema from "effect/JsonSchema";
 import * as Schema from "effect/Schema";
 
-import { endpointArguments } from "./endpoint-arguments.ts";
-import { SpawnArguments } from "./spawn-request.ts";
+import { endpointArguments } from "./endpoint-arguments";
+import { SpawnArguments } from "./spawn-request";
 
 export const ToolNames = {
   spawn: "spawn",
@@ -50,7 +50,7 @@ export const ToolTable = {
   spawn: ToolEntry.Endpoint({
     name: ToolNames.spawn,
     description:
-      "Start a remote agent with a name, a first prompt and optional settings. The settings left out come from the plugin's defaults. Answers with the new session's id.",
+      "Start a remote agent with a name, a first prompt and optional settings. The settings left out come from the plugin's defaults. Optionally takes the paths of skill folders and agent definition files, which stay fixed for the session. Answers with the new session's id.",
     endpoint: "create",
     harnesses: bothHarnesses,
     arguments: { ...spawnDocument.schema, $defs: spawnDocument.definitions },

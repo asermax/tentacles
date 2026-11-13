@@ -2,10 +2,10 @@ import { QuestionNotWaiting, SessionNotFound, Unauthorized } from "@tentacles/wo
 import { QuestionId } from "@tentacles/worker-api/ids";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { Failure, Success } from "../src/core/helper-output.ts";
-import { runHelperCommand, variablesFor } from "./helper-run.ts";
-import { startStubWorker, type StubWorker } from "./stub-worker.ts";
-import { helperErrorMessage, sessionIdOf, TextEntry } from "./values.ts";
+import { Failure, Success } from "../src/core/helper-output";
+import { runHelperCommand, variablesFor } from "./helper-run";
+import { startStubWorker, type StubWorker } from "./stub-worker";
+import { helperErrorMessage, sessionIdOf, TextEntry } from "./values";
 
 const sessionId = sessionIdOf(1);
 
@@ -48,6 +48,8 @@ describe("helper commands against the Worker", () => {
     );
 
     expect(result).toEqual(Success.make({ result: { sessionId } }));
+    expect(stub.creates[0]).not.toHaveProperty("skills");
+    expect(stub.creates[0]).not.toHaveProperty("agents");
     expect(stub.requests).toEqual([
       {
         endpoint: "create",
@@ -117,6 +119,24 @@ describe("helper commands against the Worker", () => {
         repository,
       },
     });
+  });
+
+  it("reports a repository URL without a scheme and sends no request", async () => {
+    const stub = await startWorker({ createdId: sessionId });
+
+    const result = await runHelperCommand(
+      "spawn",
+      {
+        name: "migrate",
+        prompt: "go",
+        parent,
+        settings: { repository: { url: "github.com/asermax/tentacles", shallow: true } },
+      },
+      variablesFor(stub.url),
+    );
+
+    expect(helperErrorMessage(result)).toContain("repository URL must start with https://");
+    expect(stub.requests).toEqual([]);
   });
 
   it("answers Failure SessionNotFound when the session does not exist", async () => {

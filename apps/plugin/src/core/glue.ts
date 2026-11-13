@@ -1,8 +1,8 @@
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type * as Schema from "effect/Schema";
 
-import type { LocalState } from "./local-state.ts";
-import type { ToolEntry } from "./tool-table.ts";
+import type { LocalState } from "./local-state";
+import type { ToolEntry } from "./tool-table";
 
 /** Shows the status line renderStatusLine builds; undefined clears it (the pi widget, Claude's status line). */
 export type StatusSink = (line: string | undefined) => void;

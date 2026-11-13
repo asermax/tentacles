@@ -1,13 +1,22 @@
-import { SessionNotFound } from "@tentacles/worker-api/errors";
+import { InvalidArchive, SessionNotFound } from "@tentacles/worker-api/errors";
 import { Harnesses } from "@tentacles/worker-api/parent";
 import { SessionRef, SessionStatuses } from "@tentacles/worker-api/session-state";
 import { describe, expect, it } from "vitest";
 
-import { createController } from "../src/core/controller.ts";
-import { Failure, Success, type CommandResult } from "../src/core/helper-output.ts";
-import type { LocalState } from "../src/core/local-state.ts";
-import { createFakeGlue } from "./fake-glue.ts";
-import { Failed, Idle, questionOf, Running, sessionIdOf, TextEntry, Waiting } from "./values.ts";
+import { createController } from "../src/core/controller";
+import { Failure, Success, type CommandResult } from "../src/core/helper-output";
+import type { LocalState } from "../src/core/local-state";
+import { createFakeGlue } from "./fake-glue";
+import {
+  details,
+  Failed,
+  Idle,
+  questionOf,
+  Running,
+  sessionIdOf,
+  TextEntry,
+  Waiting,
+} from "./values";
 
 const ref = (session: SessionRef) => SessionRef.make(session);
 
@@ -59,6 +68,16 @@ describe("parent controller at harness start", () => {
     expect(glue.watches).toEqual([[third]]);
   });
 
+  it("keeps id, name and status of each session when the list's items carry settings and names", async () => {
+    const glue = await started(local(migrate), {
+      list: Success.make({
+        result: [{ ...migrate, ...details, skills: ["implement"], agents: ["reviewer"] }],
+      }),
+    });
+
+    expect(glue.states.at(-1)).toEqual({ sessions: [migrate] });
+  });
+
   it("empties the local state of a forked parent, whose list is empty", async () => {
     const glue = await started(local(migrate), { list: Success.make({ result: [] }) });
 
@@ -74,7 +93,7 @@ describe("parent controller at harness start", () => {
       false,
     );
 
-    glue.emit({ sessionId: first, state: Failed.make({ failure: "boom" }) });
+    glue.emit({ sessionId: first, state: Failed.make({ ...details, failure: "boom" }) });
 
     expect(glue.watches).toEqual([]);
     expect(glue.wakes).toEqual([]);
@@ -86,7 +105,7 @@ describe("parent controller at harness start", () => {
 
     const line = {
       sessionId: first,
-      state: Idle.make({ lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
+      state: Idle.make({ ...details, lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
     };
 
     glue.emit(line);
@@ -101,7 +120,7 @@ describe("parent controller at harness start", () => {
 
     glue.emit({
       sessionId: first,
-      state: Idle.make({ lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
+      state: Idle.make({ ...details, lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
     });
 
     expect(glue.wakes).toEqual([]);
@@ -125,6 +144,19 @@ describe("parent controller on a tool result", () => {
       sessions: [{ sessionId: second, name: "docs", status: SessionStatuses.running }],
     });
     expect(glue.watches).toEqual([[second]]);
+  });
+
+  it("fails the spawn tool with the message of the InvalidArchive the Worker returned and records no session", async () => {
+    const message = "The skills archive is invalid: implement/SKILL.md: name is missing";
+
+    const glue = await started(local(), {
+      spawn: Failure.make({ error: new InvalidArchive({ message }) }),
+    });
+
+    const outcome = await glue.call("spawn", { name: "docs", prompt: "write them" });
+
+    expect(outcome).toEqual({ isError: true, text: message });
+    expect(glue.states).toEqual([]);
   });
 
   it("marks a closed session closed and hides it from the status line", async () => {
@@ -190,7 +222,7 @@ describe("parent controller on a watch line", () => {
 
     glue.emit({
       sessionId: first,
-      state: Waiting.make({ question: questionOf("q-7", "Which branch?") }),
+      state: Waiting.make({ ...details, question: questionOf("q-7", "Which branch?") }),
     });
 
     expect(glue.wakes).toHaveLength(1);
@@ -205,7 +237,7 @@ describe("parent controller on a watch line", () => {
 
     glue.emit({
       sessionId: first,
-      state: Idle.make({ lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
+      state: Idle.make({ ...details, lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
     });
 
     expect(glue.wakes).toEqual([expect.stringContaining("Opened PR 12.")]);
@@ -217,7 +249,7 @@ describe("parent controller on a watch line", () => {
 
     glue.emit({
       sessionId: first,
-      state: Failed.make({ failure: "The workspace did not start." }),
+      state: Failed.make({ ...details, failure: "The workspace did not start." }),
     });
 
     expect(glue.wakes).toEqual([expect.stringContaining("The workspace did not start.")]);
@@ -228,7 +260,7 @@ describe("parent controller on a watch line", () => {
       list: Success.make({ result: [ref({ ...migrate, status: SessionStatuses.idle })] }),
     });
 
-    glue.emit({ sessionId: first, state: Running.make({}) });
+    glue.emit({ sessionId: first, state: Running.make(details) });
     await settle();
 
     expect(glue.statusLines.at(-1)).toBe("migrate: running");
@@ -239,7 +271,7 @@ describe("parent controller on a watch line", () => {
 describe("parent controller on a wait", () => {
   const asked = {
     sessionId: first,
-    state: Waiting.make({ question: questionOf("q-7", "Which branch?") }),
+    state: Waiting.make({ ...details, question: questionOf("q-7", "Which branch?") }),
   };
 
   it("returns the next wake to a wait that is already waiting, instead of sending it as a message", async () => {
@@ -278,10 +310,10 @@ describe("parent controller on a wait", () => {
 
     expect(returned).toBeUndefined();
 
-    glue.emit({ sessionId: first, state: Running.make({}) });
+    glue.emit({ sessionId: first, state: Running.make(details) });
     glue.emit({
       sessionId: first,
-      state: Idle.make({ lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
+      state: Idle.make({ ...details, lastEntry: TextEntry.make({ text: "Opened PR 12." }) }),
     });
     await waited;
 
@@ -292,7 +324,7 @@ describe("parent controller on a wait", () => {
     const glue = await watching();
 
     glue.emit(asked);
-    glue.emit({ sessionId: first, state: Running.make({}) });
+    glue.emit({ sessionId: first, state: Running.make(details) });
 
     let returned: string | undefined;
 

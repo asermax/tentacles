@@ -1,10 +1,10 @@
 import { Entry } from "@tentacles/worker-api/entries";
 import { QuestionId, SessionId } from "@tentacles/worker-api/ids";
-import { SessionState } from "@tentacles/worker-api/session-state";
+import { type SessionDetails, SessionState } from "@tentacles/worker-api/session-state";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
-import type { CommandResult } from "../src/core/helper-output.ts";
+import type { CommandResult } from "../src/core/helper-output";
 
 export const {
   running: Running,
@@ -12,6 +12,20 @@ export const {
   idle: Idle,
   failed: Failed,
 } = SessionState.cases;
+
+export const details: SessionDetails = {
+  settings: {
+    provider: "anthropic",
+    model: "claude-opus-5-5",
+    effort: "high",
+    image: "default",
+    size: "standard",
+    lifetime: 3600,
+    repository: null,
+  },
+  skills: [],
+  agents: [],
+};
 
 export const { text: TextEntry } = Entry.cases;
 

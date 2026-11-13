@@ -6,7 +6,7 @@ import { CLAUDE_CODE_MODELS } from "@earendil-works/pi-claude-code/src/model-cat
 import * as Schema from "effect/Schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { startRelay, streamBody } from "./relay.ts";
+import { startRelay, streamBody } from "./relay";
 
 let relay: Awaited<ReturnType<typeof startRelay>>;
 

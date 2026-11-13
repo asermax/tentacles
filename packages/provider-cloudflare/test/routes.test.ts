@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { env } from "cloudflare:workers";
 
-import { testSecrets } from "./secrets.ts";
+import { testSecrets } from "./secrets";
 
 const api = "https://tentacles.asermax.com/api/sessions?harness=pi&sessionId=parent";
 

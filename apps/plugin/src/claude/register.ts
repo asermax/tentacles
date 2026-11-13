@@ -1,13 +1,13 @@
 import { Harnesses } from "@tentacles/worker-api/parent";
 import * as Schema from "effect/Schema";
 
-import { createController, type Controller } from "../core/controller.ts";
-import type { Glue, ToolRun } from "../core/glue.ts";
-import { HelperPathVariable } from "../core/helper-path-variable.ts";
-import { ToolEntry } from "../core/tool-table.ts";
-import type { Engine, On, ToolCall } from "./engine.ts";
-import { readStateFile, stateFilePath, writeStateFile } from "./state-file.ts";
-import { createWakeQueue } from "./wake-queue.ts";
+import { createController, type Controller } from "../core/controller";
+import type { Glue, ToolRun } from "../core/glue";
+import { HelperPathVariable } from "../core/helper-path-variable";
+import { ToolEntry } from "../core/tool-table";
+import type { Engine, On, ToolCall } from "./engine";
+import { readStateFile, stateFilePath, writeStateFile } from "./state-file";
+import { createWakeQueue } from "./wake-queue";
 
 // The tentacles Claude mod, bundled into one hooks module: a hooks module has
 // no Node and may import only its own plugin's files. Every function `$`

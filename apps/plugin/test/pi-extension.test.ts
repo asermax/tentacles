@@ -3,9 +3,9 @@ import { SessionRef, SessionStatuses } from "@tentacles/worker-api/session-state
 import * as Schema from "effect/Schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Failure, Success } from "../src/core/helper-output.ts";
-import { LocalState } from "../src/core/local-state.ts";
-import { tentaclesExtension } from "../src/pi/extension.ts";
+import { Failure, Success } from "../src/core/helper-output";
+import { LocalState } from "../src/core/local-state";
+import { tentaclesExtension } from "../src/pi/extension";
 import type {
   PiContext,
   PiExtensionApi,
@@ -13,9 +13,9 @@ import type {
   PiSessionStartHandler,
   PiShutdownHandler,
   PiTool,
-} from "../src/pi/pi-api.ts";
-import { createFakeHelper, type FakeHelper } from "./fake-helper.ts";
-import { questionOf, sessionIdOf, Waiting } from "./values.ts";
+} from "../src/pi/pi-api";
+import { createFakeHelper, type FakeHelper } from "./fake-helper";
+import { details, questionOf, sessionIdOf, Waiting } from "./values";
 
 const sessionId = sessionIdOf(1);
 
@@ -96,7 +96,7 @@ describe("pi extension", () => {
   });
 
   it("keeps the local state in a custom session entry, wakes through sendMessage and shows open sessions in the widget", async () => {
-    const waiting = Waiting.make({ question: questionOf("q-3", "Which branch?") });
+    const waiting = Waiting.make({ ...details, question: questionOf("q-3", "Which branch?") });
 
     const helper = createFakeHelper({ list: Success.make({ result: [migrate] }) }, [
       { sessionId, state: waiting },

@@ -18,6 +18,7 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
+import { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
 import type { Entry } from "@tentacles/worker-api/entries";
@@ -31,13 +32,16 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
-import { remoteAgentExtensions } from "../tools/extension.ts";
-import { toEntries } from "./entries.ts";
-import { QuestionsDoc } from "./questions.ts";
-import { RecordDoc, type SessionRecord } from "./record.ts";
-import { trackStatus } from "./state.ts";
-import { workspaceEnv } from "./workspace-env.ts";
-import { isWorkspaceNeeded } from "./workspace-needed.ts";
+import { AgentsDoc } from "../tools/agents";
+import { remoteAgentExtensions } from "../tools/extension";
+import { expandPrompt, expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills";
+import { toEntries } from "./entries";
+import { QuestionsDoc } from "./questions";
+import { readArchives } from "./read-archives";
+import { RecordDoc, type SessionRecord } from "./record";
+import { trackStatus } from "./state";
+import { workspaceEnv } from "./workspace-env";
+import { isWorkspaceNeeded } from "./workspace-needed";
 
 // While work runs, the timer also serves as a recovery heartbeat: a process
 // that dies mid-run is woken within a minute.
@@ -71,6 +75,8 @@ const make = (sessionId: SessionId) =>
     const services = yield* Effect.context<
       Browser | CodeSandbox | ParentChannel | PreviewRouter | RegistryStore | Workspace
     >();
+
+    const skillsArchive = yield* SkillsArchive;
 
     const run = Effect.runPromiseWith(services);
     const fork = Effect.runForkWith(services);
@@ -193,7 +199,21 @@ const make = (sessionId: SessionId) =>
     const handle: SessionHandle = {
       create: (request) =>
         Effect.gen(function* () {
-          yield* status.register(request.name, request.parent);
+          // Both archives are read before anything is stored, so one that
+          // cannot be read leaves no trace.
+          const archives = yield* readArchives(request);
+          const skills = archives.skills.map(toSkillEntry);
+          const { agents } = archives;
+
+          if (request.skills != null) {
+            yield* skillsArchive.save(request.skills);
+          }
+
+          yield* status.register(request.name, request.parent, {
+            settings: request.settings,
+            skills: skills.map((skill) => skill.name),
+            agents: agents.map((agent) => agent.name),
+          });
 
           const conversation = yield* Effect.promise(() =>
             harness.root(BACKGROUND_CONTEXT, {
@@ -213,6 +233,8 @@ const make = (sessionId: SessionId) =>
                   commitPrompts: 0,
                 });
                 await tx.doc(QuestionsDoc);
+                (await tx.doc(SkillsDoc)).skills.push(...skills);
+                (await tx.doc(AgentsDoc)).agents.push(...agents);
               },
             }),
           );
@@ -221,7 +243,11 @@ const make = (sessionId: SessionId) =>
           yield* armActive;
           yield* Effect.promise(() =>
             conversation.submit(
-              { type: "input", content: request.prompt, requestId: "create" },
+              {
+                type: "input",
+                content: expandSkills(request.prompt, skills),
+                requestId: "create",
+              },
               BACKGROUND_CONTEXT,
             ),
           );
@@ -239,7 +265,13 @@ const make = (sessionId: SessionId) =>
 
           const draft: SubmissionDraft = {
             type: "input",
-            content: request.text,
+            content: yield* Effect.promise(() =>
+              expandPrompt(request.text, state.skills, async () => {
+                const doc = await harness.snapshot(SkillsDoc, BACKGROUND_CONTEXT);
+
+                return doc?.skills ?? [];
+              }),
+            ),
             whenBusy: steers ? "steer" : "followUp",
           };
 

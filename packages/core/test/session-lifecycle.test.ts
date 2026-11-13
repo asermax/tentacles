@@ -6,16 +6,19 @@ import { SessionState } from "@tentacles/worker-api/session-state";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 
-import { eventually } from "./support/eventually.ts";
-import { createRequest, parent } from "./support/fixtures.ts";
-import { heldAnswer } from "./support/model.ts";
-import { BrowserCalls, newSessionId, TestWorld, testWorld } from "./support/world.ts";
+import { eventually } from "./support/eventually";
+import { definitionArchives, definitionNames } from "./support/archives";
+import { createRequest, detailsOf, parent } from "./support/fixtures";
+import { heldAnswer } from "./support/model";
+import { BrowserCalls, newSessionId, TestWorld, testWorld } from "./support/world";
 
-const running = SessionState.cases.running.make({});
+const details = detailsOf(createRequest(""), definitionNames);
+
+const running = SessionState.cases.running.make(details);
 
 /** A second from now: every stop recorded so far is before it. */
 const soon = Clock.currentTimeMillis.pipe(Effect.map((now) => now + 1000));
-const closed = SessionState.cases.closed.make({});
+const closed = SessionState.cases.closed.make(details);
 
 const startSession = (prompt = "start") =>
   Effect.gen(function* () {
@@ -23,13 +26,13 @@ const startSession = (prompt = "start") =>
     const sessionId = newSessionId();
     const handle = yield* world.handle(sessionId);
 
-    yield* handle.create(createRequest(prompt));
+    yield* handle.create(createRequest(prompt, null, yield* definitionArchives()));
 
     return { world, sessionId, handle, records: world.records(sessionId) };
   });
 
 const idleAfter = (answer: string) =>
-  SessionState.cases.idle.make({ lastEntry: Entry.cases.text.make({ text: answer }) });
+  SessionState.cases.idle.make({ ...details, lastEntry: Entry.cases.text.make({ text: answer }) });
 
 describe("a session's lifecycle and status", () => {
   it.live("create stores the session, adds its entry and reports running once the run starts", () =>
@@ -44,7 +47,7 @@ describe("a session's lifecycle and status", () => {
       expect(world.registryCalls).toEqual([`add ${sessionId}`, `running ${sessionId}`]);
       expect(records.states).toEqual([running]);
       expect(yield* (yield* RegistryStore).list(parent)).toEqual([
-        { sessionId, name: "worker", status: "running" },
+        { sessionId, name: "worker", status: "running", ...details },
       ]);
 
       held.release();
@@ -136,7 +139,11 @@ describe("a session's lifecycle and status", () => {
       ]);
 
       const { handle, records } = yield* startSession();
-      const failed = SessionState.cases.failed.make({ failure: "model_error: rejected" });
+
+      const failed = SessionState.cases.failed.make({
+        ...details,
+        failure: "model_error: rejected",
+      });
 
       yield* eventually(Effect.sync(() => expect(records.states).toEqual([running, failed])));
 
@@ -221,7 +228,7 @@ describe("a session's lifecycle and status", () => {
         Effect.sync(() =>
           expect(records.states).toEqual([
             running,
-            SessionState.cases.failed.make({ failure: "model_error: unknown model" }),
+            SessionState.cases.failed.make({ ...details, failure: "model_error: unknown model" }),
           ]),
         ),
       );

@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import { ParentSessionId } from "./ids.ts";
+import { ParentSessionId } from "./ids";
 
 export const Harnesses = {
   pi: "pi",

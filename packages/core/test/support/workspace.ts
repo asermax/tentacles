@@ -4,7 +4,9 @@ import { dirname, join } from "node:path";
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
+import type { SkillsArchive } from "@tentacles/contracts/skills-archive";
 import {
+  skillsDirectory,
   Workspace,
   type WorkspaceSettings,
   WorkspaceUnavailable,
@@ -21,6 +23,13 @@ export interface WorkspaceRecord {
   /** Answers Workspace.forward. */
   forward: (port: number, request: Request) => Response;
 }
+
+// Repository URLs must be https, so the bare remotes are named by this host
+// and the sandbox's git rewrites it to the directory that holds them.
+const remoteHost = "https://git.test/";
+
+/** The URL a session's settings use for a bare remote created by bareRepository. */
+export const remoteUrl = (name: string) => `${remoteHost}${name}.git`;
 
 // Distributions point /lib64 at different places (usr/lib on Arch, usr/lib64
 // on Ubuntu), and the dynamic loader's path goes through it, so the sandbox
@@ -63,6 +72,15 @@ const sandboxed = (directory: string, shared: string) => {
     "HOME",
     "/tmp",
     "--setenv",
+    "GIT_CONFIG_COUNT",
+    "1",
+    "--setenv",
+    "GIT_CONFIG_KEY_0",
+    `url.${shared}/.insteadOf`,
+    "--setenv",
+    "GIT_CONFIG_VALUE_0",
+    remoteHost,
+    "--setenv",
     "GIT_AUTHOR_NAME",
     "agent",
     "--setenv",
@@ -79,12 +97,19 @@ const sandboxed = (directory: string, shared: string) => {
   ];
 };
 
+const archivePath = "/tmp/skills.tar.gz";
+
 /**
  * A session's Workspace over a local sandboxed daemon. ensure starts the
- * workspace on its first call and clones the repository then, as a container
- * that just started would; a failed clone leaves it not started.
+ * workspace on its first call, clones the repository and expands the skills
+ * archive into /skills then, as a container that just started would; a failed
+ * clone or expansion leaves it not started.
  */
-export const testWorkspace = (root: string, shared: string) =>
+export const testWorkspace = (
+  root: string,
+  shared: string,
+  skillsArchive: SkillsArchive["Service"],
+) =>
   Effect.acquireRelease(
     Effect.sync(() => {
       const directory = join(root, "workspace");
@@ -128,6 +153,39 @@ export const testWorkspace = (root: string, shared: string) =>
           ),
         );
 
+      // pi-env's exec takes no standard input, so the archive goes in as a file.
+      const extractSkills = (archive: Uint8Array) =>
+        Effect.promise(async () => {
+          const env = new RemoteExecutionEnv({ connection, id: "skills", cwd: "/" });
+          const written = await env.writeFile(archivePath, archive, BACKGROUND_CONTEXT);
+
+          if (!written.ok) {
+            return String(written.error);
+          }
+
+          let output = "";
+
+          const result = await env.exec(
+            [
+              "sh",
+              "-c",
+              `mkdir -p ${skillsDirectory} && tar -xzf ${archivePath} -C ${skillsDirectory}`,
+            ],
+            { onOutput: (text) => (output += text) },
+            BACKGROUND_CONTEXT,
+          );
+
+          return result.ok && result.value.exitCode === 0 ? null : output;
+        }).pipe(
+          Effect.flatMap((failure) =>
+            failure == null
+              ? Effect.void
+              : Effect.fail(
+                  new WorkspaceUnavailable({ message: `Expanding the skills failed: ${failure}` }),
+                ),
+          ),
+        );
+
       const workspace = Workspace.of({
         ensure: (settings) =>
           Effect.gen(function* () {
@@ -137,9 +195,23 @@ export const testWorkspace = (root: string, shared: string) =>
               return;
             }
 
-            if (settings.repository != null) {
-              yield* clone(settings.repository);
-            }
+            yield* Effect.validate(
+              [
+                settings.repository == null ? Effect.void : clone(settings.repository),
+                Effect.flatMap(skillsArchive.read(), (archive) =>
+                  archive == null ? Effect.void : extractSkills(archive),
+                ),
+              ],
+              (step) => step,
+              { concurrency: 2, discard: true },
+            ).pipe(
+              Effect.mapError(
+                (failures) =>
+                  new WorkspaceUnavailable({
+                    message: failures.map((failure) => failure.message).join("; "),
+                  }),
+              ),
+            );
 
             isStarted = true;
           }),
@@ -158,7 +230,7 @@ const git = (cwd: string, ...args: string[]) =>
     stdio: "ignore",
   });
 
-/** A bare repository with one commit on main, the remote a session clones. */
+/** A bare repository with one commit on main; returns the URL a session clones it from. */
 export const bareRepository = (shared: string, name: string) => {
   const bare = join(shared, `${name}.git`);
   const seed = join(shared, `${name}-seed`);
@@ -170,5 +242,5 @@ export const bareRepository = (shared: string, name: string) => {
   git(seed, "commit", "-m", "initial");
   git(seed, "push", bare, "main");
 
-  return bare;
+  return remoteUrl(name);
 };
