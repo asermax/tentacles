@@ -7,6 +7,7 @@ import { packTar } from "modern-tar";
 export interface ArchiveFile {
   readonly path: string;
   readonly content: string | Uint8Array;
+  readonly mode?: number;
 }
 
 /** A skill folder: its SKILL.md and the files beside it. */
@@ -36,6 +37,7 @@ export const packArchive = async (files: readonly ArchiveFile[]) => {
       header: {
         name: file.path,
         size: Buffer.byteLength(file.content),
+        mode: file.mode ?? 0o644,
       },
       body: file.content,
     })),

@@ -15,7 +15,7 @@ export const packArchive = (entries: ReadonlyArray<ArchiveEntry>) =>
     gzip(
       await packTar(
         entries.map((entry) => ({
-          header: { name: entry.path, size: entry.bytes.byteLength },
+          header: { name: entry.path, size: entry.bytes.byteLength, mode: entry.mode },
           body: entry.bytes,
         })),
       ),

@@ -5,7 +5,7 @@ import { SessionState } from "@tentacles/worker-api/session-state";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
-import { definitionArchives } from "./support/archives.ts";
+import { definitionArchives, skillsArchive } from "./support/archives.ts";
 import { eventually } from "./support/eventually.ts";
 import { type Archives, createRequest, detailsOf } from "./support/fixtures.ts";
 import { bareRepository } from "./support/workspace.ts";
@@ -77,6 +77,37 @@ describe("the workspace before each tool call", () => {
       expect(results[0]?.output).toContain("# app");
       expect(results[0]?.output).toMatch(/implement\nreview\n$/);
     }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live(
+    "a script under /skills that was packed as executable runs directly after the cold start",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* TestWorld;
+
+        world.faux.setResponses([
+          bash("/skills/release/scripts/greet.sh"),
+          bash("/skills/release/scripts/plain.sh"),
+          fauxAssistantMessage("ran both"),
+        ]);
+
+        const skills = yield* Effect.promise(() =>
+          skillsArchive({
+            name: "release",
+            files: [
+              { path: "scripts/greet.sh", content: "#!/bin/sh\necho greetings\n", mode: 0o755 },
+              { path: "scripts/plain.sh", content: "#!/bin/sh\necho plain\n" },
+            ],
+          }),
+        );
+
+        const { results } = yield* runSession(null, { skills });
+
+        expect(results[0]?.isError).toBe(false);
+        expect(results[0]?.output).toBe("greetings\n");
+        expect(results[1]?.isError).toBe(true);
+        expect(results[1]?.output).toContain("Permission denied");
+      }).pipe(Effect.provide(testWorld)),
   );
 
   it.live("without a repository the skills are in /skills and /workspace is empty", () =>

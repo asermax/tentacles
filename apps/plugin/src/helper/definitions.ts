@@ -61,6 +61,8 @@ const inspect = (path: string, kind: "folder" | "file") =>
     ),
   );
 
+const permissionBits = 0o777;
+
 const readFolder = (path: string, folder: string) =>
   Effect.tryPromise({
     try: async () => {
@@ -70,13 +72,16 @@ const readFolder = (path: string, folder: string) =>
         dirents.map(async (dirent): Promise<ArchiveEntry | undefined> => {
           const file = join(dirent.parentPath, dirent.name);
 
-          if (!(await stat(file)).isFile()) {
+          const info = await stat(file);
+
+          if (!info.isFile()) {
             return undefined;
           }
 
           return {
             path: `${folder}/${relative(path, file).split(sep).join("/")}`,
             bytes: await readFile(file),
+            mode: info.mode & permissionBits,
           };
         }),
       );
@@ -108,7 +113,7 @@ const readSkill = (path: string) =>
 
 const readAgent = (path: string) =>
   Effect.gen(function* () {
-    yield* inspect(path, "file");
+    const info = yield* inspect(path, "file");
 
     const bytes = yield* Effect.tryPromise({
       try: () => readFile(path),
@@ -117,7 +122,7 @@ const readAgent = (path: string) =>
 
     return {
       source: { path, text: decoder.decode(bytes) } satisfies AgentSource,
-      entries: [{ path: basename(path), bytes }],
+      entries: [{ path: basename(path), bytes, mode: info.mode & permissionBits }],
     };
   });
 

@@ -13,9 +13,15 @@ export class ArchiveUnreadable extends Schema.TaggedError<ArchiveUnreadable>()(
 export interface ArchiveEntry {
   readonly path: string;
   readonly bytes: Uint8Array;
+  /** The file's permission bits, as in `stat`'s mode & 0o777. */
+  readonly mode: number;
 }
 
 const skillFile = "SKILL.md";
+
+const defaultMode = 0o644;
+
+const permissionBits = 0o777;
 
 const gunzip = (bytes: Uint8Array) =>
   new ReadableStream<Uint8Array<ArrayBuffer>>({
@@ -38,6 +44,7 @@ export const readArchive = (bytes: Uint8Array) =>
         .map((entry): ArchiveEntry => ({
           path: entry.header.name.replace(/^(\.\/)+/, ""),
           bytes: entry.data ?? new Uint8Array(),
+          mode: (entry.header.mode ?? defaultMode) & permissionBits,
         })),
     ),
   );

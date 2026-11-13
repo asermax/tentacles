@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -101,6 +101,14 @@ const unpacked = async (archive: Uint8Array | undefined) =>
     ]),
   );
 
+const modesOf = async (archive: Uint8Array | undefined) =>
+  Object.fromEntries(
+    (await Effect.runPromise(readArchive(archive ?? new Uint8Array()))).map((entry) => [
+      entry.path,
+      entry.mode,
+    ]),
+  );
+
 const rejection = (...sections: ReadonlyArray<readonly [string, ReadonlyArray<string>]>) =>
   [intro, ...sections.map(([heading, problems]) => `${heading}:\n${problems.join("\n")}`)].join(
     "\n\n",
@@ -139,6 +147,30 @@ describe("spawn with skill and agent definitions", () => {
         "Review it.",
       ),
     });
+  });
+
+  it("keeps the permission bits of each file in the archives it sends with create", async () => {
+    const implement = skillFolder("implement", undefined, {
+      "scripts/run.sh": "echo run",
+      "notes.md": "Notes.",
+    });
+
+    const planner = agentFile("planner.md", { name: "planner", description: "Plans the work." });
+
+    chmodSync(join(implement, "scripts/run.sh"), 0o755);
+    chmodSync(join(implement, "notes.md"), 0o644);
+    chmodSync(planner, 0o600);
+
+    await spawn({ skills: [implement], agents: [planner] });
+
+    const [created] = stubWorker().creates;
+
+    expect(await modesOf(created?.skills)).toEqual({
+      "implement/SKILL.md": 0o644,
+      "implement/scripts/run.sh": 0o755,
+      "implement/notes.md": 0o644,
+    });
+    expect(await modesOf(created?.agents)).toEqual({ "planner.md": 0o600 });
   });
 
   it("sends the skills archive and no agents archive when it gets skill paths only", async () => {
