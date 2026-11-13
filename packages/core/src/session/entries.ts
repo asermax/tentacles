@@ -3,7 +3,7 @@ import type { EntryRecord } from "@earendil-works/pi-durable";
 import { Entry } from "@tentacles/worker-api/entries";
 import * as Predicate from "effect/Predicate";
 
-import { isForegroundAnswer } from "../tools/subagent.ts";
+import { isForegroundAnswer } from "../tools/agents/index.ts";
 import { subagentReportKind, ToolNames } from "../tools/tool-names.ts";
 
 type Part = { readonly type: string; readonly text?: string };

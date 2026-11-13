@@ -5,8 +5,7 @@ import { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
-import { type SkillEntry } from "../src/tools/skills-doc.ts";
-import { expandPrompt } from "../src/tools/skills.ts";
+import { expandPrompt, type SkillEntry } from "../src/tools/skills/index.ts";
 import { definitionArchives, skillBlockOf } from "./support/archives.ts";
 import { eventually } from "./support/eventually.ts";
 import { type Archives, createRequest } from "./support/fixtures.ts";

@@ -16,11 +16,11 @@ import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
 import { commitCheckExtension } from "../session/run-end.ts";
-import { agentsExtension } from "./agents.ts";
+import { agentsExtension } from "./agents/index.ts";
 import { previewTool } from "./preview.ts";
 import { askParentTool } from "./question.ts";
 import { remoteAgentInstructions } from "./remote-agent-instructions.ts";
-import { skillsExtension } from "./skills.ts";
+import { skillsExtension } from "./skills/index.ts";
 
 /**
  * The extensions a session's harness installs: pi-durable's coding tools and
