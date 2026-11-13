@@ -41,11 +41,12 @@ A setting the agent passes to `spawn` wins over its variable.
 
 `pnpm build` bundles the helper, the pi extension and the Claude mod with vite, then `build/emit.ts` lays out both plugins with their manifests and the skill.
 
-## Publish
+## Release
 
-The version is the `version` in `apps/plugin/package.json`; the build writes it into both manifests and the marketplace entry.
+The version is the content of the `VERSION` file at the repository root; the build writes it into both manifests and the marketplace entry. Nobody edits it: on every push to `master`, CI runs semantic-release (config in `.releaserc.json`), which picks the next version from the conventional commits since the last `v*` tag (`fix` is a patch, `feat` a minor, a breaking change a major; other types release nothing), writes it to `VERSION`, rebuilds, and then:
 
-- **pi package**: CI runs `scripts/publish-npm.sh` on every push to `master`. The script builds the plugin and publishes `build/out/pi` to npm with provenance when npm has no `@asermax/pi-tentacles` at that version. To release, bump the version. The script authenticates with one of these, set up once:
-  - **Trusted publisher**: on npmjs.com, open the package's Settings, then Trusted publishing. Add GitHub Actions with user `asermax`, repository `tentacles`, workflow filename `ci.yml` and no environment. Allow both `npm publish` and `npm stage publish`. npm offers trusted publishing only for a package that already exists, so the first version needs the token below or a manual `npm publish` from `build/out/pi`.
+- **pi package**: publishes `build/out/pi` to npm with provenance. npm authenticates with one of these, set up once:
+  - **Trusted publisher**: on npmjs.com, open the package's Settings, then Trusted publishing. Add GitHub Actions with user `asermax`, repository `tentacles`, workflow filename `ci.yml` and no environment. Allow both `npm publish` and `npm stage publish`. npm offers trusted publishing only for a package that already exists.
   - **Token**: a granular npm access token with publish rights on the package, stored as the repository secret `NPM_TOKEN`. When both are set up, npm uses the trusted publisher.
-- **Claude plugin**: CI runs `scripts/publish-marketplace.sh` on every push to `master`. The script builds the plugin and force-pushes it as the root of the orphan `claude-marketplace` branch. `scripts/publish-marketplace.sh /path/to/bare.git` pushes the same branch to a local bare repository instead of `origin`.
+- **Claude plugin**: runs `scripts/publish-marketplace.sh <version>`, which force-pushes `build/out/claude` as the root of the orphan `claude-marketplace` branch. `scripts/publish-marketplace.sh <version> /path/to/bare.git` pushes the same branch to a local bare repository instead of GitHub; run `pnpm build` first.
+- **Repository**: commits `VERSION` and `CHANGELOG.md` to `master` with `[skip ci]`, creates the `v<version>` tag and the GitHub release.
