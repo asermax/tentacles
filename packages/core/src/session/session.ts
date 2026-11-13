@@ -32,9 +32,9 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
-import { AgentsDoc } from "../tools/agents/index.ts";
+import { AgentsDoc } from "../tools/agents";
 import { remoteAgentExtensions } from "../tools/extension.ts";
-import { expandPrompt, expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills/index.ts";
+import { expandPrompt, expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills";
 import { toEntries } from "./entries.ts";
 import { QuestionsDoc } from "./questions.ts";
 import { readArchives } from "./read-archives.ts";

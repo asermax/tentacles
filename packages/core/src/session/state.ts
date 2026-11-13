@@ -25,8 +25,8 @@ import * as Effect from "effect/Effect";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
-import { AgentsDoc } from "../tools/agents/index.ts";
-import { SkillsDoc } from "../tools/skills/index.ts";
+import { AgentsDoc } from "../tools/agents";
+import { SkillsDoc } from "../tools/skills";
 import { toEntries } from "./entries.ts";
 import { QuestionsDoc, type StoredQuestion } from "./questions.ts";
 import { RecordDoc, type SessionRecord } from "./record.ts";
