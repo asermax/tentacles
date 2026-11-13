@@ -45,7 +45,7 @@ sequenceDiagram
 1. The agent calls the question tool.
 
 > [!NOTE] Only the root conversation asks
-> Subagent conversations inside the session do not get the question tool. pi-durable ships no subagent tool of its own, so tentacles writes one; a child conversation starts with a copy of its owner's extensions, and tentacles' subagent tool removes the question tool from that copy. The parent reads only the root conversation, so a question from work it never sees would arrive without context.
+> Subagent conversations inside the session do not get the question tool. A child conversation starts with a copy of its owner's extensions, and the question tool belongs to an extension only the root has. The subagent tool leaves that extension out of every copy. The parent reads only the root conversation, so a question from work it never sees would arrive without context.
 
 2. When the session's settings name a repository, the tool first checks it for changes that are not committed and pushed. Without a repository setting, there is nothing to check and the tool goes on.
 3. and 4. While anything there is not committed and pushed, the tool returns a refusal with the repository's status. The refusal is a result the agent reads, not a tool failure. The agent commits, drops the temporary work or moves it out of the repository, and calls the tool again with the same arguments.
