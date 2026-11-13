@@ -58,7 +58,7 @@ describe("create through the Worker", () => {
     expect(response.status).toBe(200);
     expect(skills.byteLength).toBeGreaterThan(5_000_000);
 
-    const stored = await env.SessionObject.getByName(sessionId).storedSkillsArchive();
+    const stored = await env.SessionObject.getByName(sessionId).storedArchive("skills");
 
     expect(stored).toEqual(skills);
 
@@ -97,8 +97,8 @@ describe("create through the Worker", () => {
     const session = env.SessionObject.getByName(sessionId);
 
     expect(response.status).toBe(200);
-    expect(await session.storedContextArchive()).toEqual(context);
-    expect(await session.storedSkillsArchive()).toEqual(skills);
+    expect(await session.storedArchive("context")).toEqual(context);
+    expect(await session.storedArchive("skills")).toEqual(skills);
 
     await waitUntilIdle(sessionId);
   });
@@ -107,7 +107,7 @@ describe("create through the Worker", () => {
     const response = await create(crypto.randomUUID());
     const { sessionId } = decodeCreated(await response.json());
 
-    expect(await env.SessionObject.getByName(sessionId).storedContextArchive()).toBeNull();
+    expect(await env.SessionObject.getByName(sessionId).storedArchive("context")).toBeNull();
 
     await waitUntilIdle(sessionId);
   });

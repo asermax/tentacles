@@ -6,16 +6,18 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import { ALCHEMY_PHASE } from "alchemy";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, RemoteExecutionEnv } from "@earendil-works/pi-env";
-import { ContextArchive } from "@tentacles/contracts/context-archive";
-import { SkillsArchive } from "@tentacles/contracts/skills-archive";
+import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import {
-  contextDirectory,
-  skillsDirectory,
   Workspace,
   type WorkspaceSettings,
   WorkspaceUnavailable,
   workspaceDirectory,
 } from "@tentacles/contracts/workspace";
+import {
+  archiveKindNames,
+  archiveKinds,
+  type ArchiveKind,
+} from "@tentacles/worker-api/archive-kinds";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
@@ -162,7 +164,7 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
       ),
     );
 
-  const extract = (label: string, directory: string, archive: Uint8Array) =>
+  const extract = (kind: ArchiveKind, directory: string, archive: Uint8Array) =>
     Effect.tryPromise({
       try: async () => {
         const extraction = await container().exec(
@@ -179,7 +181,7 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
           ? Effect.void
           : Effect.fail(
               new WorkspaceUnavailable({
-                message: `Expanding the ${label} into ${directory} failed`,
+                message: `Expanding the ${kind} into ${directory} failed`,
               }),
             ),
       ),
@@ -226,21 +228,25 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
   // together and reports every step that failed.
   const prepare = (
     repository: Repository | null | undefined,
-    readSkills: Effect.Effect<Uint8Array | null>,
-    readContext: Effect.Effect<Uint8Array | null>,
+    read: (kind: ArchiveKind) => Effect.Effect<Uint8Array | null>,
   ) =>
     Effect.validate(
       [
         repository == null ? Effect.void : clone(repository),
-        Effect.flatMap(readSkills, (archive) =>
-          archive == null ? Effect.void : extract("skills", skillsDirectory, archive),
-        ),
-        Effect.flatMap(readContext, (archive) =>
-          archive == null ? Effect.void : extract("context", contextDirectory, archive),
-        ),
+        ...archiveKindNames.flatMap((kind) => {
+          const { expandsInto } = archiveKinds[kind];
+
+          return expandsInto == null
+            ? []
+            : [
+                Effect.flatMap(read(kind), (archive) =>
+                  archive == null ? Effect.void : extract(kind, expandsInto, archive),
+                ),
+              ];
+        }),
       ],
       (step) => step,
-      { concurrency: 3, discard: true },
+      { concurrency: "unbounded", discard: true },
     ).pipe(
       Effect.mapError(
         (failures) =>
@@ -266,8 +272,7 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
   return Layer.effect(
     Workspace,
     Effect.gen(function* () {
-      const skillsArchive = yield* SkillsArchive;
-      const contextArchive = yield* ContextArchive;
+      const archiveStore = yield* ArchiveStore;
 
       return Workspace.of({
         ensure: (settings) =>
@@ -279,7 +284,7 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
 
               yield* start(settings);
               yield* daemonReady;
-              yield* prepare(settings.repository, skillsArchive.read(), contextArchive.read());
+              yield* prepare(settings.repository, archiveStore.read);
             }),
           ),
 
