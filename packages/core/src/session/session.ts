@@ -34,7 +34,8 @@ import * as Semaphore from "effect/Semaphore";
 
 import { AgentsDoc } from "../tools/agents-doc.ts";
 import { remoteAgentExtensions } from "../tools/extension.ts";
-import { expandPrompt, expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills.ts";
+import { SkillsDoc } from "../tools/skills-doc.ts";
+import { expandPrompt, expandSkills, toSkillEntry } from "../tools/skills.ts";
 import { toEntries } from "./entries.ts";
 import { QuestionsDoc } from "./questions.ts";
 import { readArchives } from "./read-archives.ts";

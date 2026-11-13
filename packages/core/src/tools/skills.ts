@@ -1,25 +1,12 @@
-import { defineDoc, defineExtension, defineTool, section } from "@earendil-works/pi-durable";
+import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 import { skillsDirectory } from "@tentacles/contracts/workspace";
 import { skillFile } from "@tentacles/worker-api/archives";
 import { nameGrammar, type Skill } from "@tentacles/worker-api/definitions";
 
 import { findNamed } from "./find-named.ts";
+import { type SkillEntry, SkillsDoc } from "./skills-doc.ts";
 import { ToolNames } from "./tool-names.ts";
-
-/** A skill as the session keeps it: its definition and where its SKILL.md is in the workspace. */
-export type SkillEntry = Skill & {
-  readonly path: string;
-};
-
-/** The session's skills, written once at create. */
-export const SkillsDoc = defineDoc<{ skills: SkillEntry[] }>({
-  kind: "tentacles.skills",
-  version: 1,
-  scope: "session",
-  initial: () => ({ skills: [] }),
-  checkpointWhen: () => false,
-});
 
 const skillFolder = (skill: Skill) => `${skillsDirectory}/${skill.name}`;
 
