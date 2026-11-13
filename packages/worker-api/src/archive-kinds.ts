@@ -14,3 +14,10 @@ export type ArchiveKind = keyof typeof archiveKinds;
 
 /** The kinds in table order. */
 export const archiveKindNames = Record.keys(archiveKinds);
+
+/** The kinds the workspace container expands, each with its directory, in table order. */
+export const archiveExpansions = archiveKindNames.flatMap((kind) => {
+  const { expandsInto } = archiveKinds[kind];
+
+  return expandsInto == null ? [] : [{ kind, directory: expandsInto }];
+});
