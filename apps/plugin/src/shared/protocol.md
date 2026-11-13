@@ -18,11 +18,11 @@ Write the first prompt for someone who has not seen this conversation: the goal,
 
 ## Skills and agents
 
-`spawn` takes `skills`, the paths of skill folders on your machine, each holding a `SKILL.md`, and `agents`, the paths of agent definition files. The remote agent sees each skill and agent by name and description, loads a skill when a task matches it, and starts subagents from its agent definitions by name. A prompt can name a skill as `/skill:<name>` or `/<name>`, and the remote agent reads that skill's instructions before acting on it.
+`spawn` takes `skills`, the paths of skill folders on your machine, each holding a `SKILL.md`, and `agents`, the paths of agent definition files. The remote agent sees each skill and agent by name and description, loads a skill when a task matches it, and starts subagents from its agent definitions by name. A prompt can name a skill as `/skill:<name>` or `/<name>` on its own, with a space or the start or end of the prompt on each side, and the remote agent reads that skill's instructions before acting on it.
 
 Skills and agents are fixed at spawn. Include everything the job needs, and spawn a new remote agent when the job needs a different set.
 
-Every definition is checked on your machine before anything is sent. When any fails, `spawn` creates nothing and returns every problem with its path, the skills' problems in one group and the agents' in another. Fix them all, then spawn again.
+Every definition is checked on your machine before anything is sent. When any fails, `spawn` creates nothing and returns every problem with its path, the skills' problems in one group and the agents' in another. Fix them all, then spawn again. An agent definition's frontmatter `name` has to equal its file name without `.md`.
 
 A remote agent works on its own, so a skill that would stop to ask the person has nobody to ask. Write the handoff so the remote agent decides wherever a skill would stop for the user, ignores any instruction in a skill to ask the user, and lists every such decision in its final report. For a stop point it cannot decide, such as a credential it lacks, say in the handoff what to do, which can be asking you with its question tool.
 
