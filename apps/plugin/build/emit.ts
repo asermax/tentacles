@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,6 +7,7 @@ import * as Match from "effect/Match";
 import * as Schema from "effect/Schema";
 
 import { skillSources, skillText } from "./skill.ts";
+import { readVersion } from "./version.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -14,9 +15,7 @@ const distDir = join(packageRoot, "dist");
 
 export const outDir = join(packageRoot, "build", "out");
 
-const { version } = Schema.decodeSync(
-  Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
-)(readFileSync(join(packageRoot, "package.json"), "utf8"));
+const version = readVersion();
 
 const description =
   "Spawn, steer, question and collect remote coding agents that run in tentacles.";
