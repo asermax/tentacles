@@ -24,6 +24,8 @@ export interface WorkspaceRecord {
   readonly directory: string;
   /** Answers Workspace.forward. */
   forward: (port: number, request: Request) => Response;
+  /** Makes the next ensure a cold start again, as a container that restarted. */
+  restart: () => void;
 }
 
 // Repository URLs must be https, so the bare remotes are named by this host
@@ -116,6 +118,7 @@ export const testWorkspace = (
   Effect.acquireRelease(
     Effect.sync(() => {
       const directory = join(root, "workspace");
+      const state = { isStarted: false };
 
       mkdirSync(directory, { recursive: true });
 
@@ -123,18 +126,18 @@ export const testWorkspace = (
         ensures: [],
         directory,
         forward: () => new Response("no app", { status: 502 }),
+        restart: () => void (state.isStarted = false),
       };
 
       return {
         record,
+        state,
         connection: new Connection({ command: sandboxed(directory, shared) }),
       };
     }),
     ({ connection }) => Effect.sync(() => connection.close()),
   ).pipe(
-    Effect.map(({ record, connection }) => {
-      let isStarted = false;
-
+    Effect.map(({ record, state, connection }) => {
       const clone = (repository: Repository) =>
         Effect.promise(async () => {
           const env = new RemoteExecutionEnv({ connection, id: "clone", cwd: "/" });
@@ -169,11 +172,7 @@ export const testWorkspace = (
           let output = "";
 
           const result = await env.exec(
-            [
-              "sh",
-              "-c",
-              `mkdir -p ${directory} && tar -xzf ${archivePath(label)} -C ${directory}`,
-            ],
+            ["sh", "-c", `mkdir -p ${directory} && tar -xzf ${archivePath(label)} -C ${directory}`],
             { onOutput: (text) => (output += text) },
             BACKGROUND_CONTEXT,
           );
@@ -184,7 +183,9 @@ export const testWorkspace = (
             failure == null
               ? Effect.void
               : Effect.fail(
-                  new WorkspaceUnavailable({ message: `Expanding the ${label} failed: ${failure}` }),
+                  new WorkspaceUnavailable({
+                    message: `Expanding the ${label} failed: ${failure}`,
+                  }),
                 ),
           ),
         );
@@ -194,7 +195,7 @@ export const testWorkspace = (
           Effect.gen(function* () {
             record.ensures.push(settings);
 
-            if (isStarted) {
+            if (state.isStarted) {
               return;
             }
 
@@ -219,11 +220,11 @@ export const testWorkspace = (
               ),
             );
 
-            isStarted = true;
+            state.isStarted = true;
           }),
         connection: () => Effect.succeed(connection),
         forward: (port, request) => Effect.sync(() => record.forward(port, request)),
-        isRunning: () => Effect.sync(() => isStarted),
+        isRunning: () => Effect.sync(() => state.isStarted),
       });
 
       return { record, workspace };

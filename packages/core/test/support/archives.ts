@@ -106,3 +106,6 @@ export const definitionArchives = () =>
     skills: await skillsArchive(...heldSkills),
     agents: await agentsArchive(...heldAgents),
   }));
+
+/** The context archive of the given files, packed the way the plugin's helper packs one. */
+export const contextArchive = (...files: readonly ArchiveFile[]) => packArchive(files);
