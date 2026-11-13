@@ -3,7 +3,11 @@ import { PreviewToken } from "@tentacles/contracts/preview-router";
 import { RegistryStore, RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import { ParentSessionId, SessionId } from "@tentacles/worker-api/ids";
 import { Harnesses, type Parent } from "@tentacles/worker-api/parent";
-import { SessionStatuses, type SessionStatus } from "@tentacles/worker-api/session-state";
+import {
+  SessionStatuses,
+  type SessionDetails,
+  type SessionStatus,
+} from "@tentacles/worker-api/session-state";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { TestClock } from "effect/testing";
@@ -28,11 +32,29 @@ const unknownToken = Schema.decodeSync(PreviewToken)("9b2f6c1e-3d4a-4f5b-8c7d-0e
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
+const settings: SessionDetails["settings"] = {
+  provider: "anthropic",
+  model: "claude-opus-5-5",
+  effort: "high",
+  image: "default",
+  size: "standard",
+  lifetime: 3600,
+  repository: { url: "https://github.com/acme/app", shallow: true },
+};
+
+const noDetails: SessionDetails = { settings, skills: [], agents: [] };
+
+const named: SessionDetails = {
+  settings,
+  skills: ["implement", "review"],
+  agents: ["reviewer"],
+};
+
 const running = (id: SessionId, name = "worker") =>
   Effect.gen(function* () {
     const registry = yield* RegistryStore;
 
-    yield* registry.add(id, name, parent);
+    yield* registry.add(id, name, parent, noDetails);
     yield* registry.setStatus(id, SessionStatuses.running);
   });
 
@@ -44,16 +66,32 @@ const stoppedAt = (id: SessionId, status: SessionStatus, at: number) =>
   });
 
 describe("RegistryStore over SQLite", () => {
-  it.effect("lists an added entry with its name once its first status is recorded", () =>
+  it.effect(
+    "lists an added entry with its name and details once its first status is recorded",
+    () =>
+      Effect.gen(function* () {
+        const registry = yield* RegistryStore;
+        const id = sessionId(1);
+
+        yield* registry.add(id, "fix the build", parent, named);
+        yield* registry.setStatus(id, SessionStatuses.running);
+
+        expect(yield* registry.list(parent)).toEqual([
+          { sessionId: id, name: "fix the build", status: SessionStatuses.running, ...named },
+        ]);
+      }).pipe(Effect.provide(freshRegistry)),
+  );
+
+  it.effect("lists an entry added without skills or agents with the settings and empty lists", () =>
     Effect.gen(function* () {
       const registry = yield* RegistryStore;
       const id = sessionId(1);
 
-      yield* registry.add(id, "fix the build", parent);
+      yield* registry.add(id, "plain", parent, noDetails);
       yield* registry.setStatus(id, SessionStatuses.running);
 
       expect(yield* registry.list(parent)).toEqual([
-        { sessionId: id, name: "fix the build", status: SessionStatuses.running },
+        { sessionId: id, name: "plain", status: SessionStatuses.running, ...noDetails },
       ]);
     }).pipe(Effect.provide(freshRegistry)),
   );
@@ -68,14 +106,19 @@ describe("RegistryStore over SQLite", () => {
         yield* running(sessionId(1));
         yield* running(sessionId(2));
         yield* registry.setStatus(sessionId(2), SessionStatuses.closed);
-        yield* registry.add(sessionId(3), "elsewhere", otherHarness);
+        yield* registry.add(sessionId(3), "elsewhere", otherHarness, noDetails);
         yield* registry.setStatus(sessionId(3), SessionStatuses.running);
 
         const listed = yield* registry.list(parent);
 
         expect(listed.toSorted((a, b) => a.sessionId.localeCompare(b.sessionId))).toEqual([
-          { sessionId: sessionId(1), name: "worker", status: SessionStatuses.running },
-          { sessionId: sessionId(2), name: "worker", status: SessionStatuses.closed },
+          {
+            sessionId: sessionId(1),
+            name: "worker",
+            status: SessionStatuses.running,
+            ...noDetails,
+          },
+          { sessionId: sessionId(2), name: "worker", status: SessionStatuses.closed, ...noDetails },
         ]);
       }).pipe(Effect.provide(freshRegistry)),
   );
@@ -227,7 +270,7 @@ describe("RegistryStore over SQLite", () => {
       yield* running(sessionId(5));
       yield* running(sessionId(6));
       yield* registry.setStatus(sessionId(6), SessionStatuses.waiting);
-      yield* registry.add(sessionId(7), "never reported", parent);
+      yield* registry.add(sessionId(7), "never reported", parent, noDetails);
 
       const candidates = yield* registry.stoppedBefore(cutoff);
 
