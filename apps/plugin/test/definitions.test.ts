@@ -374,8 +374,12 @@ describe("spawn with skill and agent definitions", () => {
   });
 
   it("reports agents named Code Reviewer and -planner with the name format", async () => {
-    const spaced = agentFile("spaced.md", { name: "Code Reviewer", description: "Reviews." });
-    const hyphen = agentFile("hyphen.md", { name: "-planner", description: "Plans." });
+    const spaced = agentFile("Code Reviewer.md", {
+      name: "Code Reviewer",
+      description: "Reviews.",
+    });
+
+    const hyphen = agentFile("-planner.md", { name: "-planner", description: "Plans." });
 
     const message = helperErrorMessage(await spawn({ agents: [spaced, hyphen] }));
 
@@ -442,18 +446,18 @@ describe("spawn with skill and agent definitions", () => {
     expect(stubWorker().requests).toEqual([]);
   });
 
-  it("reports two agent files whose agents share a name, naming both paths", async () => {
-    const first = agentFile("first.md", { name: "reviewer", description: "Reviews." });
-    const second = agentFile("second.md", { name: "reviewer", description: "Reviews again." });
+  it("reports an agent whose frontmatter name differs from its file name, naming both", async () => {
+    const agent = agentFile("reviewer.md", { name: "inspector", description: "Inspects." });
 
-    const message = helperErrorMessage(await spawn({ agents: [first, second] }));
+    const result = await spawn({ agents: [agent] });
 
-    expect(message).toBe(
-      rejection(["Agents", [`- ${second}: name 'reviewer' is already used by ${first}`]]),
+    expect(helperErrorMessage(result)).toBe(
+      rejection(["Agents", [`- ${agent}: name 'inspector' does not match the file 'reviewer.md'`]]),
     );
+    expect(stubWorker().requests).toEqual([]);
   });
 
-  it("reports agent files from different folders with the same file name, naming both paths", async () => {
+  it("reports agent files from different folders with the same file name as agents sharing a name, naming both paths", async () => {
     const first = write(
       join("one", "reviewer.md"),
       definition({ name: "reviewer", description: "Reviews." }),
@@ -461,13 +465,13 @@ describe("spawn with skill and agent definitions", () => {
 
     const second = write(
       join("two", "reviewer.md"),
-      definition({ name: "inspector", description: "Inspects." }),
+      definition({ name: "reviewer", description: "Reviews again." }),
     );
 
     const message = helperErrorMessage(await spawn({ agents: [first, second] }));
 
     expect(message).toBe(
-      rejection(["Agents", [`- ${second}: file name 'reviewer.md' is already used by ${first}`]]),
+      rejection(["Agents", [`- ${second}: name 'reviewer' is already used by ${first}`]]),
     );
     expect(stubWorker().requests).toEqual([]);
   });

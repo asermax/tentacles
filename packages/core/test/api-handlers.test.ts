@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema";
 
 import { createBody, post, serveApi } from "./support/api.ts";
 import {
+  agentsArchive,
   agentWithoutBody,
   definitionArchives,
   definitionNames,
@@ -209,6 +210,33 @@ describe("the sessions API", () => {
         expect(response.status).toBe(400);
         expect(message).toContain("skills archive");
         expect(message).toContain("name 'impl' does not match the folder 'implement'");
+        expect(world.registryCalls).toEqual([]);
+        expect(world.skillsArchives.size).toBe(0);
+      }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live(
+    "create with an agent whose name differs from its file name fails InvalidArchive and stores nothing",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* TestWorld;
+        const api = yield* serveApi;
+        const archives = yield* definitionArchives();
+
+        const agents = yield* Effect.promise(() =>
+          agentsArchive({ name: "inspector", file: "reviewer", prompt: "You inspect changes." }),
+        );
+
+        const response = yield* api(
+          "/sessions",
+          post(createBody(createRequest("go", null, { ...archives, agents }))),
+        );
+
+        const { message } = decodeInvalidArchive(yield* json(response));
+
+        expect(response.status).toBe(400);
+        expect(message).toContain("agents archive");
+        expect(message).toContain("name 'inspector' does not match the file 'reviewer.md'");
         expect(world.registryCalls).toEqual([]);
         expect(world.skillsArchives.size).toBe(0);
       }).pipe(Effect.provide(testWorld)),

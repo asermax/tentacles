@@ -120,11 +120,22 @@ export const checkSkills = (sources: ReadonlyArray<SkillSource>) => {
   return { skills: items, problems };
 };
 
-/** Every agent rule: the skill name and description rules, a body that is not empty, unique names. */
+const fileNameOf = (path: string) => path.split(/[\\/]/).pop() ?? path;
+
+/** Every agent rule: the skill name and description rules, name equals its file name without `.md`, a body that is not empty, unique names. */
 export const checkAgents = (sources: ReadonlyArray<AgentSource>) => {
   const { items, problems } = check(sources, (source) =>
     Result.flatMap(readDefinition(source.text), ({ attributes, body }) =>
-      Result.mapError(decodeAgent(Object.assign({}, attributes, { prompt: body })), messageOf),
+      Result.flatMap(
+        Result.mapError(decodeAgent(Object.assign({}, attributes, { prompt: body })), messageOf),
+        (agent) => {
+          const file = fileNameOf(source.path);
+
+          return agent.name === file.replace(/\.md$/, "")
+            ? Result.succeed(agent)
+            : Result.fail(`name '${agent.name}' does not match the file '${file}'`);
+        },
+      ),
     ),
   );
 

@@ -19,9 +19,11 @@ export interface SkillFixture {
   readonly files?: readonly ArchiveFile[];
 }
 
+/** An agent file; `file` is its name without `.md` when that is not the agent's name. */
 export interface AgentFixture {
   readonly name: string;
   readonly description?: string;
+  readonly file?: string;
   readonly prompt: string;
 }
 
@@ -68,7 +70,7 @@ export const skillsArchive = (...skills: readonly SkillFixture[]) =>
 export const agentsArchive = (...agents: readonly AgentFixture[]) =>
   packArchive(
     agents.map((agent) => ({
-      path: `${agent.name}.md`,
+      path: `${agent.file ?? agent.name}.md`,
       content: definition(agent.name, agent.description ?? `The ${agent.name} agent`, agent.prompt),
     })),
   );
