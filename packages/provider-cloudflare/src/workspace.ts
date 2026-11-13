@@ -13,11 +13,7 @@ import {
   WorkspaceUnavailable,
   workspaceDirectory,
 } from "@tentacles/contracts/workspace";
-import {
-  archiveKindNames,
-  archiveKinds,
-  type ArchiveKind,
-} from "@tentacles/worker-api/archive-kinds";
+import { archiveExpansions, type ArchiveKind } from "@tentacles/worker-api/archive-kinds";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
@@ -233,17 +229,11 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
     Effect.validate(
       [
         repository == null ? Effect.void : clone(repository),
-        ...archiveKindNames.flatMap((kind) => {
-          const { expandsInto } = archiveKinds[kind];
-
-          return expandsInto == null
-            ? []
-            : [
-                Effect.flatMap(read(kind), (archive) =>
-                  archive == null ? Effect.void : extract(kind, expandsInto, archive),
-                ),
-              ];
-        }),
+        ...archiveExpansions.map(({ kind, directory }) =>
+          Effect.flatMap(read(kind), (archive) =>
+            archive == null ? Effect.void : extract(kind, directory, archive),
+          ),
+        ),
       ],
       (step) => step,
       { concurrency: "unbounded", discard: true },
