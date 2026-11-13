@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { packTar, unpackTar } from "modern-tar";
 
+import type { ArchiveKind } from "./archive-kinds";
 import { checkAgents, checkSkills, type Problem, type SkillSource } from "./definitions";
 import { InvalidArchive } from "./errors";
 
@@ -11,7 +12,7 @@ export class ArchiveUnreadable extends Schema.TaggedError<ArchiveUnreadable>()(
 ) {}
 
 /** A regular file of an archive; `mode` holds its permission bits, as in `stat`'s mode & 0o777. */
-export interface ArchiveEntry {
+interface ArchiveEntry {
   readonly path: string;
   readonly bytes: Uint8Array;
   readonly mode: number;
@@ -66,13 +67,14 @@ export const readArchive = (bytes: Uint8Array) =>
 
 const decoder = new TextDecoder();
 
-const invalid = (kind: string, text: string) =>
+const invalid = (kind: ArchiveKind, text: string) =>
   new InvalidArchive({ message: `The ${kind} archive is invalid: ${text}` });
 
-const unreadable = (kind: string) => (error: ArchiveUnreadable) => invalid(kind, error.message);
+const unreadable = (kind: ArchiveKind) => (error: ArchiveUnreadable) =>
+  invalid(kind, error.message);
 
 const succeedUnlessInvalid = <Item>(
-  kind: string,
+  kind: ArchiveKind,
   items: ReadonlyArray<Item>,
   problems: ReadonlyArray<Problem>,
 ) =>

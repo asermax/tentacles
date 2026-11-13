@@ -35,7 +35,7 @@ export const Rejected = Schema.TaggedStruct("Rejected", {
 
 export type Rejected = typeof Rejected.Type;
 
-export type DefinitionPaths = Required<Pick<SpawnRequest, ArchiveKind>>;
+type DefinitionPaths = Required<Pick<SpawnRequest, ArchiveKind>>;
 
 /** What a kind's check settles about its paths: what goes into the package, and the files on disk that the package replaces with content. */
 interface Checked {
