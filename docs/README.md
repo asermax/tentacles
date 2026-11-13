@@ -30,7 +30,7 @@ Every note carries `title` and `summary`, plus `created`. The summary is what sh
 
 ## Invariants
 
-`invariants.md`, at the root of this folder, lists the rules every change respects. The mahou skills read it before settling or proposing anything and check each decision against it. Add a rule when it holds beyond the change that surfaced it, and link the note that explains it when the reason needs more than a sentence.
+`invariants.md`, at the root of this folder, lists the rules every change respects. Check every decision and proposal against it before settling it. Add a rule when it holds beyond the change that surfaced it, and link the note that explains it when the reason needs more than a sentence.
 
 ## How to write a note
 
@@ -78,4 +78,4 @@ A folder is three things, and they have to agree:
 2. A `README.md` in it, carrying that folder's index.
 3. A row in the folder table above.
 
-`mahou:init` will do all three and leave anything that already exists alone, or do it by hand from this list: the skills read what is here either way. What breaks is doing two of the three: a folder with no row is invisible to anyone reading this file, and a row with no folder sends people looking for something that is not there.
+Do all three together, and leave anything that already exists alone. What breaks is doing two of the three: a folder with no row is invisible to anyone reading this file, and a row with no folder sends people looking for something that is not there.

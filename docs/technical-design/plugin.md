@@ -76,7 +76,7 @@ The **skill** teaches the parent agent the tools and adds that its children are 
 Each tool takes the arguments of its Worker API call and returns its result, except where the plugin fills in the parent itself. spawn takes the name, the first prompt, any settings the agent sets, and optionally skill folder paths and agent definition paths; the plugin fills every other setting from its defaults (see Implementation details). When a skill or agent definition fails a check, spawn returns every problem with its path, with the skills' problems in one group and the agents' in another, and creates nothing. list takes no arguments. A Worker error, such as a deleted or unknown session or an answer to a question that is not waiting, reaches the agent as a tool failure carrying the Worker's message. When the plugin gets no usable answer from the Worker, the tool fails with an error naming the cause: the Worker did not answer at its URL, it answered with an unexpected status, or a required variable is unset. On Claude Code the plugin registers the tools by their bare names and the model sees them under the plugin's MCP prefix; on pi they carry the `tentacles_` prefix themselves.
 
 > [!NOTE] Why Claude Code has no wait tool
-> The Claude mod runs every helper process with `$.process.run`, which Claude Code caps at ten minutes, so a wait could not block until a remote agent stops. The mod has no need for one either: it wakes the parent itself by submitting the wake as a prompt, which starts a turn once the session is idle. herdr-subagents drops its wait on Claude Code for the same reason.
+> The Claude mod runs every helper process with `$.process.run`, which Claude Code caps at ten minutes, so a wait could not block until a remote agent stops. The mod has no need for one either: it wakes the parent itself by submitting the wake as a prompt, which starts a turn once the session is idle.
 
 ## ⏰ Wake messages
 
@@ -93,7 +93,7 @@ The watch wakes the parent with what it needs to act without another call:
 On pi, a wake that arrives while the wait tool is waiting becomes the wait's result instead of a message. A wake that arrives while no wait is running goes out as a message, which pi holds until the parent's turn ends; the next wait returns that wake at once, unless the session has started running again since, and the wait after it waits for a new change.
 
 > [!NOTE] Why the next wait returns a wake that already went out
-> A wake can go out as a message while the parent's turn is still running, before the parent calls the wait. Returning it from the next wait keeps that wait from hanging on a change that already happened, as the wait of herdr-subagents does.
+> A wake can go out as a message while the parent's turn is still running, before the parent calls the wait. Returning it from the next wait keeps that wait from hanging on a change that already happened.
 
 > [!WARNING] A headless parent gets no wake
 > A parent running headless (`claude -p`) is never woken, the same as with local subagents. It learns of a question or a finished run only by calling the tools, and a question it never reads keeps its session waiting.
