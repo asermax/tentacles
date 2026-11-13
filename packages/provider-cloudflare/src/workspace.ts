@@ -18,7 +18,6 @@ import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Result from "effect/Result";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -227,26 +226,22 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
     repository: Repository | null | undefined,
     readArchive: Effect.Effect<Uint8Array | null>,
   ) =>
-    Effect.all(
+    Effect.validate(
       [
-        Effect.result(repository == null ? Effect.void : clone(repository)),
-        Effect.result(
-          Effect.flatMap(readArchive, (archive) =>
-            archive == null ? Effect.void : extractSkills(archive),
-          ),
+        repository == null ? Effect.void : clone(repository),
+        Effect.flatMap(readArchive, (archive) =>
+          archive == null ? Effect.void : extractSkills(archive),
         ),
       ],
-      { concurrency: 2 },
+      (step) => step,
+      { concurrency: 2, discard: true },
     ).pipe(
-      Effect.flatMap((results) => {
-        const messages = results.flatMap((result) =>
-          Result.isFailure(result) ? [result.failure.message] : [],
-        );
-
-        return messages.length === 0
-          ? Effect.void
-          : Effect.fail(new WorkspaceUnavailable({ message: messages.join("; ") }));
-      }),
+      Effect.mapError(
+        (failures) =>
+          new WorkspaceUnavailable({
+            message: failures.map((failure) => failure.message).join("; "),
+          }),
+      ),
     );
 
   // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
