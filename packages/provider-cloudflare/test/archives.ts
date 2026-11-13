@@ -45,3 +45,9 @@ export const skillsArchive = (name: string, fillerBytes = 0) =>
 
 export const agentsArchive = (name: string) =>
   packArchive([{ path: `${name}.md`, content: definition(name, `You are ${name}.`) }]);
+
+/** A context archive holding the file `name`, plus a file of incompressible bytes when `fillerBytes` is set. */
+export const contextArchive = (name: string, fillerBytes = 0) =>
+  packArchive([
+    { path: name, content: fillerBytes === 0 ? "context\n" : incompressible(fillerBytes) },
+  ]);

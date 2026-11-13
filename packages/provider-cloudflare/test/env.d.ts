@@ -10,6 +10,7 @@ import type {
 interface SessionRpc extends Rpc.DurableObjectBranded {
   create(request: CreateSession): void;
   storedSkillsArchive(): Uint8Array | null;
+  storedContextArchive(): Uint8Array | null;
 }
 
 // The registry object's RPC as a test calls it from outside the Worker: each member of
