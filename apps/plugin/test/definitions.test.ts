@@ -336,6 +336,25 @@ describe("spawn with skill and agent definitions", () => {
     );
   });
 
+  it("reports agent files from different folders with the same file name, naming both paths", async () => {
+    const first = write(
+      join("one", "reviewer.md"),
+      definition({ name: "reviewer", description: "Reviews." }),
+    );
+
+    const second = write(
+      join("two", "reviewer.md"),
+      definition({ name: "inspector", description: "Inspects." }),
+    );
+
+    const message = helperErrorMessage(await spawn({ agents: [first, second] }));
+
+    expect(message).toBe(
+      rejection(["Agents", [`- ${second}: file name 'reviewer.md' is already used by ${first}`]]),
+    );
+    expect(stubWorker().requests).toEqual([]);
+  });
+
   it("answers Failure with the InvalidArchive the Worker returns", async () => {
     await stubWorker().stop();
 

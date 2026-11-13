@@ -121,6 +121,25 @@ const readAgent = (path: string) =>
     };
   });
 
+// Agents are packed by file name, so two files with one name from different
+// folders would land at the same path in the archive.
+const sharedFileNames = (paths: ReadonlyArray<string>) => {
+  const firstOf = new Map<string, string>();
+
+  return paths.flatMap((path) => {
+    const file = basename(path);
+    const first = firstOf.get(file);
+
+    if (first == null) {
+      firstOf.set(file, path);
+
+      return [];
+    }
+
+    return [problemOf(path, `file name '${file}' is already used by ${first}`)];
+  });
+};
+
 const megabytes = (bytes: number) => `${(bytes / 1024 ** 2).toFixed(1)} MB`;
 
 // A group with problems is not packed: its size would count definitions the
@@ -171,7 +190,11 @@ export const readDefinitions = ({ skills: skillPaths, agents: agentPaths }: Defi
 
     const agents = yield* packGroup(
       "agents",
-      [...agentUnreadable, ...checkAgents(agentReads.map((read) => read.source)).problems],
+      [
+        ...agentUnreadable,
+        ...sharedFileNames(agentReads.map((read) => read.source.path)),
+        ...checkAgents(agentReads.map((read) => read.source)).problems,
+      ],
       agentReads.flatMap((read) => read.entries),
     );
 
