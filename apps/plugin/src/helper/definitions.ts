@@ -24,7 +24,7 @@ import * as Record from "effect/Record";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import type * as Types from "effect/Types";
-import { type ContentSource, packTar, type TarSource } from "modern-tar/fs";
+import { type ContentSource, type PackOptionsFS, packTar, type TarSource } from "modern-tar/fs";
 
 import type { SpawnRequest } from "../core/spawn-request";
 
@@ -37,10 +37,10 @@ export type Rejected = typeof Rejected.Type;
 
 type DefinitionPaths = Required<Pick<SpawnRequest, ArchiveKind>>;
 
-/** What a kind's check settles about its paths: what goes into the package, and the files on disk that the package replaces with content. */
+/** What a kind's check settles about its paths: what goes into the package, and the packer's filter when some files on disk are replaced by content sources. */
 interface Checked {
   readonly sources: ReadonlyArray<TarSource>;
-  readonly replaced: ReadonlySet<string>;
+  readonly filter?: NonNullable<PackOptionsFS["filter"]>;
 }
 
 const decoder = new TextDecoder();
@@ -173,43 +173,52 @@ const duplicateNames = (paths: ReadonlyArray<string>) => {
   });
 };
 
-const partition = <Path, Read>(
-  paths: ReadonlyArray<Path>,
-  read: (path: Path) => Effect.Effect<Read, Problem>,
-) => Effect.partition(paths, read, { concurrency: "unbounded" });
-
 type Check = (paths: ReadonlyArray<string>) => Effect.Effect<Checked, ReadonlyArray<Problem>>;
 
-const checkSkillPaths: Check = (paths) =>
+/** Reads every path, adds the problems the kind finds across the readable ones, and builds the result only when there is none. */
+const checkPaths = <Read>(
+  paths: ReadonlyArray<string>,
+  read: (path: string) => Effect.Effect<Read, Problem>,
+  problemsOf: (reads: ReadonlyArray<Read>) => ReadonlyArray<Problem>,
+  build: (reads: ReadonlyArray<Read>) => Checked,
+) =>
   Effect.gen(function* () {
-    const [reads, unreadable] = yield* partition(paths, readSkill);
-    const problems = [...unreadable, ...checkSkills(reads.map((read) => read.skill)).problems];
+    const [reads, unreadable] = yield* Effect.partition(paths, read, { concurrency: "unbounded" });
+    const problems = [...unreadable, ...problemsOf(reads)];
 
-    return problems.length > 0
-      ? yield* Effect.fail(problems)
-      : {
-          sources: reads.flatMap((read) => read.sources),
-          replaced: new Set(reads.map((read) => read.replaced)),
-        };
+    return problems.length > 0 ? yield* Effect.fail(problems) : build(reads);
   });
+
+const checkSkillPaths: Check = (paths) =>
+  checkPaths(
+    paths,
+    readSkill,
+    (reads) => checkSkills(reads.map((read) => read.skill)).problems,
+    (reads) => {
+      const replaced = new Set(reads.map((read) => read.replaced));
+
+      return {
+        sources: reads.flatMap((read) => read.sources),
+        filter: (path) => !replaced.has(path),
+      };
+    },
+  );
 
 const checkAgentPaths: Check = (paths) =>
-  Effect.gen(function* () {
-    const [reads, unreadable] = yield* partition(paths, readAgent);
-    const problems = [...unreadable, ...checkAgents(reads.map((read) => read.agent)).problems];
-
-    return problems.length > 0
-      ? yield* Effect.fail(problems)
-      : { sources: reads.flatMap((read) => read.sources), replaced: new Set() };
-  });
+  checkPaths(
+    paths,
+    readAgent,
+    (reads) => checkAgents(reads.map((read) => read.agent)).problems,
+    (reads) => ({ sources: reads.flatMap((read) => read.sources) }),
+  );
 
 const checkContextPaths: Check = (paths) =>
-  Effect.gen(function* () {
-    const [sources, unreadable] = yield* partition(paths, readContext);
-    const problems = [...unreadable, ...duplicateNames(paths)];
-
-    return problems.length > 0 ? yield* Effect.fail(problems) : { sources, replaced: new Set() };
-  });
+  checkPaths(
+    paths,
+    readContext,
+    () => duplicateNames(paths),
+    (sources) => ({ sources }),
+  );
 
 const checks: Record<ArchiveKind, Check> = {
   skills: checkSkillPaths,
@@ -219,7 +228,7 @@ const checks: Record<ArchiveKind, Check> = {
 
 // modern-tar's packer reads the files while it packs; the package is checked once it exists.
 // dereference follows symlinks and packs their targets, and baseDir "/" lets a target sit anywhere.
-const pack = (kind: ArchiveKind, { sources, replaced }: Checked) =>
+const pack = (kind: ArchiveKind, { sources, ...options }: Checked) =>
   Effect.tryPromise({
     try: async () => {
       const chunks: Array<Uint8Array> = [];
@@ -228,7 +237,7 @@ const pack = (kind: ArchiveKind, { sources, replaced }: Checked) =>
         packTar(sources, {
           dereference: true,
           baseDir: "/",
-          filter: (path) => !replaced.has(path),
+          ...options,
         }),
         createGzip(),
         async (packed) => {
