@@ -48,4 +48,9 @@ const base64 = (archive: Uint8Array | undefined) =>
 
 /** A create request as the Worker receives it: the archives are base64 strings. */
 export const createBody = (request: CreateSession) =>
-  JSON.stringify({ ...request, skills: base64(request.skills), agents: base64(request.agents) });
+  JSON.stringify({
+    ...request,
+    skills: base64(request.skills),
+    agents: base64(request.agents),
+    context: base64(request.context),
+  });

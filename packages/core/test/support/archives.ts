@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { packArchive as packEntries } from "@tentacles/worker-api/archives";
+import { packArchive as packEntries } from "@tentacles/worker-api/test/pack-archive";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 
@@ -38,16 +38,14 @@ const definition = (name: string, description: string, body: string) =>
 
 const encoder = new TextEncoder();
 
-/** A tar.gz of the files, packed the way the plugin's helper packs one. */
+/** A tar.gz of the files. */
 export const packArchive = (files: readonly ArchiveFile[]) =>
-  Effect.runPromise(
-    packEntries(
-      files.map((file) => ({
-        path: file.path,
-        bytes: Predicate.isString(file.content) ? encoder.encode(file.content) : file.content,
-        mode: file.mode ?? 0o644,
-      })),
-    ),
+  packEntries(
+    files.map((file) => ({
+      path: file.path,
+      bytes: Predicate.isString(file.content) ? encoder.encode(file.content) : file.content,
+      mode: file.mode ?? 0o644,
+    })),
   );
 
 export const skillFiles = (skill: SkillFixture): ArchiveFile[] => {
@@ -106,3 +104,6 @@ export const definitionArchives = () =>
     skills: await skillsArchive(...heldSkills),
     agents: await agentsArchive(...heldAgents),
   }));
+
+/** The context archive of the given files. */
+export const contextArchive = (...files: readonly ArchiveFile[]) => packArchive(files);

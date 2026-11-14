@@ -14,7 +14,7 @@ import { SpawnRequest } from "../core/spawn-request";
 import type { EndpointToolEntry } from "../core/tool-table";
 import { TentaclesClient, TentaclesClientLive } from "./client";
 import { SettingsDefaults } from "./config";
-import { readDefinitions, rejectionText, type Rejected } from "./definitions";
+import { packSpawnArchives, rejectionText, type Rejected } from "./definitions";
 
 const sessionFields = { sessionId: SessionId };
 
@@ -69,9 +69,10 @@ const commands: Record<EndpointToolEntry["name"], Command> = {
       const defaults = yield* SettingsDefaults;
       const client = yield* TentaclesClient;
 
-      const archives = yield* readDefinitions({
+      const archives = yield* packSpawnArchives({
         skills: request.skills ?? [],
         agents: request.agents ?? [],
+        context: request.context ?? [],
       });
 
       return yield* client.sessions.create({

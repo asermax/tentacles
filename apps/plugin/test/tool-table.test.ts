@@ -46,17 +46,22 @@ describe("tool table arguments", () => {
     });
   });
 
-  it("leaves parent out of spawn, makes every setting optional and lists skills and agents as optional string arrays", () => {
+  it("leaves parent out of spawn, makes every setting optional and lists skills, agents and context as optional string arrays", () => {
     const spawn = ToolTable.spawn.arguments;
 
     expect(
       Object.keys(spawn.properties ?? {}).toSorted((left, right) => left.localeCompare(right)),
-    ).toEqual(["agents", "name", "prompt", "settings", "skills"]);
+    ).toEqual(["agents", "context", "name", "prompt", "settings", "skills"]);
     expect(spawn.required).toEqual(["name", "prompt"]);
     expect(spawn).toHaveProperty("properties.skills", {
       type: "array",
       items: { type: "string" },
       description: expect.any(String),
+    });
+    expect(spawn).toHaveProperty("properties.context", {
+      type: "array",
+      items: { type: "string" },
+      description: expect.stringContaining("/context"),
     });
     expect(spawn).toHaveProperty("properties.agents", {
       type: "array",

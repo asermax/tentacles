@@ -1,17 +1,17 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { packTar, unpackTar } from "modern-tar";
+import { unpackTar } from "modern-tar";
 
+import type { ArchiveKind } from "./archive-kinds";
 import { checkAgents, checkSkills, type Problem, type SkillSource } from "./definitions";
 import { InvalidArchive } from "./errors";
 
-export class ArchiveUnreadable extends Schema.TaggedError<ArchiveUnreadable>()(
-  "ArchiveUnreadable",
-  { message: Schema.String },
-) {}
+class ArchiveUnreadable extends Schema.TaggedError<ArchiveUnreadable>()("ArchiveUnreadable", {
+  message: Schema.String,
+}) {}
 
 /** A regular file of an archive; `mode` holds its permission bits, as in `stat`'s mode & 0o777. */
-export interface ArchiveEntry {
+interface ArchiveEntry {
   readonly path: string;
   readonly bytes: Uint8Array;
   readonly mode: number;
@@ -25,26 +25,6 @@ const defaultMode = 0o644;
 
 const gunzip = (bytes: Uint8Array) =>
   new Blob([new Uint8Array(bytes)]).stream().pipeThrough(new DecompressionStream("gzip"));
-
-const gzip = async (bytes: Uint8Array<ArrayBuffer>) =>
-  new Uint8Array(
-    await new Response(
-      new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip")),
-    ).arrayBuffer(),
-  );
-
-/** Packs entries into a tar.gz, the form `readArchive` reads. */
-export const packArchive = (entries: ReadonlyArray<ArchiveEntry>) =>
-  Effect.promise(async () =>
-    gzip(
-      await packTar(
-        entries.map((entry) => ({
-          header: { name: entry.path, size: entry.bytes.byteLength, mode: entry.mode },
-          body: entry.bytes,
-        })),
-      ),
-    ),
-  );
 
 /** The regular files of a tar.gz, with their paths normalized (no leading `./`). */
 export const readArchive = (bytes: Uint8Array) =>
@@ -66,13 +46,14 @@ export const readArchive = (bytes: Uint8Array) =>
 
 const decoder = new TextDecoder();
 
-const invalid = (kind: string, text: string) =>
+const invalid = (kind: ArchiveKind, text: string) =>
   new InvalidArchive({ message: `The ${kind} archive is invalid: ${text}` });
 
-const unreadable = (kind: string) => (error: ArchiveUnreadable) => invalid(kind, error.message);
+const unreadable = (kind: ArchiveKind) => (error: ArchiveUnreadable) =>
+  invalid(kind, error.message);
 
 const succeedUnlessInvalid = <Item>(
-  kind: string,
+  kind: ArchiveKind,
   items: ReadonlyArray<Item>,
   problems: ReadonlyArray<Problem>,
 ) =>
@@ -118,6 +99,10 @@ export const readSkillsArchive = (bytes: Uint8Array) =>
       return succeedUnlessInvalid("skills", checked.skills, [...problems, ...checked.problems]);
     }),
   );
+
+/** The files of a context archive; nothing in it is checked beyond being readable. */
+export const readContextArchive = (bytes: Uint8Array) =>
+  readArchive(bytes).pipe(Effect.mapError(unreadable("context")));
 
 /** The agents of an agents archive: one definition file per agent at its top level. */
 export const readAgentsArchive = (bytes: Uint8Array) =>

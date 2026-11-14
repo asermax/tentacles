@@ -18,9 +18,10 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
-import { SkillsArchive } from "@tentacles/contracts/skills-archive";
+import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
+import { archiveExpansions } from "@tentacles/worker-api/archive-kinds";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
@@ -34,6 +35,7 @@ import * as Semaphore from "effect/Semaphore";
 
 import { AgentsDoc } from "../tools/agents";
 import { remoteAgentExtensions } from "../tools/extension";
+import { ContextDoc } from "../tools/context";
 import { expandPrompt, expandSkills, SkillsDoc, toSkillEntry } from "../tools/skills";
 import { toEntries } from "./entries";
 import { QuestionsDoc } from "./questions";
@@ -76,7 +78,7 @@ const make = (sessionId: SessionId) =>
       Browser | CodeSandbox | ParentChannel | PreviewRouter | RegistryStore | Workspace
     >();
 
-    const skillsArchive = yield* SkillsArchive;
+    const archiveStore = yield* ArchiveStore;
 
     const run = Effect.runPromiseWith(services);
     const fork = Effect.runForkWith(services);
@@ -199,14 +201,18 @@ const make = (sessionId: SessionId) =>
     const handle: SessionHandle = {
       create: (request) =>
         Effect.gen(function* () {
-          // Both archives are read before anything is stored, so one that
+          // The archives are read before anything is stored, so one that
           // cannot be read leaves no trace.
           const archives = yield* readArchives(request);
           const skills = archives.skills.map(toSkillEntry);
           const { agents } = archives;
 
-          if (request.skills != null) {
-            yield* skillsArchive.save(request.skills);
+          for (const { kind } of archiveExpansions) {
+            const archive = request[kind];
+
+            if (archive != null) {
+              yield* archiveStore.save(kind, archive);
+            }
           }
 
           yield* status.register(request.name, request.parent, {
@@ -235,6 +241,7 @@ const make = (sessionId: SessionId) =>
                 await tx.doc(QuestionsDoc);
                 (await tx.doc(SkillsDoc)).skills.push(...skills);
                 (await tx.doc(AgentsDoc)).agents.push(...agents);
+                (await tx.doc(ContextDoc)).sent = request.context != null;
               },
             }),
           );

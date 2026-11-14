@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -22,7 +22,7 @@ const root = mkdtempSync(join(tmpdir(), "tentacles-definitions-"));
 const nameFormat =
   "1 to 64 lowercase letters, digits and hyphens, with no leading, trailing or doubled hyphen";
 
-const intro = "No session was created: some skills or agents have problems.";
+const intro = "No session was created: some skills, agents or context have problems.";
 
 let dir = "";
 
@@ -86,7 +86,11 @@ const skillFolder = (
 const agentFile = (file: string, fields: Record<string, string>, body?: string) =>
   write(join("agents", file), definition(fields, body));
 
-const spawn = (paths: { skills?: ReadonlyArray<string>; agents?: ReadonlyArray<string> }) =>
+const spawn = (paths: {
+  skills?: ReadonlyArray<string>;
+  agents?: ReadonlyArray<string>;
+  context?: ReadonlyArray<string>;
+}) =>
   runHelperCommand(
     "spawn",
     { name: "migrate", prompt: "go", parent, ...paths },
@@ -256,6 +260,49 @@ describe("spawn with skill and agent definitions", () => {
 
     expect(message).toContain(`- ${skill}: the frontmatter is not valid YAML: `);
     expect(stubWorker().requests).toEqual([]);
+  });
+
+  it("packs a skill folder reached through a symlink with its repaired SKILL.md once and its other files", async () => {
+    const real = join(dir, "real", "demo");
+
+    write("real/demo/SKILL.md", "---\nname: demo\ndescription: A demo: with a colon\n---\nBody.\n");
+    write("real/demo/notes.md", "Notes.");
+
+    mkdirSync(join(dir, "linked"), { recursive: true });
+    symlinkSync(real, join(dir, "linked", "demo"));
+
+    const result = await spawn({ skills: [join(dir, "linked", "demo")] });
+    const [created] = stubWorker().creates;
+    const entries = await Effect.runPromise(readArchive(created?.skills ?? new Uint8Array()));
+
+    expect(result).toEqual(Success.make({ result: { sessionId } }));
+    expect(entries.map((entry) => entry.path).toSorted()).toEqual([
+      "demo/SKILL.md",
+      "demo/notes.md",
+    ]);
+    expect(await unpacked(created?.skills)).toEqual({
+      "demo/SKILL.md": '---\nname: demo\ndescription: "A demo: with a colon"\n---\nBody.\n',
+      "demo/notes.md": "Notes.",
+    });
+  });
+
+  it("packs a skill folder under a symlinked folder with its repaired SKILL.md once and its other files", async () => {
+    write(
+      "real/skills/demo/SKILL.md",
+      "---\nname: demo\ndescription: A demo: with a colon\n---\nBody.\n",
+    );
+    write("real/skills/demo/notes.md", "Notes.");
+
+    symlinkSync(join(dir, "real", "skills"), join(dir, "skills"));
+
+    const result = await spawn({ skills: [join(dir, "skills", "demo")] });
+    const [created] = stubWorker().creates;
+
+    expect(result).toEqual(Success.make({ result: { sessionId } }));
+    expect(await unpacked(created?.skills)).toEqual({
+      "demo/SKILL.md": '---\nname: demo\ndescription: "A demo: with a colon"\n---\nBody.\n',
+      "demo/notes.md": "Notes.",
+    });
   });
 
   it("sends the skills archive and no agents archive when it gets skill paths only", async () => {
@@ -491,5 +538,127 @@ describe("spawn with skill and agent definitions", () => {
     });
 
     expect(result).toEqual(Failure.make({ error }));
+  });
+});
+
+describe("spawn with context paths", () => {
+  it("packs a file and a folder at the top level of the context archive, keeping their modes", async () => {
+    const notes = write("scratch/notes.md", "Notes.");
+    const folder = join(dir, "scratch", "tools");
+
+    write("scratch/tools/run.sh", "echo run");
+    write("scratch/tools/deep/data.txt", "data");
+    chmodSync(notes, 0o640);
+    chmodSync(join(folder, "run.sh"), 0o755);
+    chmodSync(join(folder, "deep/data.txt"), 0o644);
+
+    const result = await spawn({ context: [notes, folder] });
+    const [created] = stubWorker().creates;
+
+    expect(result).toEqual(Success.make({ result: { sessionId } }));
+    expect(await unpacked(created?.context)).toEqual({
+      "notes.md": "Notes.",
+      "tools/run.sh": "echo run",
+      "tools/deep/data.txt": "data",
+    });
+    expect(await modesOf(created?.context)).toEqual({
+      "notes.md": 0o640,
+      "tools/run.sh": 0o755,
+      "tools/deep/data.txt": 0o644,
+    });
+    expect(created).not.toHaveProperty("skills");
+    expect(created).not.toHaveProperty("agents");
+  });
+
+  it("sends no context archive when no context path is given", async () => {
+    await spawn({});
+
+    expect(stubWorker().creates[0]).not.toHaveProperty("context");
+  });
+
+  it("reports a path that does not exist in the Context group and sends nothing", async () => {
+    const missing = join(dir, "nowhere.md");
+
+    const result = await spawn({ context: [missing] });
+
+    expect(helperErrorMessage(result)).toBe(
+      rejection(["Context", [`- ${missing}: does not exist`]]),
+    );
+    expect(stubWorker().requests).toEqual([]);
+  });
+
+  it("reports the second of two paths with the same name, naming the first, and sends nothing", async () => {
+    const first = write(join("one", "notes.md"), "One.");
+    const second = write(join("two", "notes.md"), "Two.");
+
+    const result = await spawn({ context: [first, second] });
+
+    expect(helperErrorMessage(result)).toBe(
+      rejection(["Context", [`- ${second}: has the same name as ${first}`]]),
+    );
+    expect(stubWorker().requests).toEqual([]);
+  });
+
+  it("reports context that packs to more than the archive limit", async () => {
+    const big = write("big.bin", randomBytes(6 * 1024 * 1024));
+
+    const message = helperErrorMessage(await spawn({ context: [big] }));
+
+    expect(message).toMatch(
+      new RegExp(
+        `^${intro}\\n\\nContext:\\n- the context archive: is \\d+\\.\\d MB, over the 5\\.0 MB limit$`,
+      ),
+    );
+    expect(stubWorker().requests).toEqual([]);
+  });
+
+  it("packs the content of the target of a symlink inside a context folder", async () => {
+    const folder = join(dir, "scratch", "tools");
+    const target = write("elsewhere/data.txt", "target content");
+
+    write("scratch/tools/run.sh", "echo run");
+    symlinkSync(target, join(folder, "link.txt"));
+
+    const result = await spawn({ context: [folder] });
+    const [created] = stubWorker().creates;
+
+    expect(result).toEqual(Success.make({ result: { sessionId } }));
+    expect(await unpacked(created?.context)).toEqual({
+      "tools/run.sh": "echo run",
+      "tools/link.txt": "target content",
+    });
+  });
+
+  it("reports a context folder that packs to more than the archive limit under the Context group", async () => {
+    const folder = join(dir, "scratch", "bulky");
+
+    write("scratch/bulky/first.bin", randomBytes(3 * 1024 * 1024));
+    write("scratch/bulky/nested/second.bin", randomBytes(3 * 1024 * 1024));
+
+    const message = helperErrorMessage(await spawn({ context: [folder] }));
+
+    expect(message).toMatch(
+      new RegExp(
+        `^${intro}\\n\\nContext:\\n- the context archive: is \\d+\\.\\d MB, over the 5\\.0 MB limit$`,
+      ),
+    );
+    expect(stubWorker().requests).toEqual([]);
+  });
+
+  it("reports a missing context path and a skill without SKILL.md together, in their groups", async () => {
+    const skill = join(dir, "skills", "empty");
+    const missing = join(dir, "nowhere.md");
+
+    mkdirSync(skill, { recursive: true });
+
+    const result = await spawn({ skills: [skill], context: [missing] });
+
+    expect(helperErrorMessage(result)).toBe(
+      rejection(
+        ["Skills", [`- ${skill}: has no SKILL.md`]],
+        ["Context", [`- ${missing}: does not exist`]],
+      ),
+    );
+    expect(stubWorker().requests).toEqual([]);
   });
 });

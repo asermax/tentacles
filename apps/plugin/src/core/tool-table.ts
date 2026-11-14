@@ -50,7 +50,7 @@ export const ToolTable = {
   spawn: ToolEntry.Endpoint({
     name: ToolNames.spawn,
     description:
-      "Start a remote agent with a name, a first prompt and optional settings. The settings left out come from the plugin's defaults. Optionally takes the paths of skill folders and agent definition files, which stay fixed for the session. Answers with the new session's id.",
+      "Start a remote agent with a name, a first prompt and optional settings. The settings left out come from the plugin's defaults. Optionally takes the paths of skill folders and agent definition files, and the paths of context files or folders the remote agent finds in /context, which stay fixed for the session. Answers with the new session's id.",
     endpoint: "create",
     harnesses: bothHarnesses,
     arguments: { ...spawnDocument.schema, $defs: spawnDocument.definitions },

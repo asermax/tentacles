@@ -21,15 +21,17 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore, RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
-import { SkillsArchive } from "@tentacles/contracts/skills-archive";
+import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace } from "@tentacles/contracts/workspace";
+import { type ArchiveKind, archiveKinds } from "@tentacles/worker-api/archive-kinds";
 import { SessionId } from "@tentacles/worker-api/ids";
 import type { SessionState } from "@tentacles/worker-api/session-state";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -185,7 +187,8 @@ export class TestWorld extends Context.Service<
     /** RegistryStore's add, setStatus and openPreview calls, as "add <id>", "<status> <id>" and "openPreview <id>". */
     readonly registryCalls: string[];
     readonly records: (sessionId: SessionId) => SessionRecords;
-    readonly skillsArchives: ReadonlyMap<SessionId, Uint8Array>;
+    /** The archives of one kind that the sessions saved, by session. */
+    readonly archives: (kind: ArchiveKind) => ReadonlyMap<SessionId, Uint8Array>;
     /** The running instance's handle, made on first use as a host makes one on a request. */
     readonly handle: (sessionId: SessionId) => Effect.Effect<SessionHandle>;
     /** Drops the instance, its harness closed mid-work, and keeps its storage. */
@@ -275,13 +278,13 @@ const makeWorld = Effect.gen(function* () {
   const worldScope = yield* Scope.Scope;
 
   const workspaces = new Map<SessionId, Workspace["Service"]>();
-  const archives = new Map<SessionId, Uint8Array>();
+  const archives = Record.map(archiveKinds, () => new Map<SessionId, Uint8Array>());
 
-  // The archive lives beside the storage, so an eviction keeps it.
-  const archiveOf = (sessionId: SessionId) =>
-    SkillsArchive.of({
-      save: (archive) => Effect.sync(() => void archives.set(sessionId, archive)),
-      read: () => Effect.sync(() => archives.get(sessionId) ?? null),
+  // The archives live beside the storage, so an eviction keeps them.
+  const archiveStoreOf = (sessionId: SessionId) =>
+    ArchiveStore.of({
+      save: (kind, archive) => Effect.sync(() => void archives[kind].set(sessionId, archive)),
+      read: (kind) => Effect.sync(() => archives[kind].get(sessionId) ?? null),
     });
 
   const recordsOf = (sessionId: SessionId) =>
@@ -295,7 +298,7 @@ const makeWorld = Effect.gen(function* () {
       const created = yield* testWorkspace(
         join(root, sessionId),
         shared,
-        archiveOf(sessionId),
+        archiveStoreOf(sessionId),
       ).pipe(Scope.provide(worldScope));
 
       const record: SessionRecords = {
@@ -365,7 +368,7 @@ const makeWorld = Effect.gen(function* () {
         }),
       ),
       Context.add(Workspace, workspaceOf(sessionId)),
-      Context.add(SkillsArchive, archiveOf(sessionId)),
+      Context.add(ArchiveStore, archiveStoreOf(sessionId)),
       Context.merge(shareds),
     );
 
@@ -448,7 +451,10 @@ const makeWorld = Effect.gen(function* () {
             yield* notFoundGuard(sessionId, (made) => made.delete());
             yield* drop(sessionId);
             storages.delete(sessionId);
-            archives.delete(sessionId);
+
+            for (const byKind of Object.values(archives)) {
+              byKind.delete(sessionId);
+            }
           }),
   });
 
@@ -466,7 +472,7 @@ const makeWorld = Effect.gen(function* () {
 
       return found;
     },
-    skillsArchives: archives,
+    archives: (kind) => archives[kind],
     handle,
     evict: drop,
     crash: crashOne,

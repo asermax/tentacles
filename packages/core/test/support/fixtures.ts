@@ -21,7 +21,7 @@ export const settings = (repository: Repository | null = null): Settings => ({
   repository,
 });
 
-export type Archives = Pick<CreateSession, "skills" | "agents">;
+export type Archives = Pick<CreateSession, "skills" | "agents" | "context">;
 
 export const createRequest = (
   prompt: string,

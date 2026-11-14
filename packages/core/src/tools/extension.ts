@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect";
 
 import { commitCheckExtension } from "../session/run-end";
 import { agentsExtension } from "./agents";
+import { contextExtension } from "./context";
 import { previewTool } from "./preview";
 import { askParentTool } from "./question";
 import { remoteAgentInstructions } from "./remote-agent-instructions";
@@ -24,7 +25,7 @@ import { skillsExtension } from "./skills";
 
 /**
  * The extensions a session's harness installs: pi-durable's coding tools and
- * codemode, the commit check, the preview tool, the skills and the agents, and
+ * codemode, the commit check, the preview tool, the skills, the context and the agents, and
  * the root agent's own extension with the question tool and its instructions,
  * which subagents start without. A subagent also goes without the agents
  * extension when the conversation that starts it is not the root, so
@@ -56,6 +57,7 @@ export const remoteAgentExtensions = (sessionId: SessionId) =>
       commitCheckExtension(sessionId, workspace.isRunning()),
       defineExtension({ name: "tentacles", tools: [previewTool(sessionId, run)] }),
       skillsExtension,
+      contextExtension,
       agents,
       rootAgent,
     ] satisfies readonly Extension[];

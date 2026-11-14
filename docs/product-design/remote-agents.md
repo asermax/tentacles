@@ -18,7 +18,9 @@ With a repository in its settings, the remote agent starts with it cloned. Witho
 
 [workspace](../technical-design/workspace.md) covers the container's image, clone and lifetime.
 
-The parent can also give the remote agent skills and agent definitions, by passing their folder and file paths at spawn. They are fixed for the remote agent's life, so the parent includes every one the job needs, and work that needs a different set goes to a new remote agent. The plugin checks every skill and agent definition on the developer's machine before anything is sent; when one fails, spawn returns every problem with its path, skills and agents listed apart, and no remote agent starts.
+The parent can also give the remote agent skills and agent definitions, by passing their folder and file paths at spawn. They are fixed for the remote agent's life, so the parent includes every one the job needs, and work that needs a different set goes to a new remote agent. The plugin checks every skill and agent definition on the developer's machine before anything is sent; when one fails, spawn returns every problem with its path, skills, agents and context listed apart, and no remote agent starts.
+
+The parent can also send context files, the files and folders on its machine that the repository does not hold, such as a change's scratch files, by passing their paths at spawn. The remote agent finds each one in `/context` under its own name, outside the repository. The copy is fixed at spawn: the remote agent can change it, but its changes are lost when its workspace restarts and never come back to the parent, so work that needs different files goes to a new remote agent. The remote agent is told only that the parent sent files and that they are in `/context`, so the parent says in its handoff what the files are and how to use them. Two paths with the same name, a path that does not exist, or files that pack over 5 MB fail the spawn in the Context group. [sessions](../technical-design/sessions.md) covers how the context reaches the remote agent.
 
 ## 💬 Prompting and steering
 

@@ -27,7 +27,7 @@ import { loopback } from "./egress";
 import { modelProvidersLayer } from "./model-providers";
 import { CloudflarePreviewRouter } from "./preview-router";
 import { RegistryObject, registryStoreLayer } from "./registry-object";
-import { skillsArchiveLayer } from "./skills-archive";
+import { archiveStoreLayer } from "./archive-store";
 import {
   ContainerSettings,
   unsupportedSettings,
@@ -114,7 +114,7 @@ export const SessionObjectLive = SessionObject.make(
       const claudeObjects: DurableObjectNamespace = env[claude.name];
       const codemodeSandboxes: DurableObjectNamespace<CodemodeSandbox> = env[codemodeSandboxClass];
 
-      const skillsArchive = skillsArchiveLayer(raw.storage);
+      const archiveStore = archiveStoreLayer(raw.storage);
 
       const contracts = Layer.mergeAll(
         Layer.succeed(
@@ -142,8 +142,8 @@ export const SessionObjectLive = SessionObject.make(
               }),
           }),
         ),
-        skillsArchive,
-        workspaceLayer({ sessionId, container, egress }).pipe(Layer.provide(skillsArchive)),
+        archiveStore,
+        workspaceLayer({ sessionId, container, egress }).pipe(Layer.provide(archiveStore)),
         browserLayer(yield* browser.raw, cdpSecret, raw.storage),
         CloudflarePreviewRouter,
         registryStoreLayer(registries),

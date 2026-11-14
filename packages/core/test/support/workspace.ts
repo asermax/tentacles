@@ -4,13 +4,13 @@ import { dirname, join } from "node:path";
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
-import type { SkillsArchive } from "@tentacles/contracts/skills-archive";
+import type { ArchiveStore } from "@tentacles/contracts/archive-store";
 import {
-  skillsDirectory,
   Workspace,
   type WorkspaceSettings,
   WorkspaceUnavailable,
 } from "@tentacles/contracts/workspace";
+import { archiveExpansions, type ArchiveKind } from "@tentacles/worker-api/archive-kinds";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
@@ -22,6 +22,8 @@ export interface WorkspaceRecord {
   readonly directory: string;
   /** Answers Workspace.forward. */
   forward: (port: number, request: Request) => Response;
+  /** Makes the next ensure a cold start again, as a container that restarted. */
+  restart: () => void;
 }
 
 // Repository URLs must be https, so the bare remotes are named by this host
@@ -97,18 +99,18 @@ const sandboxed = (directory: string, shared: string) => {
   ];
 };
 
-const archivePath = "/tmp/skills.tar.gz";
+const archivePath = (kind: ArchiveKind) => `/tmp/${kind}.tar.gz`;
 
 /**
  * A session's Workspace over a local sandboxed daemon. ensure starts the
- * workspace on its first call, clones the repository and expands the skills
- * archive into /skills then, as a container that just started would; a failed
- * clone or expansion leaves it not started.
+ * workspace on its first call, clones the repository and expands each kind's archive into its
+ * directory then, as a container that just started would; a failed clone or expansion leaves it
+ * not started.
  */
 export const testWorkspace = (
   root: string,
   shared: string,
-  skillsArchive: SkillsArchive["Service"],
+  archiveStore: ArchiveStore["Service"],
 ) =>
   Effect.acquireRelease(
     Effect.sync(() => {
@@ -120,6 +122,7 @@ export const testWorkspace = (
         ensures: [],
         directory,
         forward: () => new Response("no app", { status: 502 }),
+        restart: () => undefined,
       };
 
       return {
@@ -131,6 +134,10 @@ export const testWorkspace = (
   ).pipe(
     Effect.map(({ record, connection }) => {
       let isStarted = false;
+
+      record.restart = () => {
+        isStarted = false;
+      };
 
       const clone = (repository: Repository) =>
         Effect.promise(async () => {
@@ -154,10 +161,10 @@ export const testWorkspace = (
         );
 
       // pi-env's exec takes no standard input, so the archive goes in as a file.
-      const extractSkills = (archive: Uint8Array) =>
+      const extract = (kind: ArchiveKind, directory: string, archive: Uint8Array) =>
         Effect.promise(async () => {
-          const env = new RemoteExecutionEnv({ connection, id: "skills", cwd: "/" });
-          const written = await env.writeFile(archivePath, archive, BACKGROUND_CONTEXT);
+          const env = new RemoteExecutionEnv({ connection, id: kind, cwd: "/" });
+          const written = await env.writeFile(archivePath(kind), archive, BACKGROUND_CONTEXT);
 
           if (!written.ok) {
             return String(written.error);
@@ -166,11 +173,7 @@ export const testWorkspace = (
           let output = "";
 
           const result = await env.exec(
-            [
-              "sh",
-              "-c",
-              `mkdir -p ${skillsDirectory} && tar -xzf ${archivePath} -C ${skillsDirectory}`,
-            ],
+            ["sh", "-c", `mkdir -p ${directory} && tar -xzf ${archivePath(kind)} -C ${directory}`],
             { onOutput: (text) => (output += text) },
             BACKGROUND_CONTEXT,
           );
@@ -181,7 +184,9 @@ export const testWorkspace = (
             failure == null
               ? Effect.void
               : Effect.fail(
-                  new WorkspaceUnavailable({ message: `Expanding the skills failed: ${failure}` }),
+                  new WorkspaceUnavailable({
+                    message: `Expanding the ${kind} failed: ${failure}`,
+                  }),
                 ),
           ),
         );
@@ -198,12 +203,14 @@ export const testWorkspace = (
             yield* Effect.validate(
               [
                 settings.repository == null ? Effect.void : clone(settings.repository),
-                Effect.flatMap(skillsArchive.read(), (archive) =>
-                  archive == null ? Effect.void : extractSkills(archive),
+                ...archiveExpansions.map(({ kind, directory }) =>
+                  Effect.flatMap(archiveStore.read(kind), (archive) =>
+                    archive == null ? Effect.void : extract(kind, directory, archive),
+                  ),
                 ),
               ],
               (step) => step,
-              { concurrency: 2, discard: true },
+              { concurrency: "unbounded", discard: true },
             ).pipe(
               Effect.mapError(
                 (failures) =>

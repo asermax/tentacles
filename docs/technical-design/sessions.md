@@ -1,6 +1,6 @@
 ---
 title: "Sessions"
-summary: "What tentacles stores about a remote session, how a session runs from spawn to deletion, the skills and agents it carries, and the daily job that deletes sessions a month after their last run."
+summary: "What tentacles stores about a remote session, how a session runs from spawn to deletion, the skills, agents and context files it carries, and the daily job that deletes sessions a month after their last run."
 created: "2026-11-09"
 ---
 
@@ -8,7 +8,7 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-A session is one remote agent: a Durable Object keyed by its session id, where pi-durable keeps its conversations and tentacles keeps a record of who started it, with which settings, and in what state it is. A registry Durable Object keeps one entry per session so the list call returns a parent's sessions with their status in one call. A session starts running at spawn, goes idle or failed when a run stops, waits while its agent asks a question, and stays readable after it is closed. A session also carries the skills and agent definitions its parent sent at spawn, which its agent finds by name. A daily job deletes every session whose last run stopped more than a month ago.
+A session is one remote agent: a Durable Object keyed by its session id, where pi-durable keeps its conversations and tentacles keeps a record of who started it, with which settings, and in what state it is. A registry Durable Object keeps one entry per session so the list call returns a parent's sessions with their status in one call. A session starts running at spawn, goes idle or failed when a run stops, waits while its agent asks a question, and stays readable after it is closed. A session also carries the skills and agent definitions its parent sent at spawn, which its agent finds by name, and the context files, which sit in `/context`. A daily job deletes every session whose last run stopped more than a month ago.
 
 ## 🗺️ A session from spawn to deletion
 
@@ -22,18 +22,18 @@ sequenceDiagram
     participant S as Session
     participant C as Workspace container
     participant M as Model
-    P->>H: spawn with name, prompt, settings, skill and agent paths
+    P->>H: spawn with name, prompt, settings, skill, agent and context paths
     H->>H: check the files, pack the archives
     H->>W: create
     W->>S: create
-    S->>S: store the record, the documents, the skills archive
+    S->>S: store the record, the documents, the skills and context archives
     S->>R: add the entry with settings, skill and agent names
     S-->>P: session id, once the first run starts
     loop every run
         S->>S: expand the prompt's named skills
         S->>M: model call
         M-->>S: text and tool calls
-        S->>C: tool call, a cold start clones the repository and expands the skills first
+        S->>C: tool call, a cold start clones the repository and expands the skills and context first
         C-->>S: tool result
         opt the agent asks the parent
             S->>R: status waiting
@@ -52,9 +52,9 @@ sequenceDiagram
     Note over W,S: a month after the last run stopped,<br/>the daily job deletes the session and drops its entry
 ```
 
-The parent spawns with a name, a first prompt, its settings and any skill and agent paths (1). The plugin checks the skill and agent files and packs them into two archives (2), and sends create through the Worker to a new session (3, 4). The session stores its record, its skills and agents documents and the skills archive (5), adds its registry entry (6), and answers with its id once the first run has started (7).
+The parent spawns with a name, a first prompt, its settings and any skill, agent and context paths (1). The plugin checks the files and packs them into up to three archives (2), and sends create through the Worker to a new session (3, 4). The session stores its record, its skills, agents and context documents and the skills and context archives (5), adds its registry entry (6), and answers with its id once the first run has started (7).
 
-In every run, the session expands any skill the prompt names (8), sends the conversation to the model (9, 10) and runs the tools the model calls in the workspace container (11, 12); the first tool call after a cold start finds the repository cloned and the skills expanded ([workspace](workspace.md)). When the agent asks the parent, the session waits, the plugin wakes the parent with the question and the answer continues the run (13 to 17; [question-round-trip](question-round-trip.md)).
+In every run, the session expands any skill the prompt names (8), sends the conversation to the model (9, 10) and runs the tools the model calls in the workspace container (11, 12); the first tool call after a cold start finds the repository cloned and the skills and context expanded ([workspace](workspace.md)). When the agent asks the parent, the session waits, the plugin wakes the parent with the question and the answer continues the run (13 to 17; [question-round-trip](question-round-trip.md)).
 
 When a run ends, the session prompts the agent to commit any work not pushed (18), records the new status and the time the run stopped in the registry (19), and sends the state with the run's last entry, which the plugin turns into a wake (20, 21). A prompt starts a new run and close stops the session (22, 23; [worker-api](worker-api.md)). A month after the last run stopped, the daily job deletes the session (see Daily cleanup below).
 
@@ -67,7 +67,8 @@ erDiagram
     SESSION ||--o{ QUESTION : "asked (one document)"
     SESSION ||--o| SKILLS_DOCUMENT : "holds"
     SESSION ||--o| AGENTS_DOCUMENT : "holds"
-    SESSION ||--o| SKILLS_ARCHIVE : "keeps"
+    SESSION ||--o| CONTEXT_DOCUMENT : "holds"
+    SESSION ||--o{ ARCHIVE : "keeps, one per kind"
     SKILLS_DOCUMENT ||--o{ SKILL : "lists"
     AGENTS_DOCUMENT ||--o{ AGENT : "lists"
     REGISTRY_ENTRY {
@@ -104,6 +105,9 @@ erDiagram
     AGENTS_DOCUMENT {
         json agents "written once at spawn"
     }
+    CONTEXT_DOCUMENT {
+        boolean sent "written once at spawn"
+    }
     SKILL {
         string name
         string description
@@ -114,7 +118,8 @@ erDiagram
         string description
         text prompt
     }
-    SKILLS_ARCHIVE {
+    ARCHIVE {
+        string kind PK "skills or context"
         blob archive "one key-value entry, tar.gz as sent, at most 5 MB"
     }
 ```
@@ -142,11 +147,13 @@ REGISTRY_ENTRY lives in the one registry Durable Object for the whole Worker, on
 
 QUESTION is a question the session's agent asked with `ask_parent`: its id, its text and its answer, empty until the parent answers. Every question of the session lives in one session-wide document, one entry per question, and an entry stays after its answer. The id is the id of the asking tool call. When an eviction makes the tool run again, the replay finds its question in the document and keeps the id. If the answer already arrived, the replay returns the answer without asking again. The waiting question is the one with no answer whose tool call is still live; an aborted or finished call takes its question out of waiting. [question-round-trip](question-round-trip.md) follows the question to the parent and back.
 
-### 📚 Skills and agents documents and the skills archive
+### 📚 Skills and agents documents and the archives
 
 A skill is a folder that holds a SKILL.md and whatever the skill points to. An agent definition is a file whose frontmatter names a subagent and whose body is that subagent's prompt. The skills document and the agents document are pi-durable documents of the session, written once at spawn. A skill entry holds the skill's name and description, which the prompt lists. It also holds the full path of its SKILL.md in the workspace, which the skill tool and a prompt expansion point the agent to. An agent entry holds the agent's name, description and prompt, which the subagent tool starts a subagent with. Agent definitions live only here and never enter the container.
 
-SKILLS_ARCHIVE is the skills archive exactly as the spawn sent it. The session object stores it as one value under a fixed key in its key-value storage, which lives in the same SQLite database as pi-durable's tables. Only a container start reads it. Deleting the session clears the documents and the archive with the rest of its storage.
+ARCHIVE is one kind's archive exactly as the spawn sent it, kept for each kind the container expands: the skills and the context. The agents archive is read at create and not kept, since agent definitions never enter the container. The session object stores each archive as one value in its key-value storage, under the key `tentacles.<kind>-archive`, and that storage lives in the same SQLite database as pi-durable's tables. Only a container start reads an archive. Deleting the session clears the documents and the archives with the rest of its storage.
+
+CONTEXT_DOCUMENT records whether the spawn sent context files, so the prompt section renders without reading the archive or starting the container. The session state, the list and the registry entry carry nothing about the context.
 
 The API key and the Claude and GitHub credentials are Worker secrets, and none of these entities stores them.
 
@@ -189,7 +196,7 @@ stateDiagram-v2
     class Closed,Deleted ended
 ```
 
-A session starts running when the parent spawns it, since spawn carries the first prompt; the session stores the skills and agent definitions the spawn sent before the run starts. While it runs, a prompt from the parent follows up or steers. An eviction is not a state: pi-durable resumes the run by the session's alarm and the session stays running.
+A session starts running when the parent spawns it, since spawn carries the first prompt; the session stores the skills, agent definitions and context the spawn sent before the run starts. While it runs, a prompt from the parent follows up or steers. An eviction is not a state: pi-durable resumes the run by the session's alarm and the session stays running.
 
 When the agent asks a question, after committing and pushing its work, the session waits. The conversation cannot continue until the parent answers. A prompt sent meanwhile is a steer whatever its mode, and reaches the agent after the answer; it neither answers nor cancels the question.
 
@@ -235,18 +242,19 @@ Skills and agents are each one pi-durable extension that owns its document, its 
 
 ### 🚀 What a spawn sends
 
-The parent passes skill folder paths and agent definition paths to the spawn tool, on pi and on Claude Code alike. The plugin's helper reads every path, checks every file, and packs two archives, each a gzip-compressed tar file of at most 5 MB:
+The parent passes skill folder paths, agent definition paths and context paths to the spawn tool, on pi and on Claude Code alike. The plugin's helper stats every path, reads only each skill's SKILL.md and each agent definition file, checks them, and packs up to three archives, each a gzip-compressed tar file of at most 5 MB:
 
 - The skills archive holds one folder per skill at its top level: `<name>/SKILL.md` and everything beside it.
 - The agents archive holds one agent definition file per agent at its top level, named `<name>.md` after the agent.
+- The context archive holds one entry per context path at its top level (see Context files).
 
-Each file keeps its permission bits, so a skill's executable scripts stay executable in `/skills`.
+The helper's packer reads the files while it packs. It follows symlinks and packs what each one points to, writes an entry for every folder, and keeps each file's permission bits, so a skill's executable scripts stay executable in `/skills`. A skill's SKILL.md goes into the archive as the helper read it, with its frontmatter repaired, in place of the file on disk. The helper checks each archive's size once the archive is packed.
 
-Both are optional, and a spawn can send either one without the other. The create call carries them next to the name, the parent, the settings and the first prompt (see [worker-api](worker-api.md)).
+Each archive is optional, and a spawn sends any of them without the others. The create call carries them next to the name, the parent, the settings and the first prompt (see [worker-api](worker-api.md)).
 
 ```mermaid
 flowchart TD
-    A["Paths from the spawn call"] --> SP & AP
+    A["Paths from the spawn call"] --> SP & AP & CP
     subgraph skills["Skills, each folder on its own"]
         SP{"path exists and holds SKILL.md?"} -->|Yes| SF{"frontmatter: name matches folder and follows the rules, description 1-1024?"}
         SF -->|Yes| SU{"name unique among the skills?"}
@@ -257,26 +265,34 @@ flowchart TD
         AF -->|Yes| AU{"name unique among the agents?"}
         AU -->|Yes| AZ{"packed agents archive within 5 MB?"}
     end
+    subgraph context["Context, each path on its own"]
+        CP{"path exists and is a file or a folder?"} -->|Yes| CU{"basename unique among the context paths?"}
+        CU -->|Yes| CZ{"packed context archive within 5 MB?"}
+    end
     SP & SF & SU & SZ -->|No| SE["Skills problem, with its path"]
     AP & AF & AU & AZ -->|No| AE["Agents problem, with its path"]
+    CP & CU & CZ -->|No| CE["Context problem, with its path"]
     SZ -->|Yes| J{"any problem collected?"}
     AZ -->|Yes| J
+    CZ -->|Yes| J
     SE --> J
     AE --> J
-    J -->|Yes| N(("Spawn error: every problem, skills and agents apart"))
+    CE --> J
+    J -->|Yes| N(("Spawn error: every problem, in Skills, Agents and Context groups"))
     J -->|No| O(("Spawn proceeds"))
     classDef green fill:#dcfce7,stroke:#16a34a,color:#1f2937
     classDef blue fill:#dbeafe,stroke:#2563eb,color:#1f2937
     classDef red fill:#fee2e2,stroke:#dc2626,color:#1f2937
     class A,O green
-    class SP,SF,SU,SZ,AP,AF,AU,AZ,J blue
-    class SE,AE,N red
+    class SP,SF,SU,SZ,AP,AF,AU,AZ,CP,CU,CZ,J blue
+    class SE,AE,CE,N red
 ```
 
-The helper checks the skills and the agents apart, every file on its own, and keeps going after a problem so it reports them all. A skill follows the Agent Skills specification. Its name is 1 to 64 lowercase letters, digits and hyphens, with no leading, trailing or doubled hyphen, and equals its folder's name. Its description is 1 to 1024 characters. An agent definition is a file whose frontmatter name and description follow the same rules as a skill's, whose name equals the file's name without `.md`, and whose body is not empty. Names are unique within each group, and each packed archive stays within 5 MB. When anything fails, the spawn tool returns every problem with its path, the skills' in one group and the agents' in another, and nothing reaches tentacles.
+The helper checks each kind apart, every path on its own, and keeps going after a problem so it reports them all. A skill follows the Agent Skills specification. Its name is 1 to 64 lowercase letters, digits and hyphens, with no leading, trailing or doubled hyphen, and equals its folder's name. Its description is 1 to 1024 characters. An agent definition is a file whose frontmatter name and description follow the same rules as a skill's, whose name equals the file's name without `.md`, and whose body is not empty. Names are unique within each group, and each packed archive stays within 5 MB; a kind with a problem is not packed, so its size is not checked. When anything fails, the spawn tool returns every problem with its path, in a Skills, an Agents and a Context group, and nothing reaches tentacles.
 
 Frontmatter is read as YAML. A top-level value on one line that YAML rejects as written, such as a description holding `: `, is read as a quoted string. The helper then packs the file with that value quoted, so the session reads valid frontmatter. Frontmatter that is still not valid YAML is a problem with its path.
 
+> [!NOTE] Why a rejected value is read as a quoted string
 > Definitions written for other assistants often carry such values, and those assistants accept them. Reading them as quoted strings keeps those definitions usable without editing them.
 
 The session takes these values from an agent definition:
@@ -290,7 +306,7 @@ The session takes these values from an agent definition:
 
 Every subagent gets the session's model and the tools of its level in the session, whatever its definition declares.
 
-### 📩 How the skills move
+### 📩 How the archives move
 
 #### 🧳 At spawn
 
@@ -303,15 +319,15 @@ sequenceDiagram
     participant S as Session
     participant DB as Session storage
     participant R as Registry
-    P->>+H: spawn with skill and agent paths
-    H->>H: read and check every folder and file
+    P->>+H: spawn with skill, agent and context paths
+    H->>H: stat every path, read and check each SKILL.md and agent file
     alt a check fails
-        H-->>P: every problem with its path, skills and agents apart
+        H-->>P: every problem with its path, grouped by kind
     else every check passes
-        H->>H: pack the skills archive and the agents archive
-        H->>+W: create with both archives
+        H->>H: pack one archive per kind that has paths
+        H->>+W: create with the archives
         W->>+S: create
-        S->>DB: skills and agents documents, skills archive
+        S->>DB: skills, agents and context documents, skills and context archives
         S->>R: add the entry with settings, skill and agent names
         S->>S: start the first run
         S-->>-W: started
@@ -320,7 +336,7 @@ sequenceDiagram
     end
 ```
 
-The parent calls the spawn tool with paths (1). The plugin's helper reads and checks every folder and file (2). On any failure, the helper returns every problem as the spawn tool's result and sends nothing (3). Otherwise it packs the skills archive and the agents archive (4) and sends create with them (5), which the Worker hands to the session (6). The session reads both archives again to build the skills and agents documents and stores the skills archive unchanged (7). When it cannot read an archive, create returns an error naming the archive and the problem, and the session stores nothing (see [worker-api](worker-api.md)). It adds its registry entry with the settings and the skill and agent names it read (8), and only then starts the first run (9). create answers with the session id once the run has started (10 to 12).
+The parent calls the spawn tool with paths (1). The plugin's helper stats every path and reads and checks each SKILL.md and agent definition file (2). On any failure, the helper returns every problem as the spawn tool's result and sends nothing (3). Otherwise it packs one archive for each kind that has paths (4) and sends create with them (5), which the Worker hands to the session (6). The session reads every archive again to build the skills and agents documents, writes the context document, and stores the skills and context archives unchanged (7). When it cannot read one or more archives, create returns one error that names each invalid archive and its problem, and the session stores nothing (see [worker-api](worker-api.md)). It adds its registry entry with the settings and the skill and agent names it read (8), and only then starts the first run (9). create answers with the session id once the run has started (10 to 12).
 
 #### 📦 At every container start
 
@@ -333,24 +349,27 @@ sequenceDiagram
     participant C as Workspace container
     T->>+S: needs the workspace
     alt container running
-        S-->>T: ready, /skills as its start left it
+        S-->>T: ready, /skills and /context as its start left them
     else cold start
         S->>C: start
-        S->>C: clone the repository into /workspace
-        S->>DB: read the skills archive
-        S->>C: copy the archive, expand it into /skills
-        alt copy and expansion succeed
+        par
+            S->>C: clone the repository into /workspace
+        and for each kind the container expands
+            S->>DB: read the kind's archive
+            S->>C: pipe it into tar, expanding it into /skills or /context
+        end
+        alt the clone and every expansion succeed
             S-->>T: ready
-        else copy or expansion fails
+        else the clone or an expansion fails
             S-->>-T: workspace unavailable, the container stays up as it is
         end
     end
 ```
 
-Before a tool uses the workspace, the session makes sure the container is up (1). A running container already holds whatever its start put in `/skills` (2). On a cold start, the first one or one after an eviction, the session starts the container (3) and clones the repository when the settings name one (4). It then reads the skills archive from its storage (5), copies it into the container and expands it into `/skills`, one folder per skill (6), and the tool runs (7). A failed copy or expansion fails the workspace the way a failed clone does (8). The tool call that needed the workspace fails with "workspace unavailable". The container stays running, so later tool calls use it without the repository or the skills that failed to arrive. Nothing clones or expands again until the container next starts cold. Rendering the prompt's sections never starts the container. The session passes the archive as the standard input of a command it runs in the container, and the image's `tar` expands it there. [workspace](workspace.md) covers the rest of the container's start.
+Before a tool uses the workspace, the session makes sure the container is up (1). A running container already holds whatever its start put in `/skills` and `/context` (2). On a cold start, the first one or one after an eviction, the session starts the container (3). It then clones the repository when the settings name one (4) and, at the same time, reads each archive the session holds from its storage (5) and passes it as the standard input of a command it runs in the container, where the image's `tar` expands it into the kind's directory: the skills into `/skills`, one folder per skill, and the context into `/context` (6). The tool then runs (7). A failed expansion fails the workspace the way a failed clone does, with "Expanding the <kind> into <directory> failed", and when several steps fail, the error carries every message (8). The tool call that needed the workspace fails with "workspace unavailable". The container stays running, so later tool calls use it without the repository, skills or context that failed to arrive. Nothing clones or expands again until the container next starts cold. Rendering the prompt's sections never starts the container. [workspace](workspace.md) covers the rest of the container's start.
 
-> [!NOTE] Why the session keeps the archive whole
-> Only the container uses the skills' files, and it needs all of them at once. The session keeps the archive as it arrived and lets the container's own `tar` expand it, so the files move in one copy and the session never handles them one by one.
+> [!NOTE] Why the session keeps the archives whole
+> Only the container uses the skills' and the context's files, and it needs all of them at once. The session keeps each archive as it arrived and lets the container's own `tar` expand it, so the files move in one piece and the session never handles them one by one.
 
 #### 💬 In a prompt that names a skill
 
@@ -399,6 +418,14 @@ Without an agent name, run starts the subagent with no instructions of its own, 
 > [!WARNING] A skill that names a skill the session does not hold
 > Skills often load other skills by name, sometimes with a plugin prefix such as `plugin:skill`, and refer to their own files through variables such as `${CLAUDE_PLUGIN_ROOT}`. tentacles resolves neither. The model works them out from the listing and the `/skills/<name>/` layout, and a skill the parent did not send is missing: the agent finds no such name and carries on without it.
 
+## 📎 Context files
+
+The parent can send files and folders that the repository does not hold, such as a change's scratch files. They travel the way the skills do: a spawn parameter, an archive the plugin packs, the archive kept in the session object and expanded into the container on every cold start. They land in `/context`, next to `/workspace` and `/skills`.
+
+- **Where the files land.** The parent passes `context`, a list of file and folder paths on its machine. Each path lands under its basename: a file at `/context/<file name>` and a folder at `/context/<folder name>/…`. Two paths with the same basename fail the spawn. How the helper checks and packs the paths, how create reads the archive and how a cold start expands it are in What a spawn sends and How the archives move.
+- **What the agent sees.** When the spawn sent context, every conversation's prompt carries a context section that says the parent sent files for context and that they are in `/context`. It names the folder only, not its entries, and without context there is no section. The agent reads the files with its read and bash tools.
+- **What stays outside.** `/context` is outside the repository, so the commit check never sees it. What the agent changes there is lost at the next cold start, which expands the archive again, and nothing returns to the parent. A different set of files means a new session. Deleting the session deletes the archive with the rest of its storage.
+
 ## 🧹 Daily cleanup
 
 ```mermaid
@@ -426,7 +453,7 @@ flowchart LR
     class Reg,S orange
 ```
 
-A job runs once a day through the `Scheduler` contract; on Cloudflare a cron trigger on the Worker fires it (see [runtime-components](runtime-components.md)). It reads the registry and picks the sessions whose last run stopped more than a month ago. A running or waiting session is never a candidate. For each candidate it deletes the session through its Durable Object, which clears the object's storage, removing its history, its record and its skills and agent definitions, and then drops the registry entry. The entry goes only after the session is gone, so a deletion that stopped halfway leaves the session a candidate, and the next day's job deletes it again and drops the entry. No preview is left by then, since the preview closes when a run stops. Nothing outside tentacles is touched: branches the agent pushed stay on GitHub.
+A job runs once a day through the `Scheduler` contract; on Cloudflare a cron trigger on the Worker fires it (see [runtime-components](runtime-components.md)). It reads the registry and picks the sessions whose last run stopped more than a month ago. A running or waiting session is never a candidate. For each candidate it deletes the session through its Durable Object, which clears the object's storage, removing its history, its record, its skills, agent definitions and context files, and then drops the registry entry. The entry goes only after the session is gone, so a deletion that stopped halfway leaves the session a candidate, and the next day's job deletes it again and drops the entry. No preview is left by then, since the preview closes when a run stops. Nothing outside tentacles is touched: branches the agent pushed stay on GitHub.
 
 tentacles does not tell the parent. The parent's plugin removes the session from its local list the first time it learns of the deletion (see [plugin](plugin.md)).
 

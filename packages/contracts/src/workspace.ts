@@ -14,9 +14,6 @@ import * as Schema from "effect/Schema";
 /** Where the agent works; the Workspace implementation clones the repository here. */
 export const workspaceDirectory = "/workspace";
 
-/** Where the skills archive expands in the workspace container. */
-export const skillsDirectory = "/skills";
-
 /** The session's settings a workspace starts from. */
 export type WorkspaceSettings = Pick<Settings, "repository" | "image" | "size" | "lifetime">;
 

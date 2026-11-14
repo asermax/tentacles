@@ -134,7 +134,7 @@ describe("the sessions API", () => {
           Effect.sync(() => expect(world.records(sessionId).states).toHaveLength(2)),
         );
 
-        expect(world.skillsArchives.get(sessionId)).toEqual(archives.skills);
+        expect(world.archives("skills").get(sessionId)).toEqual(archives.skills);
         expect(
           yield* json(yield* api(`/sessions?harness=pi&sessionId=${parent.sessionId}`)),
         ).toEqual([{ sessionId, name: "worker", status: "idle", ...named }]);
@@ -171,7 +171,7 @@ describe("the sessions API", () => {
 
       const { sessionId } = decodeCreated(yield* json(response));
 
-      expect(world.skillsArchives.get(sessionId)).toEqual(skills);
+      expect(world.archives("skills").get(sessionId)).toEqual(skills);
       expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toMatchObject({
         skills: ["implement"],
       });
@@ -200,7 +200,7 @@ describe("the sessions API", () => {
         expect(response.status).toBe(400);
         expect(decodeInvalidArchive(yield* json(response)).message).toContain("skills archive");
         expect(world.registryCalls).toEqual([]);
-        expect(world.skillsArchives.size).toBe(0);
+        expect(world.archives("skills").size).toBe(0);
         expect(world.faux.getPendingResponseCount()).toBe(1);
       }).pipe(Effect.provide(testWorld)),
   );
@@ -228,7 +228,7 @@ describe("the sessions API", () => {
         expect(message).toContain("skills archive");
         expect(message).toContain("name 'impl' does not match the folder 'implement'");
         expect(world.registryCalls).toEqual([]);
-        expect(world.skillsArchives.size).toBe(0);
+        expect(world.archives("skills").size).toBe(0);
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -255,7 +255,7 @@ describe("the sessions API", () => {
         expect(message).toContain("agents archive");
         expect(message).toContain("name 'inspector' does not match the file 'reviewer.md'");
         expect(world.registryCalls).toEqual([]);
-        expect(world.skillsArchives.size).toBe(0);
+        expect(world.archives("skills").size).toBe(0);
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -277,7 +277,7 @@ describe("the sessions API", () => {
       expect(message).toContain("agents archive");
       expect(message).toMatch(/reviewer\.md: .*(body|prompt)/);
       expect(world.registryCalls).toEqual([]);
-      expect(world.skillsArchives.size).toBe(0);
+      expect(world.archives("skills").size).toBe(0);
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -307,7 +307,7 @@ describe("the sessions API", () => {
         expect(message).toContain("agents archive");
         expect(message).toMatch(/reviewer\.md: .*(body|prompt)/);
         expect(world.registryCalls).toEqual([]);
-        expect(world.skillsArchives.size).toBe(0);
+        expect(world.archives("skills").size).toBe(0);
       }).pipe(Effect.provide(testWorld)),
   );
 

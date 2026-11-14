@@ -6,14 +6,14 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import { ALCHEMY_PHASE } from "alchemy";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Connection, RemoteExecutionEnv } from "@earendil-works/pi-env";
-import { SkillsArchive } from "@tentacles/contracts/skills-archive";
+import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import {
-  skillsDirectory,
   Workspace,
   type WorkspaceSettings,
   WorkspaceUnavailable,
   workspaceDirectory,
 } from "@tentacles/contracts/workspace";
+import { archiveExpansions, type ArchiveKind } from "@tentacles/worker-api/archive-kinds";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
@@ -160,11 +160,11 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
       ),
     );
 
-  const extractSkills = (archive: Uint8Array) =>
+  const extract = (kind: ArchiveKind, directory: string, archive: Uint8Array) =>
     Effect.tryPromise({
       try: async () => {
         const extraction = await container().exec(
-          ["sh", "-c", `mkdir -p ${skillsDirectory} && tar -xzf - -C ${skillsDirectory}`],
+          ["sh", "-c", `mkdir -p ${directory} && tar -xzf - -C ${directory}`],
           { stdin: new Blob([archive]).stream() },
         );
 
@@ -177,7 +177,7 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
           ? Effect.void
           : Effect.fail(
               new WorkspaceUnavailable({
-                message: `Expanding the skills into ${skillsDirectory} failed`,
+                message: `Expanding the ${kind} into ${directory} failed`,
               }),
             ),
       ),
@@ -220,21 +220,23 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
       });
     });
 
-  // The clone and the extraction write to different directories, so a cold start runs them
+  // The clone and the extractions write to different directories, so a cold start runs them
   // together and reports every step that failed.
   const prepare = (
     repository: Repository | null | undefined,
-    readArchive: Effect.Effect<Uint8Array | null>,
+    read: (kind: ArchiveKind) => Effect.Effect<Uint8Array | null>,
   ) =>
     Effect.validate(
       [
         repository == null ? Effect.void : clone(repository),
-        Effect.flatMap(readArchive, (archive) =>
-          archive == null ? Effect.void : extractSkills(archive),
+        ...archiveExpansions.map(({ kind, directory }) =>
+          Effect.flatMap(read(kind), (archive) =>
+            archive == null ? Effect.void : extract(kind, directory, archive),
+          ),
         ),
       ],
       (step) => step,
-      { concurrency: 2, discard: true },
+      { concurrency: "unbounded", discard: true },
     ).pipe(
       Effect.mapError(
         (failures) =>
@@ -260,7 +262,7 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
   return Layer.effect(
     Workspace,
     Effect.gen(function* () {
-      const skillsArchive = yield* SkillsArchive;
+      const archiveStore = yield* ArchiveStore;
 
       return Workspace.of({
         ensure: (settings) =>
@@ -272,7 +274,7 @@ export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandle
 
               yield* start(settings);
               yield* daemonReady;
-              yield* prepare(settings.repository, skillsArchive.read());
+              yield* prepare(settings.repository, archiveStore.read);
             }),
           ),
 

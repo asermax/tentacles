@@ -1,7 +1,9 @@
 import * as Effect from "effect/Effect";
+import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 
+import { archiveKinds } from "./archive-kinds";
 import { Entry } from "./entries";
 import { InvalidArchive, QuestionNotWaiting, SessionNotFound } from "./errors";
 import { QuestionId, SessionId } from "./ids";
@@ -28,8 +30,7 @@ export const CreateSession = Schema.Struct({
   parent: Parent,
   settings: Settings,
   prompt: Schema.String,
-  skills: Schema.optionalKey(Archive),
-  agents: Schema.optionalKey(Archive),
+  ...Record.map(archiveKinds, () => Schema.optionalKey(Archive)),
 });
 
 export type CreateSession = typeof CreateSession.Type;

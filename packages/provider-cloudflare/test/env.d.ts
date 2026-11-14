@@ -1,3 +1,4 @@
+import type { ArchiveKind } from "@tentacles/worker-api/archive-kinds";
 import type { Parent } from "@tentacles/worker-api/parent";
 import type { CreateSession } from "@tentacles/worker-api/sessions";
 import type {
@@ -9,7 +10,7 @@ import type {
 // The session object's RPC as a test calls it, the way the Worker's SessionHost does.
 interface SessionRpc extends Rpc.DurableObjectBranded {
   create(request: CreateSession): void;
-  storedSkillsArchive(): Uint8Array | null;
+  storedArchive(kind: ArchiveKind): Uint8Array | null;
 }
 
 // The registry object's RPC as a test calls it from outside the Worker: each member of
