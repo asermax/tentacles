@@ -1,15 +1,14 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { packTar, unpackTar } from "modern-tar";
+import { unpackTar } from "modern-tar";
 
 import type { ArchiveKind } from "./archive-kinds";
 import { checkAgents, checkSkills, type Problem, type SkillSource } from "./definitions";
 import { InvalidArchive } from "./errors";
 
-export class ArchiveUnreadable extends Schema.TaggedError<ArchiveUnreadable>()(
-  "ArchiveUnreadable",
-  { message: Schema.String },
-) {}
+class ArchiveUnreadable extends Schema.TaggedError<ArchiveUnreadable>()("ArchiveUnreadable", {
+  message: Schema.String,
+}) {}
 
 /** A regular file of an archive; `mode` holds its permission bits, as in `stat`'s mode & 0o777. */
 interface ArchiveEntry {
@@ -26,26 +25,6 @@ const defaultMode = 0o644;
 
 const gunzip = (bytes: Uint8Array) =>
   new Blob([new Uint8Array(bytes)]).stream().pipeThrough(new DecompressionStream("gzip"));
-
-const gzip = async (bytes: Uint8Array<ArrayBuffer>) =>
-  new Uint8Array(
-    await new Response(
-      new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip")),
-    ).arrayBuffer(),
-  );
-
-/** Packs entries into a tar.gz, the form `readArchive` reads. */
-export const packArchive = (entries: ReadonlyArray<ArchiveEntry>) =>
-  Effect.promise(async () =>
-    gzip(
-      await packTar(
-        entries.map((entry) => ({
-          header: { name: entry.path, size: entry.bytes.byteLength, mode: entry.mode },
-          body: entry.bytes,
-        })),
-      ),
-    ),
-  );
 
 /** The regular files of a tar.gz, with their paths normalized (no leading `./`). */
 export const readArchive = (bytes: Uint8Array) =>
