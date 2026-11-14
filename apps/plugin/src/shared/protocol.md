@@ -28,11 +28,11 @@ A remote agent works on its own, so a skill that would stop to ask the person ha
 
 ## Context files
 
-`spawn` takes `context`, the paths of files and folders on your machine that the job needs and the repository does not hold, such as a change's scratch files. Each path lands in the remote agent's `/context` folder under its own name: a file at `/context/<file name>`, a folder at `/context/<folder name>/…`. `/context` is outside the repository, so the files never reach its commits. A folder takes its regular files, and every file keeps its permission bits.
+`spawn` takes `context`, the paths of files and folders on your machine that the job needs and the repository does not hold, such as a change's scratch files. Each path lands in the remote agent's `/context` folder under its own name: a file at `/context/<file name>`, a folder at `/context/<folder name>/…`. `/context` is outside the repository, so the files never reach its commits. A folder takes everything under it, a symlink is sent as the file or folder it points to, and every file keeps its permission bits.
 
 The remote agent has a copy that is fixed at spawn. Its edits to the copy are lost when its workspace restarts and never come back to you, so spawn a new remote agent when the job needs different files. The remote agent is told only that you sent files and that they are in `/context`, so say in the handoff what the files are and how to use them.
 
-The paths are checked on your machine before anything is sent. A path that does not exist or cannot be read, two paths with the same name, or files that pack over 5 MB make `spawn` create nothing and return the problem with its path in a Context group, beside the Skills and Agents groups.
+The paths are checked on your machine before anything is sent. A path that does not exist or cannot be read, two paths with the same name, or files that pack over 5 MB make `spawn` create nothing and return every problem with its path in a Context group, beside the Skills and Agents groups.
 
 ## Being woken
 
