@@ -1,5 +1,4 @@
-import { packArchive as packEntries } from "@tentacles/worker-api/archives";
-import * as Effect from "effect/Effect";
+import { packArchive as packEntries } from "@tentacles/worker-api/test/pack-archive";
 import * as Predicate from "effect/Predicate";
 
 interface ArchiveFile {
@@ -10,14 +9,12 @@ interface ArchiveFile {
 const encoder = new TextEncoder();
 
 const packArchive = (files: ReadonlyArray<ArchiveFile>) =>
-  Effect.runPromise(
-    packEntries(
-      files.map((file) => ({
-        path: file.path,
-        bytes: Predicate.isString(file.content) ? encoder.encode(file.content) : file.content,
-        mode: 0o644,
-      })),
-    ),
+  packEntries(
+    files.map((file) => ({
+      path: file.path,
+      bytes: Predicate.isString(file.content) ? encoder.encode(file.content) : file.content,
+      mode: 0o644,
+    })),
   );
 
 // getRandomValues takes at most 64 KiB at a time.
