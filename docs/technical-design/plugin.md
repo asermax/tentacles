@@ -55,7 +55,7 @@ flowchart LR
 
 The **harness glue** is a pi extension on pi and a Claude mod on Claude Code. It registers the tools, turns each tool call into a helper command, keeps the parent's local state, updates the status line and delivers the wakes.
 
-The **helper CLI** runs as one process per command, and as a long-running watch that holds one socket per open session in the local state and hands each state change back to the glue. For spawn it also reads the skill, agent and context paths the agent passed, checks every file, and packs the skills, agents and context archives it sends (see [sessions](sessions.md)). It reads the Worker URL and the API key from environment variables, and the default session settings come from environment variables too (see Implementation details).
+The **helper CLI** runs as one process per command, and as a long-running watch that holds one socket per open session in the local state and hands each state change back to the glue. For spawn it also stats the skill, agent and context paths the agent passed, reads only each SKILL.md and agent definition file to check them, checks that the context paths are files or folders with distinct names, and packs one archive per kind with a filesystem packer that reads the files as it packs (see [sessions](sessions.md)). It reads the Worker URL and the API key from environment variables, and the default session settings come from environment variables too (see Implementation details).
 
 The **local state** is the parent's list of remote sessions, per harness session: a custom session entry on pi, a file under `CLAUDE_PLUGIN_DATA` on Claude Code. The glue reads it when the harness starts and writes it whenever the parent's sessions change.
 
