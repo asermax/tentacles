@@ -1,0 +1,22 @@
+{
+  "name": "tentacles",
+  "description": "tentacles: remote coding agents for Claude Code.",
+  "owner": {
+    "name": "Agustín Carrasco",
+    "url": "https://github.com/asermax"
+  },
+  "plugins": [
+    {
+      "name": "tentacles",
+      "source": "./",
+      "description": "Spawn, steer, question and collect remote coding agents that run in tentacles.",
+      "version": "1.1.0",
+      "category": "developer",
+      "keywords": [
+        "remote-agents",
+        "subagents",
+        "tentacles"
+      ]
+    }
+  ]
+}

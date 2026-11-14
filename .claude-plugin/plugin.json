@@ -1,0 +1,16 @@
+{
+  "name": "tentacles",
+  "version": "1.1.0",
+  "description": "Spawn, steer, question and collect remote coding agents that run in tentacles.",
+  "author": {
+    "name": "Agustín Carrasco"
+  },
+  "repository": "https://github.com/asermax/tentacles",
+  "homepage": "https://github.com/asermax/tentacles",
+  "license": "MIT",
+  "keywords": [
+    "remote-agents",
+    "subagents",
+    "tentacles"
+  ]
+}
