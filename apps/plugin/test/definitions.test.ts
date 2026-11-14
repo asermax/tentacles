@@ -262,6 +262,30 @@ describe("spawn with skill and agent definitions", () => {
     expect(stubWorker().requests).toEqual([]);
   });
 
+  it("packs a skill folder reached through a symlink with its repaired SKILL.md once and its other files", async () => {
+    const real = join(dir, "real", "demo");
+
+    write("real/demo/SKILL.md", "---\nname: demo\ndescription: A demo: with a colon\n---\nBody.\n");
+    write("real/demo/notes.md", "Notes.");
+
+    mkdirSync(join(dir, "linked"), { recursive: true });
+    symlinkSync(real, join(dir, "linked", "demo"));
+
+    const result = await spawn({ skills: [join(dir, "linked", "demo")] });
+    const [created] = stubWorker().creates;
+    const entries = await Effect.runPromise(readArchive(created?.skills ?? new Uint8Array()));
+
+    expect(result).toEqual(Success.make({ result: { sessionId } }));
+    expect(entries.map((entry) => entry.path).toSorted()).toEqual([
+      "demo/SKILL.md",
+      "demo/notes.md",
+    ]);
+    expect(await unpacked(created?.skills)).toEqual({
+      "demo/SKILL.md": '---\nname: demo\ndescription: "A demo: with a colon"\n---\nBody.\n',
+      "demo/notes.md": "Notes.",
+    });
+  });
+
   it("sends the skills archive and no agents archive when it gets skill paths only", async () => {
     const result = await spawn({ skills: [skillFolder("implement")] });
     const [created] = stubWorker().creates;

@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
@@ -35,7 +35,7 @@ export const Rejected = Schema.TaggedStruct("Rejected", {
 
 export type Rejected = typeof Rejected.Type;
 
-type DefinitionPaths = Required<Pick<SpawnRequest, ArchiveKind>>;
+type SpawnPaths = Required<Pick<SpawnRequest, ArchiveKind>>;
 
 /** What a kind's check settles about its paths: what goes into the package, and the packer's filter when some files on disk are replaced by content sources. */
 interface Checked {
@@ -118,10 +118,16 @@ const readSkill = (path: string) =>
       info.mode & permissionBits,
     );
 
+    // The packer walks a symlinked folder through its real path, and the filter sees the paths it walks.
+    const realRoot = yield* Effect.tryPromise({
+      try: () => realpath(root),
+      catch: (cause) => problemOf(path, `cannot be read: ${String(cause)}`),
+    });
+
     return {
       skill: { folder, path, text } satisfies SkillSource,
       sources: [{ type: "directory", source: root, target: folder }, source] satisfies TarSource[],
-      replaced: skillPath,
+      replaced: join(realRoot, skillFile),
     };
   });
 
@@ -175,7 +181,7 @@ const duplicateNames = (paths: ReadonlyArray<string>) => {
 
 type Check = (paths: ReadonlyArray<string>) => Effect.Effect<Checked, ReadonlyArray<Problem>>;
 
-/** Reads every path, adds the problems the kind finds across the readable ones, and builds the result only when there is none. */
+/** Checks every path with the kind's reader (a stat for context paths, a read of the definition file for skills and agents), adds the problems the kind finds across the readable ones, and builds the result only when there is none. */
 const checkPaths = <Read>(
   paths: ReadonlyArray<string>,
   read: (path: string) => Effect.Effect<Read, Problem>,
@@ -274,7 +280,7 @@ const archiveOf = (kind: ArchiveKind, paths: ReadonlyArray<string>) =>
   }).pipe(Effect.result);
 
 /** Checks every path the agent passed, kind by kind, and packs each kind that had paths into an archive; fails with every problem of every path, never at the first. */
-export const readDefinitions = (paths: DefinitionPaths) =>
+export const packSpawnArchives = (paths: SpawnPaths) =>
   Effect.gen(function* () {
     const results = yield* Effect.all(
       Record.map(paths, (kindPaths, kind) => archiveOf(kind, kindPaths)),
