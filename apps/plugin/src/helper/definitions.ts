@@ -118,7 +118,8 @@ const readSkill = (path: string) =>
       info.mode & permissionBits,
     );
 
-    // The packer walks a symlinked folder through its real path, and the filter sees the paths it walks.
+    // The packer walks from the source it is given, and the filter sees the paths it walks. Given the
+    // real path, it walks the same paths whether the folder or a folder above it is a symlink.
     const realRoot = yield* Effect.tryPromise({
       try: () => realpath(root),
       catch: (cause) => problemOf(path, `cannot be read: ${String(cause)}`),
@@ -126,7 +127,10 @@ const readSkill = (path: string) =>
 
     return {
       skill: { folder, path, text } satisfies SkillSource,
-      sources: [{ type: "directory", source: root, target: folder }, source] satisfies TarSource[],
+      sources: [
+        { type: "directory", source: realRoot, target: folder },
+        source,
+      ] satisfies TarSource[],
       replaced: join(realRoot, skillFile),
     };
   });
