@@ -1,3 +1,18 @@
+# [1.1.0](https://github.com/asermax/tentacles/compare/v1.0.0...v1.1.0) (2026-11-14)
+
+
+### Bug Fixes
+
+* **plugin:** drop the on-disk SKILL.md of a symlinked skill folder by its real path ([ad8b5da](https://github.com/asermax/tentacles/commit/ad8b5dae53b3f749cea115e827e03efb9969f55a))
+* **plugin:** pack a skill folder from its real path so a symlinked parent folder packs SKILL.md once ([4b40749](https://github.com/asermax/tentacles/commit/4b4074907c5d4efaa1a79b0b0d0db831347c1a96))
+* **provider-cloudflare:** store the context archive under its own key and test create with context ([752b78d](https://github.com/asermax/tentacles/commit/752b78d6c4cba4815e51559e3fd4192539ca980d))
+
+
+### Features
+
+* **core:** carry context files to a session and expand them into /context ([c36022f](https://github.com/asermax/tentacles/commit/c36022f2f9871f3234e81c2b606c7fd5e60f4b64))
+* **plugin:** send context files and folders with spawn ([77c1ad7](https://github.com/asermax/tentacles/commit/77c1ad7266f6aac167cddda8320d8e31c55a67d2))
+
 # 1.0.0 (2026-11-13)
 
 
