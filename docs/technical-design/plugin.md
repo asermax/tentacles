@@ -184,7 +184,7 @@ Either install works only against a deployed Worker, with its URL and API key se
 
 Pull requests to `master` run the checks workflow: its job installs bubblewrap and lifts Ubuntu's AppArmor restriction on unprivileged user namespaces, because the core tests' sandbox needs those namespaces, then installs the dependencies from the frozen lockfile and runs `pnpm check` and `pnpm test`. A push to `master` runs the same workflow, then a release job with write access to the repository's contents, issues and pull requests. The release job checks out the full history, builds the plugin once, because the npm plugin reads the pi package's manifest before semantic-release's own build, and runs semantic-release. npm authenticates with trusted publishing, which exchanges the job's GitHub OIDC token for a publish token. When the package has no trusted publisher, npm uses the `NPM_TOKEN` repository secret instead. The package is published with a provenance attestation.
 
-The repository has no `v*` tag, so the first release is `1.0.0` whatever the commits since the start of the history are. Until then `VERSION` holds `0.1.0`, the version already on npm; the release step overwrites it and semantic-release does not read it.
+semantic-release takes the next version from the commits since the last `v*` tag. The release step writes that version to `VERSION`, which semantic-release itself never reads.
 
 > [!NOTE] Why the marketplace lives on its own branch
 > The marketplace has to be the built tree, with the bundled helper, hooks and skill, and `master` does not commit build output. An orphan branch holds only that tree, and each force-push replaces it whole, so the branch keeps no history of build output.
