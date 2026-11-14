@@ -1,6 +1,6 @@
 ---
 title: "Workspace"
-summary: "The container a remote agent works in: how it starts and stops, what it holds, the tools the agent gets, and how a preview gives the agent a browser."
+summary: "The container a remote agent works in: how it starts and stops, what it holds, who its commits are by, the tools the agent gets, and how a preview gives the agent a browser."
 created: "2026-11-09"
 ---
 
@@ -15,7 +15,7 @@ Each session has one workspace container, started by the first file or command o
 | Input | What it is | When absent |
 |---|---|---|
 | image | the container image: `default`, the only image tentacles offers; create rejects any other | `default` |
-| size | the container's instance type | basic |
+| size | the container's instance type | standard-2 |
 | lifetime | inactivity time before the container stops | 15 minutes |
 | repository | an `https://` (or `http://`) repository URL and a shallow-or-full clone flag; create rejects any other URL form | nothing is cloned |
 
@@ -23,9 +23,30 @@ The plugin fills every absent value except the repository from its defaults, whi
 
 ## 📦 What the container holds
 
-The default image holds only what tentacles needs: pi-env's daemon, git and CA certificates, with git set up to authenticate through the token added at egress, and a small process that pings the session with busybox `wget` to keep the container up while work is pending (see below). It has no Node, no Chrome and no Docker. The agent installs anything else it needs.
+The default image holds only what tentacles needs: pi-env's daemon, git, CA certificates, and a small process that pings the session with busybox `wget` to keep the container up while work is pending (see below). git authenticates through the token added at egress, and commits as `tentacles <tentacles@tentacles.invalid>` when nothing else sets an identity. It has no Node, no Chrome and no Docker. The agent installs anything else it needs.
 
 The agent always works in `/workspace`. The first file or command operation of each tool call makes sure the workspace is up. pi-durable also asks for the execution environment to render prompt sections, and that request alone does not start the container. When the container is not running, tentacles starts it and waits until it is ready. When the settings name a repository, tentacles then clones the repository's default branch there, shallow or full as the setting says. tentacles pipes each archive the session holds into the image's `tar` in the container: the skills into `/skills`, one folder per skill, and the context into `/context`, each file or folder under its own name. The clone and the expansions run together. When the clone or an expansion fails, the tool call that needed the workspace fails with "workspace unavailable". The container stays running, and later tool calls use it as it is. Nothing clones or expands again until the container next starts cold (see [sessions](sessions.md)). When the clone and the expansions succeed, the first tool call and the first one after a restart, even in the middle of a run, find the repository, the skills and the context in place. What the agent changes in `/context` is lost at the next cold start, which expands the archive again. Without a repository setting, the agent clones whatever its prompt names. git reaches GitHub with the GitHub token added at egress; the container never holds it (see [runtime-components](runtime-components.md)).
+
+## 🪪 Who the agent's commits are by
+
+```mermaid
+flowchart LR
+    O(["Operator"]) -->|"1 sets author name and email"| V[("Deploy variables, required")]
+    V -->|"2 deploy fails when either is missing"| W["Worker"]
+    W -->|"3 reads both when the session starts its workspace"| S["Session object"]
+    S -->|"4 starts the command daemon with GIT_AUTHOR_* and GIT_COMMITTER_*"| D["Command daemon in the workspace"]
+    D -->|"5 every command inherits them"| C["Agent's git commits"]
+    classDef ext fill:#f3f4f6,stroke:#6b7280,color:#111827
+    classDef mod fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef store fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+    class O ext
+    class W,S,D,C mod
+    class V store
+```
+
+The operator sets an author name and an email as two deploy variables (1). Both are required, and a deploy without either fails (2). When a session starts its workspace, the Worker reads both (3). The session then starts the workspace's command daemon with `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` set to them (4). It passes them on that start only, and passes no other variable. Every command the agent runs inherits them, so every commit carries the deploy's identity, whatever the session's provider (5).
+
+The variables override every git config setting, so the agent cannot change the identity, and its instructions do not mention it. The image's identity stays in git config and applies only when the variables are not set. A running daemon keeps the identity it started with; the variables apply from its next start. The name and email are not credentials, so passing them into the container keeps the rule that credentials stay out of containers (see [runtime-components](runtime-components.md)).
 
 ## ⏱️ Lifetime and pending work
 
@@ -33,7 +54,13 @@ The container starts on the first operation of a tool call and stays up while th
 
 The workspace keeps itself up while it has pending work. A small process in the image checks `git status` in `/workspace` and, while work is pending, pings the session once a minute with `GET http://tentacles.internal/lifetime?pendingWork=true`, which the container's outbound handler routes to its own session. The session answers `yes` or `no` by the rule in the flowchart below, and answers `no` when the settings name no repository. Each ping that reaches the session renews the container. After a `no`, the process stops pinging, and the inactivity time stops the container. The session schedules no check of its own, so pi-durable keeps sole use of the session's alarm.
 
-Pending work is anything in the session's repository that is not committed and pushed. tentacles checks for it only when the settings name a repository, since that is the only repository it manages. The check runs at three points: when the question tool asks (see [question-round-trip](question-round-trip.md)), when a run finishes, and whenever the workspace pings while it has pending work.
+Pending work is anything in the session's repository that is not committed and pushed. tentacles checks for it only when the settings name a repository, since that is the only repository it manages. The check runs at three points: when the question tool asks while the container is running (see [question-round-trip](question-round-trip.md)), when a run finishes, and whenever the workspace pings while it has pending work. The question tool and the end-of-run check run git status and the log of unpushed commits in the workspace, and reach one of these outcomes:
+
+- clean, when both ran and found nothing;
+- pending, when both ran and found uncommitted changes or unpushed commits;
+- failed, when either one failed unexpectedly: the workspace did not run it, or it exited with an error.
+
+The question tool sends the question with the repository status failing when the check failed, and the end-of-run check treats a failed check as pending. Neither starts a stopped container, and nothing retries the check. The lifetime ping runs its own `git status` inside the container.
 
 ```mermaid
 flowchart TD
@@ -67,7 +94,7 @@ Closing a session stops its run. Without pending work, the container then stops 
 | codemode | runs a script that calls the other tools except `ask_parent`; scripts keep `models.*` (the model catalog, classify and generateImages) through the session's providers |
 | subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; run and spawn take an optional agent name, and the subagent then starts with that agent definition's prompt. The root and its children have the tool, so a child can start subagents of its own; a grandchild cannot |
 | skill | given the name of one of the session's skills, returns a block pointing at its SKILL.md in `/skills`, which the agent then reads; an unknown name fails, naming the skills that exist |
-| ask_parent | asks the parent; root conversation only, and only the model calls it; while the repository has pending work, returns a refusal with the repository's status |
+| ask_parent | asks the parent; root conversation only, and only the model calls it; the question carries a repository status, persisted, failing or no repository (see [question-round-trip](question-round-trip.md)); while the repository has pending work, returns a refusal with the output of git status and the unpushed commits |
 | preview | opens a preview, returning a preview URL to a workspace port and a CDP URL to a browser and replacing the open preview if there is one; or closes the open preview |
 
 The coding tools run in the container through pi-env: the session object reaches pi-env's daemon over the container's exec stdio. codemode is pi-durable's own tool; on Cloudflare it runs in a RemoteCodemodeSandbox. pi-durable ships no subagent tool, so tentacles writes one following pi-durable's examples. The subagent tool and the skill tool each belong to an extension of their own, described in [sessions](sessions.md); a subagent never gets `ask_parent`.

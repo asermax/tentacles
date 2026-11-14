@@ -59,7 +59,7 @@ The **helper CLI** runs as one process per command, and as a long-running watch 
 
 The **local state** is the parent's list of remote sessions, per harness session: a custom session entry on pi, a file under `CLAUDE_PLUGIN_DATA` on Claude Code. The glue reads it when the harness starts and writes it whenever the parent's sessions change.
 
-The **skill** teaches the parent agent the tools and adds that its children are remote: nothing of theirs runs locally, and their state and output are reachable only through the tools. It says that a session's skills and agent definitions are fixed at spawn, so the parent includes everything the job needs in the spawn, and spawns a new session when the job needs a different set. It also explains `context`: each path lands at `/context/<basename>`, outside the repository, as a copy fixed at spawn whose edits are lost and never come back, so the parent tells the remote agent in the handoff what the files are and how to use them. It tells the parent to write the handoff so the remote agent decides wherever a skill would stop for the user, ignores any instruction to ask the user, and lists those decisions in its final report. It also tells the parent to say in the handoff what to do at the stop points the agent cannot decide, such as a credential it lacks.
+The **skill** teaches the parent agent the tools and adds that its children are remote: nothing of theirs runs locally, and their state and output are reachable only through the tools. It says that a session's skills and agent definitions are fixed at spawn, so the parent includes everything the job needs in the spawn, and spawns a new session when the job needs a different set. It also explains `context`: each path lands at `/context/<basename>`, outside the repository, as a copy fixed at spawn whose edits are lost and never come back, so the parent tells the remote agent in the handoff what the files are and how to use them. It tells the parent to write the handoff so the remote agent decides wherever a skill would stop for the user, ignores any instruction to ask the user, and lists those decisions in its final report. It also tells the parent to say in the handoff what to do at the stop points the agent cannot decide, such as a credential it lacks. It explains the repository status that comes with every question. Persisted means the work is committed and pushed, or the workspace had nothing pending. Failing means tentacles could not check the workspace, so work may exist only on the container's disk and is lost when the container stops. No repository means tentacles manages no repository for the session and checked nothing.
 
 ## ♠️ What it exposes
 
@@ -84,7 +84,7 @@ The watch wakes the parent with what it needs to act without another call:
 
 | When | What the parent receives |
 |---|---|
-| a remote agent asks a question | the session, the question id and the question text |
+| a remote agent asks a question | the session, the question id, the question text and its repository status |
 | a run finishes | the session and its last message |
 | a run fails | the session and its failure |
 
@@ -196,11 +196,11 @@ semantic-release takes the next version from the commits since the last `v*` tag
 | `TENTACLES_URL` | the Worker's URL | required |
 | `TENTACLES_API_KEY` | the API key | required |
 | `TENTACLES_HELPER` | the helper's path | the bundled helper |
-| `TENTACLES_SESSION_PROVIDER` | the model provider | the provider that serves glm-5.2 |
-| `TENTACLES_SESSION_MODEL` | the model | glm-5.2 |
+| `TENTACLES_SESSION_PROVIDER` | the model provider | the provider that serves glm-5.3 |
+| `TENTACLES_SESSION_MODEL` | the model | glm-5.3 |
 | `TENTACLES_SESSION_EFFORT` | the effort level | max |
 | `TENTACLES_WORKSPACE_IMAGE` | the workspace image; `default` is the only one tentacles offers | `default` |
-| `TENTACLES_WORKSPACE_SIZE` | the workspace container's instance type | basic |
+| `TENTACLES_WORKSPACE_SIZE` | the workspace container's instance type | standard-2 |
 | `TENTACLES_WORKSPACE_LIFETIME` | the workspace's inactivity time, in minutes | 15 |
 
 The helper reads them where it runs, on the developer's machine, except `TENTACLES_HELPER`, which the glue reads to find the helper. The deploy reads its own variables, apart from these.

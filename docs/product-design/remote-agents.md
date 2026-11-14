@@ -8,7 +8,7 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-tentacles lets an agent on pi or Claude Code start coding agents that run remotely, on Cloudflare, and work with them the way it works with local subagents: spawn them, prompt and steer them, see when they stop, answer their questions and close them. The parent agent does all of it through a set of tools; nothing of a remote agent runs on the developer's machine. When the parent goes away, a remote agent keeps working and waits on its questions, and the parent finds it when it comes back. Its work survives only through git, so a remote agent commits and pushes what it wants to keep.
+tentacles lets an agent on pi or Claude Code start coding agents that run remotely, on Cloudflare, and work with them the way it works with local subagents: spawn them, prompt and steer them, see when they stop, answer their questions and close them. The parent agent does all of it through a set of tools; nothing of a remote agent runs on the developer's machine. When the parent goes away, a remote agent keeps working and waits on its questions, and the parent finds it when it comes back. Its work survives only through git, so a remote agent commits and pushes what it wants to keep. Every commit a remote agent makes is authored by the name and email the deploy sets, whoever spawned the agent.
 
 ## 🚀 Spawning a remote agent
 
@@ -55,7 +55,13 @@ A remote agent sees its skills and agent definitions by name and description, an
 
 A remote agent can ask its parent a question when it needs a decision. Before it asks, it commits and pushes its work, so the question can wait any length of time and the work survives the container stopping.
 
-The plugin wakes the parent with the question itself. It can answer on its own or show the question to the person and answer when they reply, which can be much later. The parent answers with the answer tool, and the remote agent continues from where it asked. A prompt sent while a question waits does not answer the question; the prompt reaches the agent after the answer.
+The plugin wakes the parent with the question itself and its repository status, which is one of these values:
+
+- **persisted**: the work is committed and pushed, or the workspace had nothing pending, so the question can wait any length of time.
+- **failing**: tentacles could not check the workspace, so the remote agent's work may exist only on its container's disk and is lost when the container stops.
+- **no repository**: the remote agent works on no repository tentacles manages, so tentacles checked nothing.
+
+The parent sees the repository status wherever it sees the question: in the wake, in status and in messages. It can answer on its own or show the question to the person and answer when they reply, which can be much later. The parent answers with the answer tool, and the remote agent continues from where it asked. A prompt sent while a question waits does not answer the question; the prompt reaches the agent after the answer.
 
 Only the remote agent itself asks; subagents it starts inside its session cannot. [question-round-trip](../technical-design/question-round-trip.md) follows a question from the tool to the parent and back.
 

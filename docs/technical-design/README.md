@@ -17,5 +17,5 @@ One row per note, kept by hand: adding a note here is part of writing it.
 | [Sessions](sessions.md) | The session record and registry entry tentacles stores, a session's path from spawn to deletion, the skills, agents and context files it carries, its lifecycle, and the daily job that deletes old sessions |
 | [Worker API](worker-api.md) | The calls and the per-session socket the plugin uses, and the session state they return |
 | [Question round trip](question-round-trip.md) | How a remote agent's question reaches the parent and how the answer resumes the run |
-| [Workspace](workspace.md) | The per-session container: start, lifetime, pending work, the agent's tools, and the preview with a Browser Run browser |
+| [Workspace](workspace.md) | The per-session container: start, lifetime, pending work, the commit identity, the agent's tools, and the preview with a Browser Run browser |
 | [Plugin](plugin.md) | The pi and Claude Code plugin: its parts, tools, wake messages, how the parent's local list stays in sync, and how it is published and installed |
