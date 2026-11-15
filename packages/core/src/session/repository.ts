@@ -11,6 +11,13 @@ export const Pending = Schema.TaggedStruct("Pending", { status: Schema.String })
 
 export type Pending = typeof Pending.Type;
 
+/** What `checkRepository` finds: the outcomes the wire carries, plus the pending work that makes the question tool refuse. */
+export const RepositoryCheckResult = Schema.Union([...RepositoryCheck.members, Pending]).pipe(
+  Schema.toTaggedUnion("_tag"),
+);
+
+export type RepositoryCheckResult = typeof RepositoryCheckResult.Type;
+
 const run = (env: ExecutionEnv, command: readonly string[]) =>
   Effect.promise(async () => {
     let output = "";
@@ -63,10 +70,10 @@ const pendingWork = (env: ExecutionEnv) =>
  * none, and the env would start it and clone just to find nothing.
  */
 export const checkRepository = (
-  repository: Repository | null | undefined,
+  repository: Repository | null,
   env: ExecutionEnv | undefined,
   isRunning: Effect.Effect<boolean>,
-) =>
+): Effect.Effect<RepositoryCheckResult> =>
   Effect.gen(function* () {
     if (repository == null) {
       return RepositoryCheck.cases.NoRepository.make({});

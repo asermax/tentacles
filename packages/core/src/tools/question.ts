@@ -4,12 +4,11 @@ import { obj, str } from "@earendil-works/pi-schema";
 import { QuestionId, type SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
-import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
 import { QuestionsDoc, type StoredQuestion } from "../session/questions";
 import { RecordDoc } from "../session/record";
-import { checkRepository } from "../session/repository";
+import { checkRepository, RepositoryCheckResult } from "../session/repository";
 import { AskParentResult, askParentResultSchema } from "./ask-parent-result";
 import { ToolNames } from "./tool-names";
 
@@ -99,10 +98,10 @@ export const askParentTool = (sessionId: SessionId, isRunning: Effect.Effect<boo
         const record = await api.snapshot(RecordDoc, sessionId, context);
 
         const repositoryCheck = await Effect.runPromise(
-          checkRepository(record?.settings.repository, api.env, isRunning),
+          checkRepository(record?.settings.repository ?? null, api.env, isRunning),
         );
 
-        if (Predicate.isTagged(repositoryCheck, "Pending")) {
+        if (RepositoryCheckResult.guards.Pending(repositoryCheck)) {
           return toolResult(
             AskParentResult.cases.PendingWork.make({ status: repositoryCheck.status }),
           );

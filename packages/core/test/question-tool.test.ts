@@ -268,7 +268,10 @@ describe("the question tool", () => {
       const { repositoryCheck } = yield* waitingOn(sessionId);
 
       expect(RepositoryCheck.guards.CheckFailed(repositoryCheck)).toBe(true);
-      expect(JSON.stringify(repositoryCheck)).toContain("not a git repository");
+
+      if (RepositoryCheck.guards.CheckFailed(repositoryCheck)) {
+        expect(repositoryCheck.output).toContain("not a git repository");
+      }
     }).pipe(Effect.provide(testWorld)),
   );
 
