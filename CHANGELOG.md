@@ -1,3 +1,19 @@
+# [1.2.0](https://github.com/asermax/tentacles/compare/v1.1.0...v1.2.0) (2026-11-15)
+
+
+### Bug Fixes
+
+* **core:** do not prompt a commit when the end-of-run check fails ([6441a33](https://github.com/asermax/tentacles/commit/6441a331e1109d75127a059db377b8513fb6cbbc))
+* **provider-cloudflare:** read a session object without a container as a stopped workspace ([28aeb99](https://github.com/asermax/tentacles/commit/28aeb9914f17b3be194afc659f5dff4a788dadd1))
+
+
+### Features
+
+* **core:** carry the repository check on questions and ask on a failing workspace ([52de78c](https://github.com/asermax/tentacles/commit/52de78cb20c7ca38176ea31b5992e23f0e33fdd1))
+* **plugin:** show the question's repository check in the wake and protocol ([96742ee](https://github.com/asermax/tentacles/commit/96742ee7be8e3f32a71f0cc16abb33f9af722bf7))
+* **plugin:** spawn with glm-5.3 and standard-2 by default ([18e8efd](https://github.com/asermax/tentacles/commit/18e8efd372e94375a61d7ed43be5070e8ccee3dc))
+* **provider-cloudflare:** start the workspace daemon with the deploy's commit identity ([f19a606](https://github.com/asermax/tentacles/commit/f19a60664ae2ef9f1b8987a01e424f6198d1c3da))
+
 # [1.1.0](https://github.com/asermax/tentacles/compare/v1.0.0...v1.1.0) (2026-11-14)
 
 
