@@ -2,9 +2,9 @@ import type { Context } from "@earendil-works/chord/context";
 import { defineTool, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 import { QuestionId, type SessionId } from "@tentacles/worker-api/ids";
-import { RepositoryCheck } from "@tentacles/worker-api/session-state";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
 import { QuestionsDoc, type StoredQuestion } from "../session/questions";
@@ -102,7 +102,7 @@ export const askParentTool = (sessionId: SessionId, isRunning: Effect.Effect<boo
           checkRepository(record?.settings.repository, api.env, isRunning),
         );
 
-        if (RepositoryCheck.guards.Pending(repositoryCheck)) {
+        if (Predicate.isTagged(repositoryCheck, "Pending")) {
           return toolResult(
             AskParentResult.cases.PendingWork.make({ status: repositoryCheck.status }),
           );

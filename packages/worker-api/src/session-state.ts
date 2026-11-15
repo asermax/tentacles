@@ -17,17 +17,15 @@ export const SessionStatus = Schema.Enum(SessionStatuses);
 export type SessionStatus = typeof SessionStatus.Type;
 
 /**
- * What the check of the session's managed repository found. `Stopped` means
- * nothing ran: there is no env or the container is not running. `Pending` is
- * the work git reports; the question tool refuses on it, so a stored question
- * never carries it. `CheckFailed` carries what the two git commands printed, empty when
- * the workspace ran neither.
+ * What the check of the session's managed repository found when it did not
+ * refuse the question. `Stopped` means nothing ran: there is no env or the
+ * container is not running. `CheckFailed` carries what the two git commands
+ * printed, empty when the workspace ran neither.
  */
 export const RepositoryCheck = Schema.Union([
   Schema.TaggedStruct("NoRepository", {}),
   Schema.TaggedStruct("Stopped", {}),
   Schema.TaggedStruct("Clean", {}),
-  Schema.TaggedStruct("Pending", { status: Schema.String }),
   Schema.TaggedStruct("CheckFailed", { output: Schema.String }),
 ]).pipe(Schema.toTaggedUnion("_tag"));
 

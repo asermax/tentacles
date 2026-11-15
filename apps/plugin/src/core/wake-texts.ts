@@ -20,7 +20,6 @@ const repositoryCheckText = Match.type<RepositoryCheck>().pipe(
     NoRepository: () => "NoRepository",
     Stopped: () => "Stopped",
     Clean: () => "Clean",
-    Pending: () => "Pending",
     CheckFailed: ({ output }) => (output === "" ? "CheckFailed" : `CheckFailed\n${output}`),
   }),
 );

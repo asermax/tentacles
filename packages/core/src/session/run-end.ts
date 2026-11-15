@@ -7,8 +7,8 @@ import {
   runEndTask,
 } from "@earendil-works/pi-durable";
 import type { SessionId } from "@tentacles/worker-api/ids";
-import { RepositoryCheck } from "@tentacles/worker-api/session-state";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 
 import { RecordDoc } from "./record";
 import { checkRepository } from "./repository";
@@ -46,12 +46,7 @@ export const commitCheckExtension = (sessionId: SessionId, isRunning: Effect.Eff
         const conversation = await runtime.conversation(runtime.conversationId, context);
 
         await runtime.commit(async (tx) => {
-          if (
-            check != null &&
-            RepositoryCheck.guards.Pending(check) &&
-            record != null &&
-            conversation != null
-          ) {
+          if (Predicate.isTagged(check, "Pending") && record != null && conversation != null) {
             await conversation.submit(tx, {
               type: "input",
               content: commitPrompt(check.status),

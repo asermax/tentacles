@@ -4,6 +4,12 @@ import { workspaceDirectory } from "@tentacles/contracts/workspace";
 import { RepositoryCheck } from "@tentacles/worker-api/session-state";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
+/** The work git reports. The question tool refuses on it, so no question carries it. */
+export const Pending = Schema.TaggedStruct("Pending", { status: Schema.String });
+
+export type Pending = typeof Pending.Type;
 
 const run = (env: ExecutionEnv, command: readonly string[]) =>
   Effect.promise(async () => {
@@ -47,7 +53,7 @@ const pendingWork = (env: ExecutionEnv) =>
 
     return sections.length === 0
       ? RepositoryCheck.cases.Clean.make({})
-      : RepositoryCheck.cases.Pending.make({ status: sections.join("\n\n") });
+      : Pending.make({ status: sections.join("\n\n") });
   });
 
 /**
