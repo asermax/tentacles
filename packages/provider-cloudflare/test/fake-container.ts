@@ -82,16 +82,16 @@ const finishedProcess: ExecProcess = {
 export const fakeContainer = (image: string) => {
   const execs: Array<RecordedExec> = [];
   const starts: Array<ContainerStartupOptions | undefined> = [];
-  let running = false;
+  let isRunning = false;
 
   const container: Container = {
     get running() {
-      return running;
+      return isRunning;
     },
     images: { WorkspaceContainer: image },
     start: (options) => {
       starts.push(options);
-      running = true;
+      isRunning = true;
     },
     exec: async (command, options) => {
       execs.push({ command, options });

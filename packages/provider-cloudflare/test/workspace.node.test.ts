@@ -71,7 +71,9 @@ describe("a workspace's start", () => {
     Effect.gen(function* () {
       const { execs } = yield* startWorkspace;
 
-      const extraction = execs.find(({ command }) => command[0] === "sh");
+      const extraction = execs.find(
+        ({ command, options }) => command[0] !== "/usr/local/bin/pi-env" && options?.stdin != null,
+      );
 
       expect(extraction).toBeDefined();
       expect(extraction?.options?.env).toBeUndefined();

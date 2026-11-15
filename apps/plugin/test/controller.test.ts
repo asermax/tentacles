@@ -233,68 +233,39 @@ describe("parent controller on a watch line", () => {
     expect(glue.statusLines.at(-1)).toBe("migrate: waiting");
   });
 
-  it("wakes the parent for a Stopped question with the Stopped check", async () => {
+  it.each([
+    {
+      name: "a Stopped question with the Stopped check",
+      check: RepositoryCheck.cases.Stopped.make({}),
+      text: "Repository check: Stopped",
+    },
+    {
+      name: "a NoRepository question with the NoRepository check",
+      check: RepositoryCheck.cases.NoRepository.make({}),
+      text: "Repository check: NoRepository",
+    },
+    {
+      name: "a CheckFailed question with the output the check printed",
+      check: RepositoryCheck.cases.CheckFailed.make({ output: "fatal: not a git repository" }),
+      text: "Repository check: CheckFailed\nfatal: not a git repository",
+    },
+    {
+      name: "a CheckFailed question with no output line when the check printed nothing",
+      check: RepositoryCheck.cases.CheckFailed.make({ output: "" }),
+      text: "Repository check: CheckFailed\n\nAnswer it",
+    },
+  ])("wakes the parent for $name", async ({ check, text }) => {
     const glue = await watching();
 
     glue.emit({
       sessionId: first,
       state: Waiting.make({
         ...details,
-        question: questionOf("q-8", "Which branch?", RepositoryCheck.cases.Stopped.make({})),
+        question: questionOf("q-8", "Which branch?", check),
       }),
     });
 
-    expect(glue.wakes[0]).toContain("Repository check: Stopped");
-  });
-
-  it("wakes the parent for a NoRepository question with the NoRepository check", async () => {
-    const glue = await watching();
-
-    glue.emit({
-      sessionId: first,
-      state: Waiting.make({
-        ...details,
-        question: questionOf("q-9", "Which branch?", RepositoryCheck.cases.NoRepository.make({})),
-      }),
-    });
-
-    expect(glue.wakes[0]).toContain("Repository check: NoRepository");
-  });
-
-  it("wakes the parent for a CheckFailed question with the output the check printed", async () => {
-    const glue = await watching();
-
-    glue.emit({
-      sessionId: first,
-      state: Waiting.make({
-        ...details,
-        question: questionOf(
-          "q-10",
-          "Which branch?",
-          RepositoryCheck.cases.CheckFailed.make({ output: "fatal: not a git repository" }),
-        ),
-      }),
-    });
-
-    expect(glue.wakes[0]).toContain("Repository check: CheckFailed\nfatal: not a git repository");
-  });
-
-  it("wakes the parent for a CheckFailed question with no output line when the check printed nothing", async () => {
-    const glue = await watching();
-
-    glue.emit({
-      sessionId: first,
-      state: Waiting.make({
-        ...details,
-        question: questionOf(
-          "q-11",
-          "Which branch?",
-          RepositoryCheck.cases.CheckFailed.make({ output: "" }),
-        ),
-      }),
-    });
-
-    expect(glue.wakes[0]).toContain("Repository check: CheckFailed\n\nAnswer it");
+    expect(glue.wakes[0]).toContain(text);
   });
 
   it("wakes the parent with the last message when a run finishes", async () => {
