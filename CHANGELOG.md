@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/asermax/tentacles/compare/v1.2.0...v1.3.0) (2026-11-15)
+
+
+### Features
+
+* **provider-cloudflare:** add toolchain prerequisites and mise to the workspace image ([9534e53](https://github.com/asermax/tentacles/commit/9534e537df830e2c784859fd9d9dbfa70c39ad5c))
+
 # [1.2.0](https://github.com/asermax/tentacles/compare/v1.1.0...v1.2.0) (2026-11-15)
 
 
