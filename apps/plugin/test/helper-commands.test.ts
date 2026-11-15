@@ -60,10 +60,10 @@ describe("helper commands against the Worker", () => {
           parent,
           settings: {
             provider: "cloudflare",
-            model: "glm-5.2",
+            model: "glm-5.3",
             effort: "max",
             image: "default",
-            size: "basic",
+            size: "standard-2",
             lifetime: 15,
             repository: null,
           },

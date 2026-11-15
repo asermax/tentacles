@@ -4,11 +4,12 @@ import { obj, str } from "@earendil-works/pi-schema";
 import { QuestionId, type SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
 import { QuestionsDoc, type StoredQuestion } from "../session/questions";
 import { RecordDoc } from "../session/record";
-import { pendingWork } from "../session/repository";
+import { checkRepository } from "../session/repository";
 import { AskParentResult, askParentResultSchema } from "./ask-parent-result";
 import { ToolNames } from "./tool-names";
 
@@ -69,10 +70,11 @@ const answerOf = async (api: ToolExecutionApi, id: QuestionId, context: Context)
 
 /**
  * ask_parent: stores the question under the call's task id, so a rerun after
- * an eviction finds it, and waits for the parent's answer. While the managed
- * repository has pending work it refuses with the repository's status instead.
+ * an eviction finds it with the outcome of the repository check, and waits for
+ * the parent's answer. While the managed repository has pending work it refuses
+ * with the repository's status instead.
  */
-export const askParentTool = (sessionId: SessionId) =>
+export const askParentTool = (sessionId: SessionId, isRunning: Effect.Effect<boolean>) =>
   defineTool({
     name: ToolNames.askParent,
     description:
@@ -95,21 +97,22 @@ export const askParentTool = (sessionId: SessionId) =>
 
       if (findQuestion(stored?.questions ?? [], id) == null) {
         const record = await api.snapshot(RecordDoc, sessionId, context);
-        const env = api.env;
 
-        if (record?.settings.repository != null && env != null) {
-          const status = await Effect.runPromise(pendingWork(env));
+        const repositoryCheck = await Effect.runPromise(
+          checkRepository(record?.settings.repository, api.env, isRunning),
+        );
 
-          if (status != null) {
-            return toolResult(AskParentResult.cases.PendingWork.make({ status }));
-          }
+        if (Predicate.isTagged(repositoryCheck, "Pending")) {
+          return toolResult(
+            AskParentResult.cases.PendingWork.make({ status: repositoryCheck.status }),
+          );
         }
 
         await api.commit(async (tx) => {
           const draft = await tx.doc(QuestionsDoc);
 
           if (findQuestion(draft.questions, id) == null) {
-            draft.questions.push({ id, text: args.question, answer: null });
+            draft.questions.push({ id, text: args.question, repositoryCheck, answer: null });
           }
         }, context);
       }

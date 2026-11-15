@@ -42,6 +42,15 @@ You are woken when a remote agent stops. The wake carries the agent's last messa
 
 A remote agent asks with its question tool and waits for the answer. Answer with `answer`, passing the question's id. Answer it yourself when you can; when the decision is the human's, ask them and answer once they reply. A prompt you send while a question waits does not answer the question. The agent receives the prompt after the question is answered.
 
+Every question comes with a repository check, which tells you whether the remote agent's work is known to be persisted:
+
+- `Clean`: the work is committed and pushed. The question can wait any length of time.
+- `Stopped`: the agent's workspace was not running, so it had nothing pending. The question can wait any length of time.
+- `CheckFailed`: tentacles could not check the workspace, so the agent's work may exist only on the container's disk and is lost when the container stops. The check comes with what the git commands printed, which shows why it failed and is empty when the workspace ran neither command.
+- `NoRepository`: the session's settings name no repository, so tentacles manages none and checked nothing.
+
+A remote agent that has uncommitted changes or unpushed commits cannot ask: its question tool refuses until it commits and pushes.
+
 ## Prompt
 
 `prompt` sends a follow-up or a steer. A follow-up waits for the current run to end; a steer reaches the agent at its next step. Prompting a closed session reopens it.

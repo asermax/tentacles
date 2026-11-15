@@ -42,7 +42,7 @@ export const remoteAgentExtensions = (sessionId: SessionId) =>
 
     const rootAgent: Extension = defineExtension({
       name: "tentacles-root-agent",
-      tools: [askParentTool(sessionId)],
+      tools: [askParentTool(sessionId, workspace.isRunning())],
       sections: [section("tentacles", () => remoteAgentInstructions, { tag: false })],
     });
 

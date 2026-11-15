@@ -60,40 +60,59 @@ const objects = ["SessionObject", "RegistryObject", "ClaudeObject"] as const;
 // that answers RPC only for methods their prototype declares, while Alchemy's objects answer
 // every method through a Proxy.
 export default defineConfig({
-  plugins: [
-    cloudflareTest(({ inject }) => ({
-      miniflare: {
-        compatibilityDate: compatibility.date,
-        // The cron test calls the Worker's scheduled handler through its service binding.
-        compatibilityFlags: [...compatibility.flags, "service_binding_extra_handlers"],
-        serviceBindings: {
-          TENTACLES: workerName,
-          // The containers' loopback to the Worker, with a session's egress props.
-          LIFETIME: { name: workerName, props: { sessionId: lifetimeSessionId } },
-        },
-        durableObjects: Object.fromEntries(
-          objects.map((name) => [name, { className: name, scriptName: workerName }]),
-        ),
-        workers: [
-          {
-            name: workerName,
-            modules: inject("workerModules"),
-            modulesRoot: bundleDir,
-            compatibilityDate: compatibility.date,
-            compatibilityFlags: compatibility.flags,
-            bindings: testSecrets,
-            durableObjects: Object.fromEntries(
-              objects.map((name) => [name, { className: name, useSQLite: true }]),
-            ),
-            serviceBindings: { AI: model, BROWSER: echo },
-            outboundService: echo,
-          },
-        ],
-      },
-    })),
-  ],
   test: {
-    include: ["test/**/*.test.ts"],
-    globalSetup: ["test/global-setup.ts"],
+    projects: [
+      {
+        plugins: [
+          cloudflareTest(({ inject }) => ({
+            miniflare: {
+              compatibilityDate: compatibility.date,
+              // The cron test calls the Worker's scheduled handler through its service binding.
+              compatibilityFlags: [...compatibility.flags, "service_binding_extra_handlers"],
+              serviceBindings: {
+                TENTACLES: workerName,
+                // The containers' loopback to the Worker, with a session's egress props.
+                LIFETIME: { name: workerName, props: { sessionId: lifetimeSessionId } },
+              },
+              durableObjects: Object.fromEntries(
+                objects.map((name) => [name, { className: name, scriptName: workerName }]),
+              ),
+              workers: [
+                {
+                  name: workerName,
+                  modules: inject("workerModules"),
+                  modulesRoot: bundleDir,
+                  compatibilityDate: compatibility.date,
+                  compatibilityFlags: compatibility.flags,
+                  bindings: testSecrets,
+                  durableObjects: Object.fromEntries(
+                    objects.map((name) => [name, { className: name, useSQLite: true }]),
+                  ),
+                  serviceBindings: { AI: model, BROWSER: echo },
+                  outboundService: echo,
+                },
+              ],
+            },
+          })),
+        ],
+        test: {
+          name: "worker",
+          include: ["test/**/*.test.ts"],
+          exclude: ["test/**/*.node.test.ts"],
+          globalSetup: ["test/global-setup.ts"],
+        },
+      },
+      // Tests that run the workspace's code in Node with a fake container: the Worker's runner cannot
+      // load Alchemy's container module, and node:child_process is the shim the bundle also aliases.
+      {
+        resolve: { alias: { "node:child_process": `${import.meta.dirname}/src/spawn-shim.ts` } },
+        test: {
+          name: "node",
+          include: ["test/**/*.node.test.ts"],
+          // Inlined so the alias reaches the node:child_process import in pi-env's client.
+          server: { deps: { inline: ["@earendil-works/pi-env"] } },
+        },
+      },
+    ],
   },
 });

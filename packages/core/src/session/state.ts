@@ -68,7 +68,11 @@ export const deriveState = (observed: Observed): SessionState | null => {
       ? SessionState.cases.running.make(details)
       : SessionState.cases.waiting.make({
           ...details,
-          question: { id: question.id, text: question.text },
+          question: {
+            id: question.id,
+            text: question.text,
+            repositoryCheck: question.repositoryCheck,
+          },
         });
   }
 

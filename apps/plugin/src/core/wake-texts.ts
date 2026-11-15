@@ -1,5 +1,5 @@
 import type { Entry } from "@tentacles/worker-api/entries";
-import type { Question, SessionRef } from "@tentacles/worker-api/session-state";
+import type { Question, RepositoryCheck, SessionRef } from "@tentacles/worker-api/session-state";
 import * as Match from "effect/Match";
 
 const agentOf = (session: SessionRef) =>
@@ -15,8 +15,17 @@ const entryText = Match.type<Entry>().pipe(
   }),
 );
 
+const repositoryCheckText = Match.type<RepositoryCheck>().pipe(
+  Match.tagsExhaustive({
+    NoRepository: () => "NoRepository",
+    Stopped: () => "Stopped",
+    Clean: () => "Clean",
+    CheckFailed: ({ output }) => (output === "" ? "CheckFailed" : `CheckFailed\n${output}`),
+  }),
+);
+
 export const questionWake = (session: SessionRef, question: Question): string =>
-  `${agentOf(session)} asks (question ${question.id}):\n${question.text}\n\nAnswer it with the answer tool, passing session ${session.sessionId} and question ${question.id}.`;
+  `${agentOf(session)} asks (question ${question.id}):\n${question.text}\n\nRepository check: ${repositoryCheckText(question.repositoryCheck)}\n\nAnswer it with the answer tool, passing session ${session.sessionId} and question ${question.id}.`;
 
 export const finishWake = (session: SessionRef, lastEntry: Entry | undefined): string =>
   lastEntry == null

@@ -8,9 +8,10 @@ import {
 } from "@earendil-works/pi-durable";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 
 import { RecordDoc } from "./record";
-import { pendingWork } from "./repository";
+import { checkRepository } from "./repository";
 
 // Each commit prompt starts a run that asks the afterRun hook again; after
 // this many in one run, the run ends with the work still pending.
@@ -36,24 +37,19 @@ export const commitCheckExtension = (sessionId: SessionId, isRunning: Effect.Eff
         const record = await runtime.snapshot(RecordDoc, sessionId, context);
         const env = await runtime.env(context);
 
-        // A stopped container holds no work, and the env would start it and clone just to find
-        // nothing pending.
-        const status =
-          record == null ||
-          env == null ||
-          record.commitPrompts >= commitPromptCap ||
-          !(await Effect.runPromise(isRunning))
+        const check =
+          record == null || record.commitPrompts >= commitPromptCap
             ? null
-            : await Effect.runPromise(pendingWork(env));
+            : await Effect.runPromise(checkRepository(record.settings.repository, env, isRunning));
 
         // Fetched before the commit: reads inside it would wait for the commit itself.
         const conversation = await runtime.conversation(runtime.conversationId, context);
 
         await runtime.commit(async (tx) => {
-          if (status != null && record != null && conversation != null) {
+          if (Predicate.isTagged(check, "Pending") && record != null && conversation != null) {
             await conversation.submit(tx, {
               type: "input",
-              content: commitPrompt(status),
+              content: commitPrompt(check.status),
               whenBusy: "followUp",
               requestId: `commit-check:${task.id}`,
             });

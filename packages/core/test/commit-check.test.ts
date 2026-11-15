@@ -12,7 +12,7 @@ import * as Effect from "effect/Effect";
 
 import { eventually } from "./support/eventually";
 import { createRequest, detailsOf } from "./support/fixtures";
-import { heldAnswer } from "./support/model";
+import { afterStalling, heldAnswer } from "./support/model";
 import { bareRepository } from "./support/workspace";
 import { newSessionId, TestWorld, testWorld } from "./support/world";
 
@@ -21,14 +21,21 @@ const bash = (command: string) =>
 
 const leaveChange = bash("echo change >> README.md");
 
+const breakRepository = bash("rm -r .git");
+
+const leaveCommit = bash("git commit --allow-empty -qm 'local only'");
+
 const commitAndPush = bash("git commit -qam 'save work' && git push -q origin main");
 
 const answer = (text: string) => fauxAssistantMessage(text);
 
-const startSession = (responses: FauxResponseStep[], repository: "managed" | "none" = "managed") =>
+const startSession = (
+  responses: FauxResponseStep[],
+  repository: "managed" | "none" = "managed",
+  sessionId = newSessionId(),
+) =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
-    const sessionId = newSessionId();
     const handle = yield* world.handle(sessionId);
 
     const managed: Repository | null =
@@ -126,6 +133,56 @@ describe("the end-of-run commit check", () => {
       yield* stoppedWith(sessionId, idleAfter(details, "never"));
       expect(yield* commitPrompts(sessionId)).toHaveLength(3);
       expect(world.faux.state.callCount).toBe(5);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live(
+    "commits not pushed at the end prompt the agent to push in a new run, with the commits",
+    () =>
+      Effect.gen(function* () {
+        const held = heldAnswer("pushing");
+
+        const { sessionId } = yield* startSession([leaveCommit, answer("done"), held.response]);
+
+        yield* eventually(
+          Effect.gen(function* () {
+            expect(yield* commitPrompts(sessionId)).toHaveLength(1);
+          }),
+        );
+
+        const [prompt] = yield* commitPrompts(sessionId);
+
+        expect(prompt?.text).toContain("Commits not pushed");
+        expect(prompt?.text).toContain("local only");
+        held.release();
+      }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("a run ends without a prompt while the workspace runs no command", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const sessionId = newSessionId();
+
+      const { details } = yield* startSession(
+        [
+          leaveChange,
+          afterStalling(() => world.records(sessionId).workspace.stall(), answer("done")),
+        ],
+        "managed",
+        sessionId,
+      );
+
+      yield* stoppedWith(sessionId, idleAfter(details, "done"));
+      expect(yield* commitPrompts(sessionId)).toEqual([]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("a run ends without a prompt when git exits with an error", () =>
+    Effect.gen(function* () {
+      const { sessionId, details } = yield* startSession([breakRepository, answer("done")]);
+
+      yield* stoppedWith(sessionId, idleAfter(details, "done"));
+      expect(yield* commitPrompts(sessionId)).toEqual([]);
     }).pipe(Effect.provide(testWorld)),
   );
 

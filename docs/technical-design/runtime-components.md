@@ -75,7 +75,7 @@ Each session is one Durable Object keyed by its session id. It runs pi-durable's
 
 ### 📦 Workspace container
 
-Each session has its own workspace container running pi-env's daemon and git, plus agent-browser when the agent installs it. The session's tools reach the daemon over the container's exec stdio. [workspace](workspace.md) covers the container's start, lifetime and image.
+Each session has its own workspace container running pi-env's daemon and git, plus agent-browser when the agent installs it. The session's tools reach the daemon over the container's exec stdio, and the daemon starts with the deploy's commit identity in git's author and committer variables. [workspace](workspace.md) covers the container's start, lifetime and image.
 
 ### 🤖 Shared Claude container
 
@@ -90,7 +90,7 @@ The scripts the agent writes with its codemode tool run in a sandbox Durable Obj
 
 ### 🔐 Outbound handlers
 
-Neither container holds a credential. The outbound handlers add the Claude subscription token to requests to Anthropic and the GitHub token to requests to github.com, on every request. Both tokens are Worker secrets, as is the API key.
+Neither container holds a credential. The outbound handlers add the Claude subscription token to requests to Anthropic and the GitHub token to requests to github.com, on every request. Both tokens are Worker secrets, as is the API key. The author name and email every session commits with are deploy variables too; they are not credentials, and [workspace](workspace.md) covers how they enter the container.
 
 Containers are meant to run in North America (regions ENAM and WNAM), but nothing enforces it. Cloudflare offers no region setting for containers a Durable Object owns, so they run where Cloudflare places them; a container started from Buenos Aires ran in Miami.
 

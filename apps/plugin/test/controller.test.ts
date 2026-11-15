@@ -1,6 +1,6 @@
 import { InvalidArchive, SessionNotFound } from "@tentacles/worker-api/errors";
 import { Harnesses } from "@tentacles/worker-api/parent";
-import { SessionRef, SessionStatuses } from "@tentacles/worker-api/session-state";
+import { RepositoryCheck, SessionRef, SessionStatuses } from "@tentacles/worker-api/session-state";
 import { describe, expect, it } from "vitest";
 
 import { createController } from "../src/core/controller";
@@ -229,7 +229,43 @@ describe("parent controller on a watch line", () => {
     expect(glue.wakes[0]).toContain(first);
     expect(glue.wakes[0]).toContain("q-7");
     expect(glue.wakes[0]).toContain("Which branch?");
+    expect(glue.wakes[0]).toContain("Clean");
     expect(glue.statusLines.at(-1)).toBe("migrate: waiting");
+  });
+
+  it.each([
+    {
+      name: "a Stopped question with the Stopped check",
+      check: RepositoryCheck.cases.Stopped.make({}),
+      text: "Repository check: Stopped",
+    },
+    {
+      name: "a NoRepository question with the NoRepository check",
+      check: RepositoryCheck.cases.NoRepository.make({}),
+      text: "Repository check: NoRepository",
+    },
+    {
+      name: "a CheckFailed question with the output the check printed",
+      check: RepositoryCheck.cases.CheckFailed.make({ output: "fatal: not a git repository" }),
+      text: "Repository check: CheckFailed\nfatal: not a git repository",
+    },
+    {
+      name: "a CheckFailed question with no output line when the check printed nothing",
+      check: RepositoryCheck.cases.CheckFailed.make({ output: "" }),
+      text: "Repository check: CheckFailed\n\nAnswer it",
+    },
+  ])("wakes the parent for $name", async ({ check, text }) => {
+    const glue = await watching();
+
+    glue.emit({
+      sessionId: first,
+      state: Waiting.make({
+        ...details,
+        question: questionOf("q-8", "Which branch?", check),
+      }),
+    });
+
+    expect(glue.wakes[0]).toContain(text);
   });
 
   it("wakes the parent with the last message when a run finishes", async () => {
