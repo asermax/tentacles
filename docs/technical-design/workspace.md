@@ -60,7 +60,7 @@ Pending work is anything in the session's repository that is not committed and p
 - `Pending`, when both ran and found uncommitted changes or unpushed commits;
 - `CheckFailed`, when either one failed unexpectedly: the workspace did not run it, or it exited with an error.
 
-When the check fails, the question tool sends the question with `CheckFailed` and what the commands printed. The end-of-run check treats a failed check as pending. Neither starts a stopped container, and nothing retries the check. The lifetime ping runs its own `git status` inside the container.
+When the check fails, the question tool sends the question with `CheckFailed` and what the commands printed. The end-of-run check does not prompt when the check failed, so a run on a stalled workspace finishes without telling the agent to commit. Neither starts a stopped container, and nothing retries the check. The lifetime ping runs its own `git status` inside the container.
 
 ```mermaid
 flowchart TD
