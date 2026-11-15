@@ -99,16 +99,6 @@ export const SessionObjectLive = SessionObject.make(
       Effect.gen(function* () {
         const raw = state.raw;
 
-        // Only the workspace needs the container, so the object starts without one, as it does in
-        // Miniflare.
-        const container = () => {
-          if (raw.container == null) {
-            throw new Error("The session object has no container");
-          }
-
-          return raw.container;
-        };
-
         const sessionId = yield* Schema.decodeUnknownEffect(SessionId)(raw.id.name).pipe(
           Effect.orDie,
         );
@@ -151,7 +141,7 @@ export const SessionObjectLive = SessionObject.make(
             }),
           ),
           archiveStore,
-          workspaceLayer({ sessionId, container, egress, identity }).pipe(
+          workspaceLayer({ sessionId, container: () => raw.container, egress, identity }).pipe(
             Layer.provide(archiveStore),
           ),
           browserLayer(yield* browser.raw, cdpSecret, raw.storage),
