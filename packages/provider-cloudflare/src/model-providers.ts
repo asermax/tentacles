@@ -41,8 +41,8 @@ const claudeApi = "claude-relay";
 
 const shortId = (catalogId: string) => catalogId.slice(catalogId.lastIndexOf("/") + 1);
 
-// Workers AI models through the gateway, named by the last part of their catalog id (glm-5.2 for
-// workers-ai/@cf/zai-org/glm-5.2); the request still carries the catalog id the gateway expects.
+// Workers AI models through the gateway, named by the last part of their catalog id (glm-5.3 for
+// workers-ai/@cf/zai-org/glm-5.3); the request still carries the catalog id the gateway expects.
 const gatewayProvider = (ai: AiBinding) => {
   const base = openAICompletionsApi();
   const fetch = createAiBindingFetch(ai);

@@ -9,9 +9,9 @@ export const ConnectionConfig = Config.all({
 /** The settings a spawn leaves out. */
 export const SettingsDefaults = Config.all({
   provider: Config.String("TENTACLES_SESSION_PROVIDER").pipe(Config.withDefault("cloudflare")),
-  model: Config.String("TENTACLES_SESSION_MODEL").pipe(Config.withDefault("glm-5.2")),
+  model: Config.String("TENTACLES_SESSION_MODEL").pipe(Config.withDefault("glm-5.3")),
   effort: Config.String("TENTACLES_SESSION_EFFORT").pipe(Config.withDefault("max")),
   image: Config.String("TENTACLES_WORKSPACE_IMAGE").pipe(Config.withDefault("default")),
-  size: Config.String("TENTACLES_WORKSPACE_SIZE").pipe(Config.withDefault("basic")),
+  size: Config.String("TENTACLES_WORKSPACE_SIZE").pipe(Config.withDefault("standard-2")),
   lifetime: Config.Int("TENTACLES_WORKSPACE_LIFETIME").pipe(Config.withDefault(15)),
 });
