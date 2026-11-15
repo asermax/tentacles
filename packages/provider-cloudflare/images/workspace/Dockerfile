@@ -30,11 +30,9 @@ RUN curl -fsSL -o /tmp/mise.tar.gz "https://github.com/jdx/mise/releases/downloa
  && tar -xzf /tmp/mise.tar.gz -C /usr/local/bin --strip-components=2 mise/bin/mise \
  && rm /tmp/mise.tar.gz
 
-# Same layout as mise's official container images: tools installed through mise resolve through the shims directory.
-ENV MISE_DATA_DIR=/mise \
-    MISE_CONFIG_DIR=/mise \
-    MISE_CACHE_DIR=/mise/cache \
-    PATH=/mise/shims:$PATH
+# The agent's commands run through container exec, which passes on only HOME and PATH from the image's
+# environment, so mise keeps its default directories under HOME and only its shims go on PATH.
+ENV PATH=/root/.local/share/mise/shims:$PATH
 
 COPY --from=pi-env /pi-env/package/bin/pi-env-linux-x64/pi-env /usr/local/bin/pi-env
 COPY lifetime.sh /usr/local/bin/tentacles-lifetime
