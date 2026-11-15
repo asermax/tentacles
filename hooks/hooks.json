@@ -1,0 +1,4 @@
+{
+  "description": "tentacles: the remote agent tools, the status line and the wakes.",
+  "modules": ["./register.js"]
+}
