@@ -43,7 +43,7 @@ A setting the agent passes to `spawn` wins over its variable.
 
 ## Release
 
-The version is the content of the `VERSION` file at the repository root; the build writes it into both manifests and the marketplace entry. Nobody edits it: on every push to `master`, CI runs semantic-release (config in `.releaserc.json`), which picks the next version from the conventional commits since the last `v*` tag (`fix` is a patch, `feat` a minor, a breaking change a major; other types release nothing), writes it to `VERSION`, rebuilds, and then:
+The version is the content of the `VERSION` file at the repository root; the build writes it into both manifests and the marketplace entry. Nobody edits it: on every push to `master` that changes a file this package is built from (its sources, build and publish scripts, manifest and this README), worker-api's sources, the lockfile or the root `package.json`, CI runs semantic-release (config in `.releaserc.json`), which picks the next version from the conventional commits since the last `v*` tag (`fix` is a patch, `feat` a minor, a breaking change a major; other types release nothing), writes it to `VERSION`, rebuilds, and then:
 
 - **pi package**: publishes `build/out/pi` to npm with provenance. npm authenticates with one of these, set up once:
   - **Trusted publisher**: on npmjs.com, open the package's Settings, then Trusted publishing. Add GitHub Actions with user `asermax`, repository `tentacles`, workflow filename `ci.yml` and no environment. Allow both `npm publish` and `npm stage publish`. npm offers trusted publishing only for a package that already exists.

@@ -1,7 +1,7 @@
 name: CI
 
-# Pull requests run the Checks workflow alone; a push to master runs it here,
-# then releases with semantic-release.
+# Pull requests run the Checks workflow alone; a push to master runs it here, then releases
+# with semantic-release when the push changes the plugin.
 on:
   push:
     branches: [master]
@@ -11,10 +11,40 @@ jobs:
     name: Check & test
     uses: ./.github/workflows/checks.yml
 
+  changes:
+    name: Plugin changes
+    runs-on: ubuntu-24.04
+    outputs:
+      plugin: ${{ steps.filter.outputs.plugin }}
+    steps:
+      - uses: actions/checkout@v4
+      # Only what the published plugin is built from: its sources, its build and publish scripts, the
+      # README both packages ship, and worker-api, whose API definition and schemas it bundles. Tests
+      # and their config change nothing that ships. The lockfile and the root manifest change its
+      # dependencies.
+      - id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            plugin:
+              - 'apps/plugin/src/**'
+              - 'apps/plugin/build/**'
+              - 'apps/plugin/scripts/**'
+              - 'apps/plugin/package.json'
+              - 'apps/plugin/README.md'
+              - 'apps/plugin/vite.config.ts'
+              - 'apps/plugin/tsconfig.json'
+              - 'packages/worker-api/src/**'
+              - 'packages/worker-api/package.json'
+              - 'packages/worker-api/tsconfig.json'
+              - 'pnpm-lock.yaml'
+              - 'package.json'
+
   release:
     name: Release
     runs-on: ubuntu-24.04
-    needs: test
+    needs: [test, changes]
+    if: needs.changes.outputs.plugin == 'true'
     # id-token lets npm trade GitHub's OIDC token for a publish token when the
     # package has a trusted publisher, and signs the provenance attestation.
     permissions:
