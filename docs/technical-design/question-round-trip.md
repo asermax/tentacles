@@ -95,13 +95,13 @@ flowchart TD
 The tool runs the repository check before it stores the question, and the question carries its outcome:
 
 - **NoRepository**: the session's settings name no repository, so tentacles manages none and checks nothing.
-- **Stopped**: the workspace container is not running. The tool does not start a stopped container to check it: the workspace keeps itself up while it has pending work (see [workspace](workspace.md)), so a stopped container had none.
+- **Stopped**: the workspace container is not running, or the session has no execution environment to run the commands in. The tool does not start a stopped container to check it: the workspace keeps itself up while it has pending work (see [workspace](workspace.md)), so a stopped container had none.
 - **Clean**: both commands ran and found no uncommitted changes and no unpushed commits.
 - **CheckFailed**: either command failed unexpectedly: the workspace did not run it, because it is stalled or unreachable, or it exited with an error. It carries what the two commands printed, which is empty when the workspace ran neither. The question goes to the parent anyway.
 
 The tool refuses only when git reports what the check looks for, uncommitted changes or unpushed commits. That outcome is `Pending`, and no question carries it. Any other failure of the commands makes the outcome `CheckFailed`. Nothing retries the check: a failing workspace also fails the commands the agent runs, and the agent decides what to try again.
 
-The parent sees the repository check, with the output that `CheckFailed` carries, wherever it sees the question: in the wake, in status and in messages (see [worker-api](worker-api.md) and [plugin](plugin.md)). A plugin that does not read the field shows the question without it.
+The parent sees the repository check, with the output that `CheckFailed` carries, wherever it sees the question: in the wake and in the session state. The session socket and the Worker API's status call both return that state (see [worker-api](worker-api.md) and [plugin](plugin.md)). A plugin that does not read the field shows the question without it.
 
 > [!NOTE] Why a failing check still lets the question through
 > A stalled or unreachable workspace cannot commit or push either, so refusing the question would leave the agent with no way to reach its parent. With `CheckFailed`, the parent knows the work may exist only on the container's disk, and reads in the commands' output why the check failed.

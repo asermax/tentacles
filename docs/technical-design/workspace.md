@@ -23,7 +23,7 @@ The plugin fills every absent value except the repository from its defaults, whi
 
 ## 📦 What the container holds
 
-The default image holds only what tentacles needs: pi-env's daemon, git, CA certificates, and a small process that pings the session with busybox `wget` to keep the container up while work is pending (see below). git authenticates through the token added at egress, and commits as `tentacles <tentacles@tentacles.invalid>` when nothing else sets an identity. It has no Node, no Chrome and no Docker. The agent installs anything else it needs.
+The default image holds what tentacles needs: pi-env's daemon, git, CA certificates, and a small process that pings the session with busybox `wget` to keep the container up while work is pending (see below). It also holds what an agent needs to install its own toolchain in any language: `curl`, `xz`, `unzip`, `bzip2`, `ps` and the `libatomic` library that prebuilt Node binaries load. It also holds mise, a runtime manager that installs Node, Python, Go and other runtimes on demand, as in `mise use node@24`. The runtimes mise installs are on the agent's `PATH` with no setup. git authenticates through the token added at egress, and commits as `tentacles <tentacles@tentacles.invalid>` when nothing else sets an identity. The image has no preinstalled language runtime, no Chrome and no Docker. The agent installs anything else it needs.
 
 The agent always works in `/workspace`. The first file or command operation of each tool call makes sure the workspace is up. pi-durable also asks for the execution environment to render prompt sections, and that request alone does not start the container. When the container is not running, tentacles starts it and waits until it is ready. When the settings name a repository, tentacles then clones the repository's default branch there, shallow or full as the setting says. tentacles pipes each archive the session holds into the image's `tar` in the container: the skills into `/skills`, one folder per skill, and the context into `/context`, each file or folder under its own name. The clone and the expansions run together. When the clone or an expansion fails, the tool call that needed the workspace fails with "workspace unavailable". The container stays running, and later tool calls use it as it is. Nothing clones or expands again until the container next starts cold (see [sessions](sessions.md)). When the clone and the expansions succeed, the first tool call and the first one after a restart, even in the middle of a run, find the repository, the skills and the context in place. What the agent changes in `/context` is lost at the next cold start, which expands the archive again. Without a repository setting, the agent clones whatever its prompt names. git reaches GitHub with the GitHub token added at egress; the container never holds it (see [runtime-components](runtime-components.md)).
 
@@ -33,7 +33,7 @@ The agent always works in `/workspace`. The first file or command operation of e
 flowchart LR
     O(["Operator"]) -->|"1 sets author name and email"| V[("Deploy variables, required")]
     V -->|"2 deploy fails when either is missing"| W["Worker"]
-    W -->|"3 reads both when the session starts its workspace"| S["Session object"]
+    W -->|"3 hands both to the session object when it starts"| S["Session object"]
     S -->|"4 starts the command daemon with GIT_AUTHOR_* and GIT_COMMITTER_*"| D["Command daemon in the workspace"]
     D -->|"5 every command inherits them"| C["Agent's git commits"]
     classDef ext fill:#f3f4f6,stroke:#6b7280,color:#111827
@@ -44,7 +44,7 @@ flowchart LR
     class V store
 ```
 
-The operator sets an author name and an email as two deploy variables, `TENTACLES_GIT_AUTHOR_NAME` and `TENTACLES_GIT_AUTHOR_EMAIL` (1). Both are required, and a deploy without either fails (2). When a session starts its workspace, the Worker reads both (3). The session then starts the workspace's command daemon with `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` set to them (4). It passes them on that start only, and passes no other variable. Every command the agent runs inherits them, so every commit carries the deploy's identity, whatever the session's provider (5).
+The operator sets an author name and an email as two deploy variables, `TENTACLES_GIT_AUTHOR_NAME` and `TENTACLES_GIT_AUTHOR_EMAIL` (1). Both are required, and a deploy without either fails (2). When a session object starts, it reads both (3). The session then starts the workspace's command daemon with `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` set to them (4). It passes them on that start only, and passes no other variable. Every command the agent runs inherits them, so every commit carries the deploy's identity, whatever the session's provider (5).
 
 The variables override every git config setting, so the agent cannot change the identity, and its instructions do not mention it. The image's identity stays in git config and applies only when the variables are not set. A running daemon keeps the identity it started with; the variables apply from its next start. The name and email are not credentials, so passing them into the container keeps the rule that credentials stay out of containers (see [runtime-components](runtime-components.md)).
 

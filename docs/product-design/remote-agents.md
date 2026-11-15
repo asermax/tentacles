@@ -53,7 +53,7 @@ A remote agent sees its skills and agent definitions by name and description, an
 
 ## ❓ Questions
 
-A remote agent can ask its parent a question when it needs a decision. Before it asks, it commits and pushes its work, so the question can wait any length of time and the work survives the container stopping.
+A remote agent can ask its parent a question when it needs a decision. Before it asks, it commits and pushes its work, so the question can wait any length of time and the work survives the container stopping. The question tool refuses while git reports uncommitted changes or unpushed commits. When the check itself fails with an error, the tool lets the question through, and the repository check tells the parent so.
 
 The plugin wakes the parent with the question itself and its repository check, which is one of these outcomes:
 
@@ -62,7 +62,7 @@ The plugin wakes the parent with the question itself and its repository check, w
 - **CheckFailed**: tentacles could not check the workspace, so the remote agent's work may exist only on its container's disk and is lost when the container stops. It comes with what the git commands printed, and the parent reads in that output why the check failed.
 - **NoRepository**: the remote agent works on no repository tentacles manages, so tentacles checked nothing.
 
-The parent sees the repository check wherever it sees the question: in the wake, in status and in messages. It can answer on its own or show the question to the person and answer when they reply, which can be much later. The parent answers with the answer tool, and the remote agent continues from where it asked. A prompt sent while a question waits does not answer the question; the prompt reaches the agent after the answer.
+The parent sees the repository check in the wake that brings it the question. It can answer on its own or show the question to the person and answer when they reply, which can be much later. The parent answers with the answer tool, and the remote agent continues from where it asked. A prompt sent while a question waits does not answer the question; the prompt reaches the agent after the answer.
 
 Only the remote agent itself asks; subagents it starts inside its session cannot. [question-round-trip](../technical-design/question-round-trip.md) follows a question from the tool to the parent and back.
 
