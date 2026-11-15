@@ -114,19 +114,27 @@ export interface WorkspaceHandles {
   readonly container: () => Container;
   /** The Worker's default entrypoint with this session's egress props. */
   readonly egress: Fetcher;
+  /** The deploy's author, set as git's author and committer on every commit the agent makes. */
+  readonly identity: { readonly name: string; readonly email: string };
 }
 
 /**
  * One session's workspace on the session object's container. pi-env's daemon runs in it over
  * ctx.container.exec, through the spawn shim.
  */
-export const workspaceLayer = ({ sessionId, container, egress }: WorkspaceHandles) => {
+export const workspaceLayer = ({ sessionId, container, egress, identity }: WorkspaceHandles) => {
   const program = `container-exec:${sessionId}`;
 
   registerExec(program, (args) =>
     container().exec(["/usr/local/bin/pi-env", ...args], {
       stdin: "pipe",
       cwd: workspaceDirectory,
+      env: {
+        GIT_AUTHOR_NAME: identity.name,
+        GIT_AUTHOR_EMAIL: identity.email,
+        GIT_COMMITTER_NAME: identity.name,
+        GIT_COMMITTER_EMAIL: identity.email,
+      },
     }),
   );
 
