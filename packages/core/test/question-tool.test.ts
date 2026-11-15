@@ -4,13 +4,14 @@ import { describe, expect, it } from "@effect/vitest";
 import { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
-import { SessionState } from "@tentacles/worker-api/session-state";
+import { RepositoryCheck, SessionState } from "@tentacles/worker-api/session-state";
 import type { Repository } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 
 import { post, serveApi } from "./support/api";
 import { script, scriptOutput } from "./support/codemode";
 import { eventually } from "./support/eventually";
+import { afterStalling } from "./support/model";
 import { definitionArchives, definitionNames } from "./support/archives";
 import { createRequest, detailsOf } from "./support/fixtures";
 import { bareRepository } from "./support/workspace";
@@ -23,10 +24,12 @@ const ask = (question: string) => toolUse("ask_parent", { question });
 
 const bash = (command: string) => toolUse("bash", { command });
 
-const startSession = (repository: Repository | null) =>
+// Runs a command in the workspace, which starts it.
+const startWorkspace = bash("git status --short");
+
+const startSession = (repository: Repository | null, sessionId = newSessionId()) =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
-    const sessionId = newSessionId();
     const handle = yield* world.handle(sessionId);
 
     const request = createRequest("work", repository, yield* definitionArchives());
@@ -89,12 +92,17 @@ describe("the question tool", () => {
       const world = yield* TestWorld;
       const api = yield* serveApi;
 
-      world.faux.setResponses([ask("Which database?"), fauxAssistantMessage("Using postgres.")]);
+      world.faux.setResponses([
+        startWorkspace,
+        ask("Which database?"),
+        fauxAssistantMessage("Using postgres."),
+      ]);
 
       const { sessionId, records, details } = yield* startSession(repositoryIn(world.shared));
       const question = yield* waitingOn(sessionId);
 
       expect(question.text).toBe("Which database?");
+      expect(question.repositoryCheck).toEqual(RepositoryCheck.cases.Clean.make({}));
       expect(records.states).toEqual([
         SessionState.cases.running.make(details),
         SessionState.cases.waiting.make({ ...details, question }),
@@ -114,7 +122,7 @@ describe("the question tool", () => {
           lastEntry: Entry.cases.text.make({ text: "Using postgres." }),
         }),
       ]);
-      expect((yield* toolResults(sessionId))[0]).toMatchObject({
+      expect((yield* toolResults(sessionId))[1]).toMatchObject({
         output: "postgres",
         isError: false,
       });
@@ -206,7 +214,61 @@ describe("the question tool", () => {
 
       yield* handle.answer({ questionId: question.id, text: "the first" });
       yield* finished(sessionId);
+      expect(question.repositoryCheck).toEqual(RepositoryCheck.cases.NoRepository.make({}));
       expect((yield* toolResults(sessionId))[1]?.output).toBe("the first");
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("asks while the container is stopped without starting it", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+
+      world.faux.setResponses([ask("Which one?"), fauxAssistantMessage("Done.")]);
+
+      const { sessionId, records } = yield* startSession(repositoryIn(world.shared));
+      const question = yield* waitingOn(sessionId);
+
+      expect(question.repositoryCheck).toEqual(RepositoryCheck.cases.Stopped.make({}));
+      expect(records.workspace.ensures).toEqual([]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("asks while the workspace runs no command and carries an empty output", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+      const sessionId = newSessionId();
+
+      world.faux.setResponses([
+        startWorkspace,
+        afterStalling(() => world.records(sessionId).workspace.stall(), ask("Which one?")),
+        fauxAssistantMessage("Done."),
+      ]);
+
+      yield* startSession(repositoryIn(world.shared), sessionId);
+
+      const question = yield* waitingOn(sessionId);
+
+      expect(question.repositoryCheck).toEqual(
+        RepositoryCheck.cases.CheckFailed.make({ output: "" }),
+      );
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("asks when git exits with an error and carries git's error", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+
+      world.faux.setResponses([
+        bash("rm -r .git"),
+        ask("Which one?"),
+        fauxAssistantMessage("Done."),
+      ]);
+
+      const { sessionId } = yield* startSession(repositoryIn(world.shared));
+      const { repositoryCheck } = yield* waitingOn(sessionId);
+
+      expect(RepositoryCheck.guards.CheckFailed(repositoryCheck)).toBe(true);
+      expect(JSON.stringify(repositoryCheck)).toContain("not a git repository");
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -303,7 +365,7 @@ describe("the question tool", () => {
     Effect.gen(function* () {
       const world = yield* TestWorld;
 
-      world.faux.setResponses([ask("Anyone?"), fauxAssistantMessage("Ok.")]);
+      world.faux.setResponses([startWorkspace, ask("Anyone?"), fauxAssistantMessage("Ok.")]);
 
       const { sessionId, handle, details } = yield* startSession(repositoryIn(world.shared));
       const question = yield* waitingOn(sessionId);
@@ -311,7 +373,11 @@ describe("the question tool", () => {
       expect(yield* handle.status()).toEqual(
         SessionState.cases.waiting.make({
           ...details,
-          question: { id: question.id, text: "Anyone?" },
+          question: {
+            id: question.id,
+            text: "Anyone?",
+            repositoryCheck: RepositoryCheck.cases.Clean.make({}),
+          },
         }),
       );
     }).pipe(Effect.provide(testWorld)),

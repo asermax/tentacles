@@ -23,6 +23,15 @@ export const heldAnswer = (text: string) => {
   return { response, answer, release: () => released.resolve() };
 };
 
+/** A model answer given after the test ran `stall`, as when the workspace stops answering between two steps. */
+export const afterStalling =
+  (stall: () => void, response: AssistantMessage): FauxResponseFactory =>
+  () => {
+    stall();
+
+    return response;
+  };
+
 /** What a routed model sees of one request; `sections` are the prompt sections in effect by name, after every system message, and `instructions` the conversation's own instructions, which pi-durable renders as the `instructions` section (empty when it has none). */
 export interface ModelRequest {
   /** The text of the newest message that is not a system message. */

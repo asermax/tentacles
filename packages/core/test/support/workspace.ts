@@ -24,6 +24,8 @@ export interface WorkspaceRecord {
   forward: (port: number, request: Request) => Response;
   /** Makes the next ensure a cold start again, as a container that restarted. */
   restart: () => void;
+  /** Drops the daemon connection while the workspace stays started, so no command runs in it. */
+  stall: () => void;
 }
 
 // Repository URLs must be https, so the bare remotes are named by this host
@@ -118,17 +120,17 @@ export const testWorkspace = (
 
       mkdirSync(directory, { recursive: true });
 
+      const connection = new Connection({ command: sandboxed(directory, shared) });
+
       const record: WorkspaceRecord = {
         ensures: [],
         directory,
         forward: () => new Response("no app", { status: 502 }),
         restart: () => undefined,
+        stall: () => connection.close(),
       };
 
-      return {
-        record,
-        connection: new Connection({ command: sandboxed(directory, shared) }),
-      };
+      return { record, connection };
     }),
     ({ connection }) => Effect.sync(() => connection.close()),
   ).pipe(
