@@ -94,6 +94,7 @@ export default defineConfig({
   ],
   test: {
     include: ["test/**/*.test.ts"],
+    exclude: ["test/**/*.node.test.ts"],
     globalSetup: ["test/global-setup.ts"],
   },
 });
