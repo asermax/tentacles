@@ -8,7 +8,7 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-A remote agent asks its parent through its question tool, `ask_parent`, which waits inside the run. The session stores the question and moves to waiting, the session socket carries it to the plugin's helper, and the helper wakes the parent with the question itself. The parent answers, by itself or after asking the person behind it, and the answer resolves the waiting tool call so the run continues. Only the root conversation's model can ask, never a codemode script. Every question carries a repository status, persisted, failing or no repository, that tells the parent whether the remote agent's work is known to be persisted. The tool refuses to ask while the session's repository holds work that is not committed and pushed.
+A remote agent asks its parent through its question tool, `ask_parent`, which waits inside the run. The session stores the question and moves to waiting, the session socket carries it to the plugin's helper, and the helper wakes the parent with the question itself. The parent answers, by itself or after asking the person behind it, and the answer resolves the waiting tool call so the run continues. Only the root conversation's model can ask, never a codemode script. Every question carries the outcome of the repository check, `NoRepository`, `Stopped`, `Clean` or `CheckFailed`, which tells the parent whether the remote agent's work is known to be persisted. The tool refuses to ask while the session's repository holds work that is not committed and pushed.
 
 ## 📩 Flow
 
@@ -31,9 +31,9 @@ sequenceDiagram
     alt uncommitted changes or unpushed commits
         T-->>A: a refusal with the git output,<br/>the agent cleans up and asks again
     else otherwise
-        T->>S: store the question with its repository status,<br/>move to waiting
+        T->>S: store the question with its repository check,<br/>move to waiting
         S->>H: session state with the question
-        H->>P: wake with the question and its repository status
+        H->>P: wake with the question and its repository check
         opt the parent asks the person
             P->>Pe: shows the question
             Pe-->>P: the answer
@@ -51,9 +51,9 @@ sequenceDiagram
 
 2. and 3. When the session's settings name a repository and the workspace container is running, the tool runs git status and the log of unpushed commits in the workspace. When the settings name no repository, or the container is not running, the tool runs nothing there and goes on.
 4. The tool refuses when both commands ran and found uncommitted changes or unpushed commits. The refusal holds the output of git status and the list of unpushed commits. The refusal is a result the agent reads, not a tool failure. The agent commits, drops the temporary work or moves it out of the repository, and calls the tool again with the same arguments.
-5. Otherwise the session stores the question, its id, its text and its repository status, and moves to waiting.
+5. Otherwise the session stores the question, its id, its text and its repository check, and moves to waiting.
 6. The socket sends the session state with the question to the plugin's helper.
-7. The helper wakes the parent with the question itself: the session, the question id, the text and the repository status, so the parent can answer without another call.
+7. The helper wakes the parent with the question itself: the session, the question id, the text and the repository check, so the parent can answer without another call.
 8. and 9. The parent answers it itself, or shows it to the person and answers when they reply.
 10. and 11. The parent answers with the answer tool, by the question's id, through the Worker.
 12. The answer resolves the waiting tool call and the run continues. The socket sends the new state.
@@ -66,44 +66,45 @@ A prompt sent while a question waits is a steer whatever mode the parent sends i
 > [!WARNING] No socket open when the question arrives
 > When the parent's helper is not connected (the harness is closed, or the parent runs headless), nothing wakes the parent. The question keeps waiting in the session and arrives with the state on the next connection; until then the run stays waiting and the session is never deleted.
 
-## ⚖️ The repository status a question carries
+## ⚖️ The repository check a question carries
 
 ```mermaid
 flowchart TD
     A["ask_parent called"] --> R{"Does the session name a repository?"}
-    R -->|No| NR["Repository status: no repository"]
+    R -->|No| NR["NoRepository"]
     R -->|Yes| C{"Is the workspace container running?"}
-    C -->|No| P1["Repository status: persisted"]
+    C -->|No| ST["Stopped"]
     C -->|Yes| B["Run git status and the unpushed-commits log"]
     B --> D{"Did either fail: not run by the workspace, or exited with an error?"}
-    D -->|Yes| F["Repository status: failing"]
+    D -->|Yes| F["CheckFailed, with what the commands printed"]
     D -->|No| E{"Uncommitted changes or unpushed commits?"}
-    E -->|Yes| X(("Refused: PendingWork, with git's output"))
-    E -->|No| P2["Repository status: persisted"]
-    NR --> S(("Question sent with its repository status"))
-    P1 --> S
-    P2 --> S
+    E -->|No| CL["Clean"]
+    E -->|Yes| X(("Pending: refused with PendingWork and git's output"))
+    NR --> S(("Question sent with its repository check"))
+    ST --> S
+    CL --> S
     F --> S
     classDef step fill:#dcfce7,stroke:#16a34a,color:#14532d
     classDef decision fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
     classDef fail fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
-    class A,B,NR,P1,P2,F step
+    class A,B,NR,ST,CL,F step
     class R,C,D,E decision
     class X fail
 ```
 
-The tool settles the repository status before it stores the question:
+The tool runs the repository check before it stores the question, and the question carries its outcome:
 
-- **No repository**: the session's settings name no repository, so tentacles manages none and checks nothing.
-- **Persisted**: the workspace container is not running, or both commands ran and found no uncommitted changes and no unpushed commits. The tool does not start a stopped container to check it: the workspace keeps itself up while it has pending work (see [workspace](workspace.md)), so a stopped container had none.
-- **Failing**: either command failed unexpectedly: the workspace did not run it, because it is stalled or unreachable, or it exited with an error. The question goes to the parent anyway.
+- **NoRepository**: the session's settings name no repository, so tentacles manages none and checks nothing.
+- **Stopped**: the workspace container is not running. The tool does not start a stopped container to check it: the workspace keeps itself up while it has pending work (see [workspace](workspace.md)), so a stopped container had none.
+- **Clean**: both commands ran and found no uncommitted changes and no unpushed commits.
+- **CheckFailed**: either command failed unexpectedly: the workspace did not run it, because it is stalled or unreachable, or it exited with an error. It carries what the two commands printed, which is empty when the workspace ran neither. The question goes to the parent anyway.
 
-The tool refuses only when git reports what the check looks for, uncommitted changes or unpushed commits; any other failure of the commands makes the status failing. Nothing retries the check: a failing workspace also fails the commands the agent runs, and the agent decides what to try again.
+The tool refuses only when git reports what the check looks for, uncommitted changes or unpushed commits. That outcome is `Pending`, and no question carries it. Any other failure of the commands makes the outcome `CheckFailed`. Nothing retries the check: a failing workspace also fails the commands the agent runs, and the agent decides what to try again.
 
-The parent sees the repository status wherever it sees the question: in the wake, in status and in messages (see [worker-api](worker-api.md) and [plugin](plugin.md)). A plugin that does not read the field shows the question without it.
+The parent sees the repository check, with the output that `CheckFailed` carries, wherever it sees the question: in the wake, in status and in messages (see [worker-api](worker-api.md) and [plugin](plugin.md)). A plugin that does not read the field shows the question without it.
 
 > [!NOTE] Why a failing check still lets the question through
-> A stalled or unreachable workspace cannot commit or push either, so refusing the question would leave the agent with no way to reach its parent. With the status failing, the parent knows the work may exist only on the container's disk.
+> A stalled or unreachable workspace cannot commit or push either, so refusing the question would leave the agent with no way to reach its parent. With `CheckFailed`, the parent knows the work may exist only on the container's disk, and reads in the commands' output why the check failed.
 
 ---
 

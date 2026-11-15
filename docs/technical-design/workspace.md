@@ -44,7 +44,7 @@ flowchart LR
     class V store
 ```
 
-The operator sets an author name and an email as two deploy variables (1). Both are required, and a deploy without either fails (2). When a session starts its workspace, the Worker reads both (3). The session then starts the workspace's command daemon with `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` set to them (4). It passes them on that start only, and passes no other variable. Every command the agent runs inherits them, so every commit carries the deploy's identity, whatever the session's provider (5).
+The operator sets an author name and an email as two deploy variables, `TENTACLES_GIT_AUTHOR_NAME` and `TENTACLES_GIT_AUTHOR_EMAIL` (1). Both are required, and a deploy without either fails (2). When a session starts its workspace, the Worker reads both (3). The session then starts the workspace's command daemon with `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` set to them (4). It passes them on that start only, and passes no other variable. Every command the agent runs inherits them, so every commit carries the deploy's identity, whatever the session's provider (5).
 
 The variables override every git config setting, so the agent cannot change the identity, and its instructions do not mention it. The image's identity stays in git config and applies only when the variables are not set. A running daemon keeps the identity it started with; the variables apply from its next start. The name and email are not credentials, so passing them into the container keeps the rule that credentials stay out of containers (see [runtime-components](runtime-components.md)).
 
@@ -56,11 +56,11 @@ The workspace keeps itself up while it has pending work. A small process in the 
 
 Pending work is anything in the session's repository that is not committed and pushed. tentacles checks for it only when the settings name a repository, since that is the only repository it manages. The check runs at three points: when the question tool asks while the container is running (see [question-round-trip](question-round-trip.md)), when a run finishes, and whenever the workspace pings while it has pending work. The question tool and the end-of-run check run git status and the log of unpushed commits in the workspace, and reach one of these outcomes:
 
-- clean, when both ran and found nothing;
-- pending, when both ran and found uncommitted changes or unpushed commits;
-- failed, when either one failed unexpectedly: the workspace did not run it, or it exited with an error.
+- `Clean`, when both ran and found nothing;
+- `Pending`, when both ran and found uncommitted changes or unpushed commits;
+- `CheckFailed`, when either one failed unexpectedly: the workspace did not run it, or it exited with an error.
 
-The question tool sends the question with the repository status failing when the check failed, and the end-of-run check treats a failed check as pending. Neither starts a stopped container, and nothing retries the check. The lifetime ping runs its own `git status` inside the container.
+When the check fails, the question tool sends the question with `CheckFailed` and what the commands printed. The end-of-run check treats a failed check as pending. Neither starts a stopped container, and nothing retries the check. The lifetime ping runs its own `git status` inside the container.
 
 ```mermaid
 flowchart TD
@@ -94,7 +94,7 @@ Closing a session stops its run. Without pending work, the container then stops 
 | codemode | runs a script that calls the other tools except `ask_parent`; scripts keep `models.*` (the model catalog, classify and generateImages) through the session's providers |
 | subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; run and spawn take an optional agent name, and the subagent then starts with that agent definition's prompt. The root and its children have the tool, so a child can start subagents of its own; a grandchild cannot |
 | skill | given the name of one of the session's skills, returns a block pointing at its SKILL.md in `/skills`, which the agent then reads; an unknown name fails, naming the skills that exist |
-| ask_parent | asks the parent; root conversation only, and only the model calls it; the question carries a repository status, persisted, failing or no repository (see [question-round-trip](question-round-trip.md)); while the repository has pending work, returns a refusal with the output of git status and the unpushed commits |
+| ask_parent | asks the parent; root conversation only, and only the model calls it; the question carries a repository check, `NoRepository`, `Stopped`, `Clean` or `CheckFailed` (see [question-round-trip](question-round-trip.md)); while the repository has pending work, returns a refusal with the output of git status and the unpushed commits |
 | preview | opens a preview, returning a preview URL to a workspace port and a CDP URL to a browser and replacing the open preview if there is one; or closes the open preview |
 
 The coding tools run in the container through pi-env: the session object reaches pi-env's daemon over the container's exec stdio. codemode is pi-durable's own tool; on Cloudflare it runs in a RemoteCodemodeSandbox. pi-durable ships no subagent tool, so tentacles writes one following pi-durable's examples. The subagent tool and the skill tool each belong to an extension of their own, described in [sessions](sessions.md); a subagent never gets `ask_parent`.

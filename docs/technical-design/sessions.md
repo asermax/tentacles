@@ -97,6 +97,7 @@ erDiagram
     QUESTION {
         string id PK
         text text
+        json repository_check "NoRepository, Stopped, Clean or CheckFailed with its output"
         text answer "nullable"
     }
     SKILLS_DOCUMENT {
@@ -145,7 +146,7 @@ REGISTRY_ENTRY lives in the one registry Durable Object for the whole Worker, on
 
 ### ❓ Question
 
-QUESTION is a question the session's agent asked with `ask_parent`: its id, its text and its answer, empty until the parent answers. Every question of the session lives in one session-wide document, one entry per question, and an entry stays after its answer. The id is the id of the asking tool call. When an eviction makes the tool run again, the replay finds its question in the document and keeps the id. If the answer already arrived, the replay returns the answer without asking again. The waiting question is the one with no answer whose tool call is still live; an aborted or finished call takes its question out of waiting. [question-round-trip](question-round-trip.md) follows the question to the parent and back.
+QUESTION is a question the session's agent asked with `ask_parent`: its id, its text, its repository check and its answer, empty until the parent answers. The repository check is the outcome the tool reached before it stored the question: `NoRepository`, `Stopped`, `Clean` or `CheckFailed` with the output of the two git commands (see [question-round-trip](question-round-trip.md)). Every question of the session lives in one session-wide document, one entry per question, and an entry stays after its answer. The id is the id of the asking tool call. When an eviction makes the tool run again, the replay finds its question in the document and keeps the id. If the answer already arrived, the replay returns the answer without asking again. The waiting question is the one with no answer whose tool call is still live; an aborted or finished call takes its question out of waiting. [question-round-trip](question-round-trip.md) follows the question to the parent and back.
 
 ### 📚 Skills and agents documents and the archives
 
