@@ -71,7 +71,7 @@ const answerOf = async (api: ToolExecutionApi, id: QuestionId, context: Context)
  * ask_parent: stores the question under the call's task id, so a rerun after
  * an eviction finds it with the outcome of the repository check, and waits for
  * the parent's answer. While the managed repository has pending work it refuses
- * with the repository's status instead.
+ * with the output of git status and the unpushed commits instead.
  */
 export const askParentTool = (sessionId: SessionId, isRunning: Effect.Effect<boolean>) =>
   defineTool({
@@ -79,7 +79,7 @@ export const askParentTool = (sessionId: SessionId, isRunning: Effect.Effect<boo
     description:
       "Ask the agent that started you a question and wait for its answer. Use it when you need a " +
       "decision you cannot make yourself. Commit and push your work first: while the repository " +
-      "has work that is not pushed, it refuses and shows the repository's status.",
+      "has work that is not pushed, it refuses and shows the output of git status and the unpushed commits.",
     parameters: obj({
       question: str({
         description: "The question, written for someone who has not seen this conversation.",
