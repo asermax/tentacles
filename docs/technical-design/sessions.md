@@ -416,6 +416,8 @@ Read /skills/implement/SKILL.md before acting on this skill. Paths it names, suc
 
 Without an agent name, run starts the subagent with no instructions of its own, and spawn starts it with a line giving the subagent's name.
 
+When a subagent's input ends unanswered, pi-durable settles it with a reason (`aborted`, or the failure's code such as `model_error`) and, for failures, the error's message. run fails with `The subagent did not answer: unanswered (<reason>)`. A spawned subagent's reporter posts `[subagent <name> stopped: aborted]` or `[subagent <name> failed: <reason>]` to the parent, and wait returns that same text.
+
 > [!WARNING] A skill that names a skill the session does not hold
 > Skills often load other skills by name, sometimes with a plugin prefix such as `plugin:skill`, and refer to their own files through variables such as `${CLAUDE_PLUGIN_ROOT}`. tentacles resolves neither. The model works them out from the listing and the `/skills/<name>/` layout, and a skill the parent did not send is missing: the agent finds no such name and carries on without it.
 

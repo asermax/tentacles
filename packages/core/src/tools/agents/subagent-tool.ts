@@ -17,6 +17,7 @@ import { reply } from "./reply";
 import { Anchor } from "./subagent-anchor";
 import { Reporter } from "./subagent-reporter";
 import { Subagents } from "./subagents-doc";
+import { unansweredReason } from "./unanswered-reason";
 
 /**
  * The subagent tool: run waits for a foreground child's answer (pi-durable's
@@ -83,6 +84,12 @@ export const subagentTool = (withheld: (caller: ConversationId) => readonly Exte
           );
 
           const settled = await submission?.wait(context);
+
+          if (settled?.status === "unanswered") {
+            throw new Error(
+              `The subagent did not answer: unanswered (${unansweredReason(settled)})`,
+            );
+          }
 
           if (settled?.status !== "done" || settled.type !== "input") {
             throw new Error(`The subagent did not answer: ${settled?.status ?? "no conversation"}`);

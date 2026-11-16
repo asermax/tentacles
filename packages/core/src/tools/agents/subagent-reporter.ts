@@ -3,6 +3,7 @@ import { type ConversationId, defineTask } from "@earendil-works/pi-durable";
 import { subagentReportKind } from "../tool-names";
 import { answerOf } from "./answer-of";
 import { Subagents } from "./subagents-doc";
+import { unansweredReason } from "./unanswered-reason";
 
 type ReporterInput = {
   readonly name: string;
@@ -20,7 +21,8 @@ const toReport = (report: string | null, answer: string | null) =>
 
 // Delivers one message to a child and posts its answer to the parent as a
 // follow-up input; request ids keep a restart from sending either twice. Its
-// result is the answer, which wait returns.
+// result is the answer, or the failure report when the child does not answer,
+// which wait returns.
 export const Reporter = defineTask<ReporterInput, ReporterState, string | null>({
   name: "tentacles.subagent-reporter",
   version: 1,
@@ -48,10 +50,9 @@ export const Reporter = defineTask<ReporterInput, ReporterState, string | null>(
 
       await runtime.commit(async (tx) => {
         if (settled.status === "unanswered") {
-          return toReport(
-            settled.reason === "aborted" ? null : `[subagent ${name} failed: ${settled.reason}]`,
-            null,
-          );
+          const outcome = settled.reason === "aborted" ? "stopped" : "failed";
+
+          return toReport(`[subagent ${name} ${outcome}: ${unansweredReason(settled)}]`, null);
         }
 
         if (settled.type !== "input") {
@@ -91,7 +92,7 @@ export const Reporter = defineTask<ReporterInput, ReporterState, string | null>(
       }
 
       await runtime.commit(
-        () => ({ status: "terminal", outcome: { status: "completed", result: answer } }),
+        () => ({ status: "terminal", outcome: { status: "completed", result: answer ?? report } }),
         context,
       );
     },

@@ -24,6 +24,8 @@ const call = (args: SubagentCall) =>
 
 const say = (text: string) => fauxAssistantMessage(text);
 
+const failing = () => fauxAssistantMessage("", { stopReason: "error", errorMessage: "rejected" });
+
 const isRoot = (request: ModelRequest) => request.tools.has("ask_parent");
 
 const isGrandchild = (request: ModelRequest) => !request.tools.has("subagent");
@@ -238,6 +240,10 @@ describe("the subagent tool", () => {
           return held.answer(request.signal);
         }
 
+        if (request.last.startsWith("[subagent")) {
+          return say("Noted.");
+        }
+
         if (request.lastRole !== "toolResult") {
           return call({ action: "spawn", task: "read everything", name: "reader" });
         }
@@ -254,6 +260,94 @@ describe("the subagent tool", () => {
 
       yield* settled(sessionId, "Listed.");
       expect((yield* toolResultsOf(sessionId)).at(-1)?.output).toBe(`${id} reader stopped`);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("run fails naming the reason when the child's run fails", () =>
+    Effect.gen(function* () {
+      const { sessionId } = yield* startSession((request) => {
+        if (!isRoot(request)) {
+          return failing();
+        }
+
+        return request.lastRole === "toolResult"
+          ? say("The child failed")
+          : call({ action: "run", task: "add 2 and 2" });
+      });
+
+      yield* settled(sessionId, "The child failed");
+
+      const [result] = yield* toolResultsOf(sessionId);
+
+      expect(result?.isError).toBe(true);
+      expect(result?.output).toContain(
+        "The subagent did not answer: unanswered (model_error: rejected)",
+      );
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("spawn reports a child's failure with its reason and wait returns it", () =>
+    Effect.gen(function* () {
+      const { sessionId } = yield* startSession((request) => {
+        if (!isRoot(request)) {
+          return failing();
+        }
+
+        if (request.lastRole !== "toolResult") {
+          return request.last.startsWith("[subagent")
+            ? say("Noted.")
+            : call({ action: "spawn", task: "summarize the book", name: "reader" });
+        }
+
+        return request.last.startsWith("Started")
+          ? call({ action: "wait", id: startedId(request.last) })
+          : say("Waited.");
+      });
+
+      yield* settled(sessionId, "Waited.");
+
+      const failure = "[subagent reader failed: model_error: rejected]";
+
+      expect(yield* entriesOf(sessionId)).toContainEqual(
+        Entry.cases.subagentResult.make({ text: failure }),
+      );
+      expect((yield* toolResultsOf(sessionId))[1]?.output).toBe(failure);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("stop makes the stopped child report that it was aborted", () =>
+    Effect.gen(function* () {
+      const childStarted = Promise.withResolvers<void>();
+      const held = heldAnswer("never finished");
+
+      const { sessionId } = yield* startSession(async (request) => {
+        if (!isRoot(request)) {
+          childStarted.resolve();
+
+          return held.answer(request.signal);
+        }
+
+        if (request.last.startsWith("[subagent")) {
+          return say("Noted.");
+        }
+
+        if (request.lastRole !== "toolResult") {
+          return call({ action: "spawn", task: "read everything", name: "reader" });
+        }
+
+        if (request.last.startsWith("Started")) {
+          await childStarted.promise;
+
+          return call({ action: "stop", id: startedId(request.last) });
+        }
+
+        return say("Stopped it.");
+      });
+
+      yield* settled(sessionId, "Noted.");
+      expect(yield* entriesOf(sessionId)).toContainEqual(
+        Entry.cases.subagentResult.make({ text: "[subagent reader stopped: aborted]" }),
+      );
     }).pipe(Effect.provide(testWorld)),
   );
 
