@@ -8,19 +8,19 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-tentacles lets an agent on pi or Claude Code start coding agents that run remotely, on Cloudflare, and work with them the way it works with local subagents: spawn them, prompt and steer them, see when they stop, answer their questions and close them. The parent agent does all of it through a set of tools; nothing of a remote agent runs on the developer's machine. When the parent goes away, a remote agent keeps working and waits on its questions, and the parent finds it when it comes back. Its work survives only through git, so a remote agent commits and pushes what it wants to keep. Every commit a remote agent makes is authored by the name and email the deploy sets, whoever spawned the agent.
+tentacles lets an agent on pi or Claude Code start coding agents that run remotely, on Cloudflare, and work with them the way it works with local subagents: spawn them, prompt and steer them, see when they stop, answer their questions and close them. The parent agent does all of it through a set of tools; nothing of a remote agent runs on the developer's machine. When the parent goes away, a remote agent keeps working and waits on its questions, and the parent finds it when it comes back. Its work stays in its workspace for as long as the remote agent exists: what it pushes survives the remote agent's deletion, and what it does not push goes with the remote agent a month after its last run. Every commit a remote agent makes is authored by the name and email the deploy sets, whoever spawned the agent.
 
 ## 🚀 Spawning a remote agent
 
-The parent spawns a remote agent with a name, a first prompt and its settings: the provider, the model, the effort level, the container image, size and lifetime, and optionally a repository to work on. The name is required; the status line and the list show the remote agent by its name. Any setting the parent leaves out takes the plugin's default, which the person can change through environment variables. The agent starts working on the first prompt at once.
+The parent spawns a remote agent with a name, a first prompt and its settings: the provider, the model, the effort level, the container image and size, and optionally a repository to work on. The name is required; the status line and the list show the remote agent by its name. Any setting the parent leaves out takes the plugin's default, which the person can change through environment variables. Spawn answers once the remote agent's workspace is set up, with the repository cloned and its skills and context in place, and the agent then starts working on the first prompt. When the setup fails, spawn returns the reason, such as a repository URL that does not exist or a token that cannot read the repository, and spawn leaves the remote agent failed with that reason; it never starts working.
 
 With a repository in its settings, the remote agent starts with it cloned. Without one, it clones whatever its prompt names. Claude models run on the person's own Claude subscription, and models from other providers are available too.
 
-[workspace](../technical-design/workspace.md) covers the container's image, clone and lifetime.
+[workspace](../technical-design/workspace.md) covers the workspace's setup, its tools and what survives a container stop.
 
 The parent can also give the remote agent skills and agent definitions, by passing their folder and file paths at spawn. They are fixed for the remote agent's life, so the parent includes every one the job needs, and work that needs a different set goes to a new remote agent. The plugin checks every skill and agent definition on the developer's machine before anything is sent; when one fails, spawn returns every problem with its path, skills, agents and context listed apart, and no remote agent starts.
 
-The parent can also send context files, the files and folders on its machine that the repository does not hold, such as a change's scratch files, by passing their paths at spawn. The remote agent finds each one in `/context` under its own name, outside the repository. The copy is fixed at spawn: the remote agent can change it, but its changes are lost when its workspace restarts and never come back to the parent, so work that needs different files goes to a new remote agent. The remote agent is told only that the parent sent files and that they are in `/context`, so the parent says in its handoff what the files are and how to use them. Two paths with the same name, a path that does not exist, or files that pack over 5 MB fail the spawn in the Context group. [sessions](../technical-design/sessions.md) covers how the context reaches the remote agent.
+The parent can also send context files, the files and folders on its machine that the repository does not hold, such as a change's scratch files, by passing their paths at spawn. The remote agent finds each one in `/workspace/context` under its own name, outside the repository. The copy is fixed at spawn: the remote agent can change it, but its changes stay in its workspace and never come back to the parent, so work that needs different files goes to a new remote agent. The remote agent is told only that the parent sent files and that they are in `/workspace/context`, so the parent says in its handoff what the files are and how to use them. Two paths with the same name, a path that does not exist, or files that pack over 5 MB fail the spawn in the Context group. [sessions](../technical-design/sessions.md) covers how the context reaches the remote agent.
 
 ## 💬 Prompting and steering
 
@@ -42,8 +42,6 @@ The list also returns each remote agent's settings and the names of its skills a
 
 When a remote agent's run finishes, the plugin wakes the parent with that agent's last message, so the parent can read the result without another call. When a run fails on an error the agent cannot recover from, the plugin wakes the parent with the failure. In both cases the remote agent stays available: a prompt starts it on a new run.
 
-Before a run finishes, tentacles reminds a remote agent working on a repository to commit and push anything it left behind.
-
 > [!WARNING] A headless parent is never woken
 > A parent running headless (`claude -p`) gets no wake, as with local subagents. It learns that a remote agent finished or asked something only by calling the tools.
 
@@ -53,16 +51,9 @@ A remote agent sees its skills and agent definitions by name and description, an
 
 ## ❓ Questions
 
-A remote agent can ask its parent a question when it needs a decision. Before it asks, it commits and pushes its work, so the question can wait any length of time and the work survives the container stopping. The question tool refuses while git reports uncommitted changes or unpushed commits. When the check itself fails with an error, the tool lets the question through, and the repository check tells the parent so.
+A remote agent can ask its parent a question when it needs a decision. The question can wait any length of time: the remote agent's work stays in its workspace while it waits.
 
-The plugin wakes the parent with the question itself and its repository check, which is one of these outcomes:
-
-- **Clean**: the work is committed and pushed, so the question can wait any length of time.
-- **Stopped**: the remote agent's workspace was not running, so it had nothing pending and the question can wait any length of time.
-- **CheckFailed**: tentacles could not check the workspace, so the remote agent's work may exist only on its container's disk and is lost when the container stops. It comes with what the git commands printed, and the parent reads in that output why the check failed.
-- **NoRepository**: the remote agent works on no repository tentacles manages, so tentacles checked nothing.
-
-The parent sees the repository check in the wake that brings it the question. It can answer on its own or show the question to the person and answer when they reply, which can be much later. The parent answers with the answer tool, and the remote agent continues from where it asked. A prompt sent while a question waits does not answer the question; the prompt reaches the agent after the answer.
+The plugin wakes the parent with the question itself. The parent can answer on its own or show the question to the person and answer when they reply, which can be much later. The parent answers with the answer tool, and the remote agent continues from where it asked. A prompt sent while a question waits does not answer the question; the prompt reaches the agent after the answer.
 
 Only the remote agent itself asks; subagents it starts inside its session cannot. [question-round-trip](../technical-design/question-round-trip.md) follows a question from the tool to the parent and back.
 
@@ -72,13 +63,13 @@ Closing a remote agent stops whatever it is doing. A closed agent leaves the sta
 
 ## 🗑️ Deleted remote agents
 
-tentacles deletes a remote agent a month after its last run stopped, whether it finished, failed or was closed. Reading its messages or status does not extend the month, and an agent that is working or waiting on a question is never deleted. Branches it pushed stay on GitHub.
+tentacles deletes a remote agent a month after its last run stopped, whether it finished, failed or was closed. Reading its messages or status does not extend the month, and an agent that is working or waiting on a question is never deleted. Branches it pushed stay on GitHub; work it never pushed is deleted with it.
 
 tentacles does not tell the parent. The remote agent leaves the parent's list the first time the plugin notices: when the harness reopens the session, or when a call on the agent returns that the agent does not exist. Until then it can still appear in the list and the status line.
 
 ## 🖼️ A preview for validation
 
-A remote agent can check the app it starts in a browser by opening a preview of it: a private URL to its port, together with a browser it drives with agent-browser. It opens the preview, checks what it built and closes it. An agent has one preview at a time; opening another replaces the open one. Other checks, such as calling an API, happen inside the agent's workspace with no preview. The preview closes when the agent's run stops, so it is the agent's way to check its own work, not something the parent or the person browses later. The remote agent has no browser for any other page.
+A remote agent can check the app it starts in a browser by opening a preview of it: a URL to its port on the preview domain, which carries a random token, together with a browser it drives with agent-browser. It opens the preview, checks what it built and closes it. An agent has one preview at a time; opening another replaces the open one. Other checks, such as calling an API, happen inside the agent's workspace with no preview. The preview closes when the agent's run stops, so it is the agent's way to check its own work, not something the parent or the person browses later. The remote agent has no browser for any other page.
 
 ---
 
