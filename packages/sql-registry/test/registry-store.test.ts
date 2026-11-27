@@ -133,14 +133,14 @@ describe("RegistryStore over SQLite", () => {
     }).pipe(Effect.provide(freshRegistry)),
   );
 
-  it.effect("lists an entry whose setup failed as failed and stopped at the failure time", () =>
+  it.effect("records failed as the first status and stops the entry at that time", () =>
     Effect.gen(function* () {
       const registry = yield* RegistryStore;
       const id = sessionId(1);
 
       yield* TestClock.setTime(now);
       yield* registry.add(id, "never set up", parent, noDetails);
-      yield* registry.reportSetupFailed(id);
+      yield* registry.setStatus(id, SessionStatuses.failed);
 
       expect(yield* registry.list(parent)).toEqual([
         { sessionId: id, name: "never set up", status: SessionStatuses.failed, ...noDetails },

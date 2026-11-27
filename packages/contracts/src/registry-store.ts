@@ -31,9 +31,9 @@ export interface PreviewTarget {
 // its preview. `add` leaves the entry without a
 // status until the first `setStatus`. `setStatus` derives the rest from the
 // transition: a run that stops sets lastStopped and clears the preview, a stop
-// that follows a stop keeps lastStopped, and a new run clears it.
-// `reportSetupFailed` is the status of a session whose workspace setup failed
-// at spawn: it sets failed and lastStopped to now, as a first stop does.
+// that follows a stop keeps lastStopped, and a new run clears it. A session
+// whose workspace setup failed at spawn gets failed as its first status, so
+// lastStopped is the failure time.
 // `stoppedBefore` takes epoch milliseconds; running and waiting sessions never
 // have lastStopped set. Closing a preview when none is open is not an error.
 export class RegistryStore extends Context.Service<
@@ -49,7 +49,6 @@ export class RegistryStore extends Context.Service<
       sessionId: SessionId,
       status: SessionStatus,
     ) => Effect.Effect<void, RegistryUnavailable>;
-    readonly reportSetupFailed: (sessionId: SessionId) => Effect.Effect<void, RegistryUnavailable>;
     readonly list: (
       parent: Parent,
     ) => Effect.Effect<ReadonlyArray<SessionListing>, RegistryUnavailable>;

@@ -191,7 +191,7 @@ const make = (sessionId: SessionId) =>
               skills: request.skills ?? null,
               context: request.context ?? null,
             })
-            .pipe(Effect.tapError(() => Effect.andThen(registerSession, status.reportSetupFailed)));
+            .pipe(Effect.tapError(() => Effect.andThen(registerSession, status.reportFailed)));
 
           yield* registerSession;
 

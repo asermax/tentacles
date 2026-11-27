@@ -17,6 +17,7 @@ import {
   isActive,
   type SessionDetails,
   SessionState,
+  SessionStatuses,
   statusOf,
 } from "@tentacles/worker-api/session-state";
 import * as Clock from "effect/Clock";
@@ -225,7 +226,8 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
       register: (name: string, parent: Parent, details: SessionDetails) =>
         registry.add(sessionId, name, parent, details).pipe(Effect.orDie),
 
-      reportSetupFailed: registry.reportSetupFailed(sessionId).pipe(Effect.orDie),
+      /** RegistryStore.setStatus with failed: the first status of a session whose workspace setup failed. */
+      reportFailed: registry.setStatus(sessionId, SessionStatuses.failed).pipe(Effect.orDie),
 
       /**
        * Start observing a session whose record exists. What it shows now is the
