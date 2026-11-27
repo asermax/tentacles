@@ -14,11 +14,13 @@ import {
 import { SessionId } from "@tentacles/worker-api/ids";
 import { SessionState } from "@tentacles/worker-api/session-state";
 import type { Answer, CreateSession, Prompt } from "@tentacles/worker-api/sessions";
+import * as Cause from "effect/Cause";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
@@ -30,6 +32,7 @@ import { sendableCode } from "./close-code";
 import { modelProvidersLayer } from "./model-providers";
 import { CloudflarePreviewRouter } from "./preview-router";
 import { RegistryObject, registryStoreLayer } from "./registry-object";
+import { sessionDeletedReason } from "./session-deleted";
 import { destroyWorkspace, workspaceLayer } from "./workspace";
 import { previewPortHeader, workspaceObjectClass } from "./workspace-names";
 import type { WorkspaceObject } from "./workspace-worker";
@@ -142,7 +145,8 @@ export const SessionObjectLive = SessionObject.make(
       );
 
       // delete has core stop the session, then destroys its workspace object, and last removes what
-      // this object stored: a destroy that fails leaves the session whole for the next try.
+      // this object stored: a destroy that fails leaves the session whole for the next try. The
+      // abort at the end drops this instance, and rejects the call with sessionDeletedReason.
       return {
         create: (request: CreateSession) => handle.create(request),
 
@@ -152,12 +156,19 @@ export const SessionObjectLive = SessionObject.make(
         messages: (count: number) => handle.messages(count),
         status: () => handle.status(),
         delete: () =>
-          handle
-            .delete()
-            .pipe(
-              Effect.andThen(destroyWorkspace(workspaces, sessionId)),
-              Effect.andThen(Effect.promise(() => raw.storage.deleteAll())),
+          handle.delete().pipe(
+            Effect.andThen(destroyWorkspace(workspaces, sessionId)),
+            Effect.andThen(
+              Effect.promise(async () => {
+                await raw.storage.deleteAll();
+
+                // abort() discards writes not yet committed, so the deletion is flushed first.
+                await raw.storage.sync();
+
+                raw.abort(sessionDeletedReason);
+              }),
             ),
+          ),
 
         fetch: Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest.pipe(
@@ -233,7 +244,19 @@ export const sessionHostLayer = (sessions: Cloudflare.DurableObject<SessionObjec
       close: (sessionId) => session(sessionId).close(),
       messages: (sessionId, count) => session(sessionId).messages(count),
       status: (sessionId) => session(sessionId).status(),
-      delete: (sessionId) => session(sessionId).delete(),
+      delete: (sessionId) =>
+        session(sessionId)
+          .delete()
+          .pipe(
+            // The stub wraps the rejection, whose message ends with the abort's reason.
+            Effect.catchCause((cause) => {
+              const failure = Cause.squash(cause);
+
+              return Predicate.isError(failure) && failure.message.endsWith(sessionDeletedReason)
+                ? Effect.void
+                : Effect.failCause(cause);
+            }),
+          ),
       connect: (sessionId, request) =>
         throughFetch(sessionId, request, { [routeHeader]: FetchRoutes.connect }),
       preview: (sessionId, port, request) =>

@@ -21,14 +21,19 @@ export class SessionObject extends DurableObjectBridge("SessionObject") {
     this.ctx.abort("restart");
   }
 
-  // The tables the object's storage holds, which a delete empties.
+  // The tables of the object's storage that hold rows beyond pi-durable's schema bookkeeping, which
+  // every new instance writes. A delete empties them, and the instance that follows it writes
+  // only the bookkeeping.
   storedTables() {
-    return this.ctx.storage.sql
+    const { sql } = this.ctx.storage;
+
+    return sql
       .exec(
-        "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '_cf_%'",
+        "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '_cf_%' and name not in ('durable_schema', 'durable_metadata')",
       )
       .toArray()
-      .map(({ name }) => name);
+      .map(({ name }) => name)
+      .filter((name) => sql.exec(`select count(*) as total from "${name}"`).one().total > 0);
   }
 }
 
