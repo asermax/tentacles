@@ -48,7 +48,6 @@ export const testSettings = {
   effort: "max",
   image: "default",
   size: "basic",
-  lifetime: 15,
   repository: null,
 };
 

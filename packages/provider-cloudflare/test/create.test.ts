@@ -58,9 +58,12 @@ describe("create through the Worker", () => {
     expect(response.status).toBe(200);
     expect(skills.byteLength).toBeGreaterThan(5_000_000);
 
-    const stored = await env.SessionObject.getByName(sessionId).storedArchive("skills");
+    const files = await env.WorkspaceObject.getByName(sessionId).files();
 
-    expect(stored).toEqual(skills);
+    expect(files.find(({ path }) => path === "/workspace/skills/implement/SKILL.md")).toBeDefined();
+    expect(files.find(({ path }) => path === "/workspace/skills/implement/filler.bin")?.size).toBe(
+      withinLimit,
+    );
 
     await waitUntilIdle(sessionId);
   });
@@ -94,11 +97,13 @@ describe("create through the Worker", () => {
 
     const response = await create(parentId, { skills, context });
     const { sessionId } = decodeCreated(await response.json());
-    const session = env.SessionObject.getByName(sessionId);
+    const files = await env.WorkspaceObject.getByName(sessionId).files();
 
     expect(response.status).toBe(200);
-    expect(await session.storedArchive("context")).toEqual(context);
-    expect(await session.storedArchive("skills")).toEqual(skills);
+    expect(files.map(({ path }) => path).toSorted()).toEqual([
+      "/workspace/context/notes.md",
+      "/workspace/skills/implement/SKILL.md",
+    ]);
 
     await waitUntilIdle(sessionId);
   });
@@ -107,7 +112,7 @@ describe("create through the Worker", () => {
     const response = await create(crypto.randomUUID());
     const { sessionId } = decodeCreated(await response.json());
 
-    expect(await env.SessionObject.getByName(sessionId).storedArchive("context")).toBeNull();
+    expect(await env.WorkspaceObject.getByName(sessionId).files()).toEqual([]);
 
     await waitUntilIdle(sessionId);
   });

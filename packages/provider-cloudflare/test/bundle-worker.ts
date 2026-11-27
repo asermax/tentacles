@@ -8,22 +8,18 @@ const path = (relative: string) => join(import.meta.dirname, relative);
 
 export const bundleDir = path("../dist/test-worker");
 
+export const workspaceBundleDir = path("../dist/test-workspace-worker");
+
 export const compatibility = {
   date: "2026-11-01",
   flags: ["nodejs_compat"],
 };
 
-/**
- * Bundles the Worker the way Alchemy does at deploy, so the tests run what ships: Alchemy's and
- * Effect's deploy-time modules are tree-shaken out, which Vite's module runner cannot do.
- */
-export const bundleWorker = async () => {
-  const dir = bundleDir;
-
+const bundle = async (entry: string, dir: string) => {
   await rm(dir, { recursive: true, force: true });
 
   await build({
-    input: path("./entry.js"),
+    input: path(entry),
     external: ["lightningcss", "fsevents"],
     resolve: {
       alias: {
@@ -47,8 +43,8 @@ export const bundleWorker = async () => {
 
   // The entry first, then every chunk and asset it imports.
   const files = (await readdir(dir, { recursive: true, withFileTypes: true }))
-    .filter((entry) => entry.isFile() && entry.name !== "worker.js")
-    .map((entry) => join(entry.parentPath, entry.name));
+    .filter((item) => item.isFile() && item.name !== "worker.js")
+    .map((item) => join(item.parentPath, item.name));
 
   return [join(dir, "worker.js"), ...files].map((file) =>
     file.endsWith(".sql")
@@ -56,3 +52,13 @@ export const bundleWorker = async () => {
       : { type: "ESModule" as const, path: file },
   );
 };
+
+/**
+ * Bundles the tentacles Worker and the Workspace Worker the way Alchemy does at deploy, so the
+ * tests run what ships: Alchemy's and Effect's deploy-time modules are tree-shaken out, which
+ * Vite's module runner cannot do.
+ */
+export const bundleWorkers = async () => ({
+  worker: await bundle("./entry.js", bundleDir),
+  workspace: await bundle("./workspace-entry.js", workspaceBundleDir),
+});
