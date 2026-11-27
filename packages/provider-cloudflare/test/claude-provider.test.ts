@@ -78,6 +78,18 @@ describe("a Claude model call from a session run", () => {
   );
 
   it(
+    "does not log a failure when the run ends the call while the relay's stream is still open after done",
+    async () => {
+      const { state, failures, calls } = await runSession(["doneThenOpen"]);
+
+      expect(SessionState.guards.idle(state)).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(failures).toEqual([]);
+    },
+    generousRunMs,
+  );
+
+  it(
     "retries a subagent's lost call after 2 seconds and logs the failure once",
     async () => {
       const { sessionId, state, failures, calls } = await runSession([

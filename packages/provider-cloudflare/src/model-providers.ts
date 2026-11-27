@@ -226,8 +226,14 @@ const claudeProvider = (claude: () => Fetcher, tentaclesSessionId: SessionId) =>
       }
     };
 
+    // The run aborts the signal once it has what it needs, such as the done event while the relay's
+    // stream is still open, and the read that fails because of it is not a failed call.
     relay()
-      .catch((error) => fail(error instanceof Error ? error.message : String(error)))
+      .catch((error) => {
+        if (options?.signal?.aborted !== true) {
+          fail(error instanceof Error ? error.message : String(error));
+        }
+      })
       .finally(() => events.end());
 
     return events;

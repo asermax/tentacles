@@ -5,6 +5,7 @@ import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
 /** How the scripted relay answers one POST /stream. */
 export type RelayAnswer =
   | "done"
+  | "doneThenOpen"
   | "lost"
   | "refusal"
   | "stopping"
@@ -108,6 +109,15 @@ const ndjson = (events: ReadonlyArray<AssistantMessageEvent>) =>
 
 const answerResponses = {
   done: () => new Response(ndjson(doneEvents())),
+
+  doneThenOpen: () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start: (controller) => {
+          controller.enqueue(new TextEncoder().encode(ndjson(doneEvents())));
+        },
+      }),
+    ),
 
   lost: () =>
     new Response(ndjson(errorEvents(lostCallMessage("Claude Code exited from signal SIGTERM")))),
