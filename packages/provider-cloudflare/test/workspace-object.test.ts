@@ -118,6 +118,21 @@ describe("a workspace object's setup", () => {
     expect(await workspace().files()).toEqual([]);
   });
 
+  it("reports the clone's failure when an archive's files cannot be written either", async () => {
+    const workspace = workspaceOf();
+
+    const failure = await failureOfSetup(
+      workspace,
+      workspaceInit({
+        repository: fixtureRepository(fixtureRepositories.missing),
+        context: conflictingContextEntries("notes.md"),
+      }),
+    );
+
+    expect(Schema.is(InvalidWorkspace)(failure)).toBe(true);
+    expect(await workspace().files()).toEqual([]);
+  });
+
   it("fails with InvalidWorkspace for an image or size the deploy does not offer", async () => {
     const workspace = workspaceOf();
 

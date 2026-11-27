@@ -146,20 +146,19 @@ export class WorkspaceObject extends withWorkspaceContainer(
       throw new InvalidWorkspace({ message: unsupportedSettingsMessage(init) });
     }
 
-    if (init.repository != null) {
-      await this.#cloneRepository(init.repository);
-    } else {
-      await this.workspace.fs.mkdir(repositoryDirectory, { recursive: true });
-    }
+    // Both steps settle before a failure clears the storage, so neither writes into storage that
+    // was already cleared. The clone's failure is reported first, as when it ran before the writes.
+    const steps = await Promise.allSettled([
+      init.repository == null
+        ? this.workspace.fs.mkdir(repositoryDirectory, { recursive: true })
+        : this.#cloneRepository(init.repository),
+      this.#writeArchives(init),
+    ]);
 
-    const archivesByKind: Partial<Record<ArchiveKind, ReadonlyArray<ArchiveEntry>>> = {
-      skills: init.skills,
-      context: init.context,
-    };
-
-    for (const { kind, directory } of archiveExpansions) {
-      await this.workspace.fs.mkdir(directory, { recursive: true });
-      await this.#writeArchiveEntries(kind, directory, archivesByKind[kind] ?? []);
+    for (const step of steps) {
+      if (step.status === "rejected") {
+        throw step.reason;
+      }
     }
 
     this.ctx.storage.kv.put(containerSettingsKey, containerSettings.value);
@@ -183,6 +182,18 @@ export class WorkspaceObject extends withWorkspaceContainer(
         : new WorkspaceUnavailable({
             message: `Cloning ${repository.url} failed: ${String(error)}`,
           });
+    }
+  }
+
+  async #writeArchives(init: WorkspaceInit) {
+    const archivesByKind: Partial<Record<ArchiveKind, ReadonlyArray<ArchiveEntry>>> = {
+      skills: init.skills,
+      context: init.context,
+    };
+
+    for (const { kind, directory } of archiveExpansions) {
+      await this.workspace.fs.mkdir(directory, { recursive: true });
+      await this.#writeArchiveEntries(kind, directory, archivesByKind[kind] ?? []);
     }
   }
 
