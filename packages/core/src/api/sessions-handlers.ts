@@ -1,6 +1,7 @@
 import { RegistryStore } from "@tentacles/contracts/registry-store";
 import { SessionHost } from "@tentacles/contracts/session-host";
 import { TentaclesApi } from "@tentacles/worker-api/api";
+import { SessionNotFound } from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
 import { SecureRandom } from "effect/crypto";
 import * as Effect from "effect/Effect";
@@ -9,6 +10,8 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import { HttpApiBuilder } from "effect/http-api";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+
+import { deleteSession } from "../delete-session";
 
 const decodeSessionId = Schema.decodeUnknownEffect(SessionId);
 
@@ -35,6 +38,22 @@ export const SessionsHandlersLive = HttpApiBuilder.group(TentaclesApi, "sessions
         .handle("prompt", ({ params, payload }) => host.prompt(params.sessionId, payload))
         .handle("answer", ({ params, payload }) => host.answer(params.sessionId, payload))
         .handle("close", ({ params }) => host.close(params.sessionId))
+        .handle("delete", ({ params }) =>
+          Effect.gen(function* () {
+            yield* registry.has(params.sessionId).pipe(
+              Effect.filterOrFail(
+                (isKnown) => isKnown,
+                () => new SessionNotFound({ sessionId: params.sessionId }),
+              ),
+            );
+
+            yield* deleteSession(params.sessionId);
+          }).pipe(
+            Effect.provideService(SessionHost, host),
+            Effect.provideService(RegistryStore, registry),
+            Effect.catchTag("RegistryUnavailable", Effect.die),
+          ),
+        )
         .handle("messages", ({ params, query }) => host.messages(params.sessionId, query.count))
         .handle("status", ({ params }) => host.status(params.sessionId))
         .handle("list", ({ query }) => registry.list(query).pipe(Effect.orDie))

@@ -121,6 +121,16 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
               .all(),
           ).pipe(Effect.flatMap(decodeListings), Effect.mapError(unavailable)),
 
+        has: (sessionId) =>
+          query(
+            () =>
+              db
+                .select({ sessionId: registry.sessionId })
+                .from(registry)
+                .where(eq(registry.sessionId, sessionId))
+                .get() != null,
+          ),
+
         remove: (sessionId) =>
           query(() => {
             db.delete(registry).where(eq(registry.sessionId, sessionId)).run();

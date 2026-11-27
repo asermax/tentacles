@@ -78,6 +78,11 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
       success: HttpApiSchema.NoContent,
       error: SessionNotFound,
     }),
+    HttpApiEndpoint.delete("delete", "/sessions/:sessionId", {
+      params: sessionParams,
+      success: HttpApiSchema.NoContent,
+      error: SessionNotFound,
+    }),
     HttpApiEndpoint.get("messages", "/sessions/:sessionId/messages", {
       params: sessionParams,
       query: { count: MessageCount.pipe(Schema.withDecodingDefaultKey(Effect.succeed(1))) },

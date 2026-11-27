@@ -1,8 +1,9 @@
 import { RegistryStore } from "@tentacles/contracts/registry-store";
-import { SessionHost } from "@tentacles/contracts/session-host";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+
+import { deleteSession } from "./delete-session";
 
 const monthMillis = 30 * 24 * 60 * 60_000;
 
@@ -10,10 +11,7 @@ const monthMillis = 30 * 24 * 60 * 60_000;
 // loop goes on with the other sessions. SessionHost.delete fails only as a
 // defect, so the whole cause is caught.
 const remove = (sessionId: SessionId) =>
-  Effect.gen(function* () {
-    yield* (yield* SessionHost).delete(sessionId);
-    yield* (yield* RegistryStore).remove(sessionId);
-  }).pipe(
+  deleteSession(sessionId).pipe(
     Effect.catchCause((cause) => Effect.logError("Could not delete the session", sessionId, cause)),
   );
 

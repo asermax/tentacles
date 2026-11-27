@@ -124,6 +124,11 @@ const stubLayer = (
 
         return answering(sessionOf(params.sessionId).pipe(Effect.asVoid));
       })
+      .handle("delete", ({ params }) => {
+        requests.push({ endpoint: "delete", sessionId: params.sessionId });
+
+        return answering(sessionOf(params.sessionId).pipe(Effect.asVoid));
+      })
       .handle("messages", ({ params, query }) => {
         requests.push({ endpoint: "messages", sessionId: params.sessionId, query: query });
 

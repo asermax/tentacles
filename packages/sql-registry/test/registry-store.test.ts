@@ -262,7 +262,31 @@ describe("RegistryStore over SQLite", () => {
       expect(yield* registry.stoppedBefore(now).pipe(Effect.flip)).toBeInstanceOf(
         RegistryUnavailable,
       );
+      expect(yield* registry.has(sessionId(1)).pipe(Effect.flip)).toBeInstanceOf(
+        RegistryUnavailable,
+      );
     }).pipe(Effect.provide(closedRegistry)),
+  );
+
+  it.effect("tells whether a session has an entry, whatever its status, until it is removed", () =>
+    Effect.gen(function* () {
+      const registry = yield* RegistryStore;
+
+      expect(yield* registry.has(sessionId(1))).toBe(false);
+
+      yield* registry.add(sessionId(1), "never reported", parent, noDetails);
+
+      expect(yield* registry.has(sessionId(1))).toBe(true);
+
+      yield* registry.setStatus(sessionId(1), SessionStatuses.running);
+
+      expect(yield* registry.has(sessionId(1))).toBe(true);
+      expect(yield* registry.has(sessionId(2))).toBe(false);
+
+      yield* registry.remove(sessionId(1));
+
+      expect(yield* registry.has(sessionId(1))).toBe(false);
+    }).pipe(Effect.provide(freshRegistry)),
   );
 
   it.effect("resolves an unknown token to nothing", () =>
