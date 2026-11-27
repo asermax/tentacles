@@ -14,15 +14,17 @@ export const fetchWithAuthorization = (request: Request, authorization: string) 
 };
 
 /**
- * A fetch that sends the GitHub token on every request to github.com and passes every other
- * request through unchanged. `onNotFound` hears each request GitHub answers 404 for.
+ * A fetch that sends the GitHub token on every HTTPS request to github.com and passes every other
+ * request through unchanged, plain HTTP included. `onNotFound` hears each request GitHub answers 404 for.
  */
 export const githubFetch =
   (token: string, onNotFound?: () => void): typeof fetch =>
   async (input, init) => {
     const request = new Request(input, init);
 
-    if (new URL(request.url).hostname !== githubHost) {
+    const { protocol, hostname } = new URL(request.url);
+
+    if (protocol !== "https:" || hostname !== githubHost) {
       return fetch(request);
     }
 

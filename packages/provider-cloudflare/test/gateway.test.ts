@@ -7,8 +7,7 @@ import { signToken } from "../src/browser";
 import { Forwarded } from "./echo";
 import { testSecrets } from "./secrets";
 
-// What the images send in place of a credential; the gateway replaces whatever arrives.
-const placeholder = "tentacles-egress-credential";
+const arbitraryCredential = "an-authorization-the-gateway-replaces";
 
 const decodeForwarded = Schema.decodeUnknownSync(Forwarded);
 
@@ -18,10 +17,10 @@ const fetchCdp = (token: string) =>
   });
 
 describe("the workspace container's gateway", () => {
-  it("forwards a request to github.com with the GitHub token in place of the placeholder", async () => {
+  it("adds the GitHub token to a request to github.com, replacing any authorization it carries", async () => {
     const response = await env.GATEWAY.fetch(
       "https://github.com/owner/repository.git/info/refs?service=git-upload-pack",
-      { headers: { authorization: `Basic ${btoa(`x-access-token:${placeholder}`)}` } },
+      { headers: { authorization: `Basic ${btoa(`x-access-token:${arbitraryCredential}`)}` } },
     );
 
     const forwarded = decodeForwarded(await response.json());
@@ -32,6 +31,15 @@ describe("the workspace container's gateway", () => {
     expect(forwarded.headers.authorization).toBe(
       `Basic ${btoa(`x-access-token:${testSecrets.TENTACLES_GITHUB_TOKEN}`)}`,
     );
+  });
+
+  it("adds no token to a plain HTTP request to github.com", async () => {
+    const response = await env.GATEWAY.fetch("http://github.com/owner/repository.git/info/refs");
+
+    const forwarded = decodeForwarded(await response.json());
+
+    expect(forwarded.url).toBe("http://github.com/owner/repository.git/info/refs");
+    expect(forwarded.headers.authorization).toBeUndefined();
   });
 
   it("passes a request to any other host through unchanged", async () => {
