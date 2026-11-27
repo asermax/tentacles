@@ -17,7 +17,7 @@ import * as Schema from "effect/Schema";
 
 import { githubFetch } from "./github-fetch";
 import { gateway, gatewayStub, type GatewayEnvironment } from "./workspace-gateway";
-import { IdentifiedContainerBackend } from "./identified-container-backend";
+import { WorkspaceContainerBackend } from "./workspace-container-backend";
 import { sizedContainerHolder } from "./sized-container-host";
 import { destroyedReason, failureReason, isWorkspaceFailure } from "./workspace-failure";
 import {
@@ -58,7 +58,7 @@ export class WorkspaceObject extends withWorkspaceContainer(
   // transport.
   #hasNotFoundResponse = false;
 
-  readonly containerBackend = new IdentifiedContainerBackend(
+  readonly containerBackend = new WorkspaceContainerBackend(
     {
       id: workspaceBackends.container,
       container: () => sizedContainerHolder(this, () => this.#readStoredSize()),

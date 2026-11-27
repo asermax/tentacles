@@ -13,6 +13,7 @@ import {
 } from "./archives";
 import { fixtureRepositories, fixtureRepository } from "./github-fixture";
 import { rejection } from "./rejection";
+import { testSecrets } from "./secrets";
 import { workspaceInit } from "./workspace-init";
 
 // A workspace object that resets itself breaks the stub that called it, so a test reaches the
@@ -191,6 +192,25 @@ describe("a workspace object's container", () => {
 
   it("is requested at the default instance size before any setup stored one", async () => {
     expect(await workspaceOf()().requestedInstances()).toEqual(["basic"]);
+  });
+});
+
+describe("a workspace object's container commands", () => {
+  it("run with the deploy's git identity and the interception CA for Node, after the caller's variables", async () => {
+    const environment = await workspaceOf()().containerExecEnvironment({
+      CALLER_VARIABLE: "kept",
+      GIT_AUTHOR_NAME: "Someone Else",
+      NODE_EXTRA_CA_CERTS: "/tmp/other.crt",
+    });
+
+    expect(environment).toEqual({
+      CALLER_VARIABLE: "kept",
+      GIT_AUTHOR_NAME: testSecrets.TENTACLES_GIT_AUTHOR_NAME,
+      GIT_AUTHOR_EMAIL: testSecrets.TENTACLES_GIT_AUTHOR_EMAIL,
+      GIT_COMMITTER_NAME: testSecrets.TENTACLES_GIT_AUTHOR_NAME,
+      GIT_COMMITTER_EMAIL: testSecrets.TENTACLES_GIT_AUTHOR_EMAIL,
+      NODE_EXTRA_CA_CERTS: "/usr/local/share/ca-certificates/cloudflare-containers-ca.crt",
+    });
   });
 });
 

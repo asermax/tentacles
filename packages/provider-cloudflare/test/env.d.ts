@@ -23,6 +23,9 @@ interface WorkspaceRpc extends Rpc.DurableObjectBranded {
   destroy(): void;
   failNextDestroy(): void;
   requestedInstances(): Promise<ReadonlyArray<string | undefined>>;
+  containerExecEnvironment(
+    callerEnvironment: Record<string, string>,
+  ): Promise<Record<string, string>>;
   __getWorkspaceStub(): Promise<ReturnType<Workspace["stub"]>>;
   files(): ReadonlyArray<{ path: string; mode: number; size: number; text: string }>;
   directoriesAmong(paths: ReadonlyArray<string>): ReadonlyArray<string>;

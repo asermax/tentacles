@@ -6,6 +6,7 @@ import {
   WorkspaceProxy,
   WorkspaceServiceProxy,
 } from "../src/workspace-worker.ts";
+import { ContainerBackend } from "@cloudflare/computer/backends/container";
 import { workspaceDirectory } from "@tentacles/worker-api/archive-kinds";
 import { permissionBits } from "@tentacles/worker-api/archives";
 
@@ -46,6 +47,39 @@ export class WorkspaceObject extends DeployedWorkspaceObject {
     await this.containerBackend.connect().catch(() => undefined);
 
     return requestedInstances;
+  }
+
+  // The environment the container backend gives a command whose caller set the given variables.
+  // computerd cannot run here, so the base backend's connection is replaced for the call by one that
+  // records the exec it receives.
+  async containerExecEnvironment(callerEnvironment) {
+    const baseConnect = Object.getOwnPropertyDescriptor(ContainerBackend.prototype, "connect");
+    let receivedEnvironment;
+
+    Object.defineProperty(ContainerBackend.prototype, "connect", {
+      ...baseConnect,
+      value: async () => ({
+        rpc: {
+          sync: {},
+          shell: {
+            exec: async ({ env }) => {
+              receivedEnvironment = env;
+            },
+          },
+        },
+        close: async () => {},
+      }),
+    });
+
+    try {
+      const { rpc } = await this.containerBackend.connect();
+
+      await rpc.shell.exec({ command: "true", env: callerEnvironment });
+    } finally {
+      Object.defineProperty(ContainerBackend.prototype, "connect", baseConnect);
+    }
+
+    return receivedEnvironment;
   }
 
   // The given paths that exist in the object as directories, empty ones included.
