@@ -59,16 +59,6 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
           scriptName: scripts.workspace,
         }),
       },
-      build: {
-        input: {
-          // pi-env's client spawns its daemon with node:child_process, which workerd stubs.
-          resolve: {
-            alias: {
-              "node:child_process": `${import.meta.dirname}/spawn-shim.ts`,
-            },
-          },
-        },
-      },
     };
   }),
   Effect.gen(function* () {

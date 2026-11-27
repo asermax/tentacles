@@ -19,7 +19,7 @@ import { githubFetch } from "./github-fetch";
 import { gateway, gatewayStub } from "./workspace-gateway";
 import { IdentifiedContainerBackend } from "./identified-container-backend";
 import { failureReason } from "./workspace-failure";
-import { workspaceContainerId, workspaceObjectClass } from "./workspace-names";
+import { previewPortHeader, workspaceContainerId, workspaceObjectClass } from "./workspace-names";
 import { ContainerSettings, defaultSize, unsupportedSettings } from "./workspace-settings";
 
 export { WorkspaceProxy, WorkspaceServiceProxy };
@@ -32,8 +32,6 @@ interface WorkspaceEnvironment {
 }
 
 const settingsKey = "tentacles.workspace";
-
-const previewPortHeader = "x-tentacles-preview-port";
 
 const decodeSettings = Schema.decodeUnknownOption(ContainerSettings);
 

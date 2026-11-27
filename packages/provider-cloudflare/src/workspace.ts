@@ -1,64 +1,72 @@
-import * as Cloudflare from "@alchemy.run/cloudflare";
 import { Workspace } from "@tentacles/contracts/workspace";
-import { WorkspaceUnavailable } from "@tentacles/worker-api/errors";
+import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 
-import { credentialPlaceholder, egressCaPath } from "./egress";
+import { failureOf } from "./workspace-failure";
+import { previewPortHeader } from "./workspace-names";
+import { workspaceTools } from "./workspace-tools";
+import type { WorkspaceObject } from "./workspace-worker";
 
-// The deploy publishes each class's images under their Container's id.
-const workspaceContainerId = "WorkspaceContainer";
+// The abort a workspace object destroys itself with rejects the destroy call with this reason.
+const destroyedReason = "workspace deleted";
 
-/** The workspace image, attached to the session object's class. */
-export class WorkspaceContainer extends Cloudflare.Container<WorkspaceContainer>()(
-  workspaceContainerId,
-  Effect.succeed({
-    schedulingPolicy: "durable_object" as const,
-    context: `${import.meta.dirname}/../images/workspace`,
-    build: {
-      args: {
-        EGRESS_CA_PATH: egressCaPath,
-        CREDENTIAL_PLACEHOLDER: credentialPlaceholder,
-      },
-    },
-  }),
-) {}
+/**
+ * One session's Workspace, which is its workspace object, reached by the session id. Computer's
+ * client for that object is awaited once, before the tools are built; every other call reaches the
+ * object through a stub of its own, since an object that resets itself breaks the stub that called
+ * it.
+ */
+export const workspaceLayer = (
+  workspaces: DurableObjectNamespace<WorkspaceObject>,
+  sessionId: SessionId,
+) => {
+  const stub = () => workspaces.getByName(sessionId);
 
-export interface WorkspaceHandles {
-  readonly container: () => Container | undefined;
-}
-
-/** One session's workspace on the session object's container. */
-export const workspaceLayer = ({ container: maybeContainer }: WorkspaceHandles) =>
-  Layer.succeed(
+  return Layer.effect(
     Workspace,
-    Workspace.of({
-      tools: [],
+    Effect.gen(function* () {
+      const client = yield* Effect.promise(async () => {
+        const { getWorkspace } = await import("@cloudflare/computer");
 
-      create: () =>
-        Effect.fail(
-          new WorkspaceUnavailable({ message: "The workspace cannot be set up from this Worker" }),
-        ),
+        return getWorkspace(stub());
+      });
 
-      // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
-      // plain HTTP.
-      forward: (port, request) =>
-        Effect.tryPromise(() => {
-          const container = maybeContainer();
+      const tools = yield* workspaceTools(client);
 
-          if (container == null) {
-            throw new Error("The session object has no container");
-          }
+      return Workspace.of({
+        tools,
 
-          const url = new URL(request.url);
+        create: (init) => Effect.tryPromise({ try: () => stub().setup(init), catch: failureOf }),
 
-          url.protocol = "http:";
+        // The workspace object makes the port's request over plain HTTP from the path it receives.
+        forward: (port, request) =>
+          Effect.tryPromise(() => {
+            const forwarded = new Request(request);
 
-          return container.getTcpPort(port).fetch(new Request(url, request));
-        }).pipe(
-          Effect.orElseSucceed(
-            () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
+            forwarded.headers.set(previewPortHeader, String(port));
+
+            return stub().fetch(forwarded);
+          }).pipe(
+            Effect.orElseSucceed(
+              () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
+            ),
           ),
-        ),
+      });
     }),
+  );
+};
+
+/** Destroys the session's workspace object, which rejects the call with its abort reason when it succeeds. */
+export const destroyWorkspace = (
+  workspaces: DurableObjectNamespace<WorkspaceObject>,
+  sessionId: SessionId,
+) =>
+  Effect.tryPromise(() => workspaces.getByName(sessionId).destroy()).pipe(
+    Effect.catchIf(
+      (error) => Predicate.isError(error.cause) && error.cause.message === destroyedReason,
+      () => Effect.void,
+    ),
+    Effect.orDie,
   );

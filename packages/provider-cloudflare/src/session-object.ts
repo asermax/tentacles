@@ -32,8 +32,9 @@ import { sendableCode } from "./close-code";
 import { modelProvidersLayer } from "./model-providers";
 import { CloudflarePreviewRouter } from "./preview-router";
 import { RegistryObject, registryStoreLayer } from "./registry-object";
-import { WorkspaceContainer, workspaceLayer } from "./workspace";
-import { ContainerSettings, unsupportedSettings } from "./workspace-settings";
+import { destroyWorkspace, workspaceLayer } from "./workspace";
+import { workspaceObjectClass } from "./workspace-names";
+import type { WorkspaceObject } from "./workspace-worker";
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
 export interface SessionOperations {
@@ -76,14 +77,10 @@ const FetchRoutes = {
 const encodeState = (state: SessionState) =>
   Schema.encodeEffect(SessionState)(state).pipe(Effect.map(JSON.stringify), Effect.orDie);
 
-const decodeContainerSettings = Schema.decodeUnknownEffect(ContainerSettings);
-
 const notFound = () =>
   HttpServerResponse.text("Session not found", { status: 404, headers: { [notFoundHeader]: "1" } });
 
 const objectDependencies = Effect.gen(function* () {
-  yield* WorkspaceContainer;
-
   return {
     state: yield* Cloudflare.DurableObjectState,
     registries: yield* RegistryObject,
@@ -113,6 +110,8 @@ export const SessionObjectLive = SessionObject.make(
 
       const codemodeSandboxes: DurableObjectNamespace<CodemodeSandbox> = env[codemodeSandboxClass];
 
+      const workspaces: DurableObjectNamespace<WorkspaceObject> = env[workspaceObjectClass];
+
       const contracts = Layer.mergeAll(
         Layer.succeed(
           SessionStorage,
@@ -139,7 +138,7 @@ export const SessionObjectLive = SessionObject.make(
               }),
           }),
         ),
-        workspaceLayer({ container: () => raw.container }),
+        workspaceLayer(workspaces, sessionId),
         browserLayer(yield* browser.raw, cdpSecret, raw.storage),
         CloudflarePreviewRouter,
         registryStoreLayer(registries),
@@ -154,26 +153,22 @@ export const SessionObjectLive = SessionObject.make(
       );
 
       return {
-        create: (request: CreateSession) =>
-          Effect.gen(function* () {
-            yield* decodeContainerSettings(request.settings).pipe(
-              Effect.mapError(() => new Error(unsupportedSettings(request.settings))),
-              Effect.orDie,
-            );
-            yield* handle.create(request);
-          }),
+        create: (request: CreateSession) => handle.create(request),
 
         prompt: (request: Prompt) => handle.prompt(request),
         answer: (request: Answer) => handle.answer(request),
         close: () => handle.close(),
         messages: (count: number) => handle.messages(count),
         status: () => handle.status(),
-        // core stops the session; what the object stored is the provider's to remove.
+        // core stops the session, then its workspace object is destroyed, and last what this
+        // object stored is removed: a destroy that fails leaves the session whole for the next try.
         delete: () =>
-          Effect.andThen(
-            handle.delete(),
-            Effect.promise(() => raw.storage.deleteAll()),
-          ),
+          handle
+            .delete()
+            .pipe(
+              Effect.andThen(destroyWorkspace(workspaces, sessionId)),
+              Effect.andThen(Effect.promise(() => raw.storage.deleteAll())),
+            ),
 
         fetch: Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest.pipe(
