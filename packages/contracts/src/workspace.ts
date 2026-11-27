@@ -4,7 +4,7 @@ import type { ArchiveEntry } from "@tentacles/worker-api/archives";
 import type { Settings } from "@tentacles/worker-api/settings";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import type { InvalidWorkspace, WorkspaceUnavailable } from "@tentacles/worker-api/errors";
+import type { WorkspaceSetupError } from "@tentacles/worker-api/errors";
 
 /** Where the workspace clones the session's repository. */
 export const repositoryDirectory = `${workspaceDirectory}/repo`;
@@ -29,9 +29,7 @@ export class Workspace extends Context.Service<
   Workspace,
   {
     readonly tools: ReadonlyArray<ToolRegistration>;
-    readonly create: (
-      init: WorkspaceInit,
-    ) => Effect.Effect<void, InvalidWorkspace | WorkspaceUnavailable>;
+    readonly create: (init: WorkspaceInit) => Effect.Effect<void, WorkspaceSetupError>;
     readonly forward: (port: number, request: Request) => Effect.Effect<Response>;
   }
 >()("tentacles/Workspace") {}

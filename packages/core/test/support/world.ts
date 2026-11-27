@@ -19,7 +19,7 @@ import { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace } from "@tentacles/contracts/workspace";
-import type { InvalidWorkspace, WorkspaceUnavailable } from "@tentacles/worker-api/errors";
+import type { WorkspaceSetupError } from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
 import type { SessionState } from "@tentacles/worker-api/session-state";
 import * as Context from "effect/Context";
@@ -63,7 +63,7 @@ export interface Failures {
   browserOpen: boolean;
   openPreview: boolean;
   stoppedBefore: boolean;
-  workspaceCreate: InvalidWorkspace | WorkspaceUnavailable | null;
+  workspaceCreate: WorkspaceSetupError | null;
   /** Session ids whose next delete fails. */
   readonly deleteOnce: Set<SessionId>;
 }

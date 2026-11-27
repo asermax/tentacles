@@ -5,6 +5,7 @@ import {
   InvalidArchive,
   InvalidWorkspace,
   SessionNotFound,
+  type WorkspaceSetupError,
   WorkspaceUnavailable,
 } from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
@@ -62,7 +63,7 @@ const decodeWorkspaceUnavailable = Schema.decodeUnknownSync(WorkspaceUnavailable
 const listPath = `/sessions?harness=pi&sessionId=${parent.sessionId}`;
 
 /** A create whose workspace setup fails with the given error, and the entry it leaves in the registry. */
-const failedCreate = (error: InvalidWorkspace | WorkspaceUnavailable) =>
+const failedCreate = (error: WorkspaceSetupError) =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
     const api = yield* serveApi;

@@ -7,11 +7,9 @@ import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Session } from "@tentacles/core";
 import type { Entry } from "@tentacles/worker-api/entries";
 import {
-  InvalidArchive,
-  InvalidWorkspace,
+  CreateSessionError,
   QuestionNotWaiting,
   SessionNotFound,
-  WorkspaceUnavailable,
 } from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
 import { SessionState } from "@tentacles/worker-api/session-state";
@@ -38,9 +36,7 @@ import type { WorkspaceObject } from "./workspace-worker";
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
 export interface SessionOperations {
-  readonly create: (
-    request: CreateSession,
-  ) => Effect.Effect<void, InvalidArchive | InvalidWorkspace | WorkspaceUnavailable>;
+  readonly create: (request: CreateSession) => Effect.Effect<void, CreateSessionError>;
   readonly prompt: (request: Prompt) => Effect.Effect<void, SessionNotFound>;
   readonly answer: (request: Answer) => Effect.Effect<void, SessionNotFound | QuestionNotWaiting>;
   readonly close: () => Effect.Effect<void, SessionNotFound>;
@@ -53,13 +49,7 @@ export interface SessionOperations {
 export class SessionObject extends Cloudflare.DurableObject<SessionObject, SessionOperations>()(
   "SessionObject",
   {
-    errors: [
-      SessionNotFound,
-      QuestionNotWaiting,
-      InvalidArchive,
-      InvalidWorkspace,
-      WorkspaceUnavailable,
-    ],
+    errors: [SessionNotFound, QuestionNotWaiting, ...CreateSessionError.members],
   },
 ) {}
 

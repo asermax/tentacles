@@ -1,7 +1,7 @@
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 import { Workspace, type WorkspaceInit } from "@tentacles/contracts/workspace";
-import type { InvalidWorkspace, WorkspaceUnavailable } from "@tentacles/worker-api/errors";
+import type { WorkspaceSetupError } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 
@@ -47,7 +47,7 @@ const workspaceTools = (files: Map<string, string>): ToolRegistration[] => [
 export const testWorkspace = (
   sessionId: SessionId,
   workspaceCreates: WorkspaceCreate[],
-  workspaceFailure: () => InvalidWorkspace | WorkspaceUnavailable | null,
+  workspaceFailure: () => WorkspaceSetupError | null,
 ) => {
   const files = new Map<string, string>();
 

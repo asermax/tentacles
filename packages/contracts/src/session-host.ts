@@ -1,10 +1,8 @@
 import type { Entry } from "@tentacles/worker-api/entries";
 import type {
-  InvalidArchive,
-  InvalidWorkspace,
+  CreateSessionError,
   QuestionNotWaiting,
   SessionNotFound,
-  WorkspaceUnavailable,
 } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { SessionState } from "@tentacles/worker-api/session-state";
@@ -23,7 +21,7 @@ export class SessionHost extends Context.Service<
     readonly create: (
       sessionId: SessionId,
       request: CreateSession,
-    ) => Effect.Effect<void, InvalidArchive | InvalidWorkspace | WorkspaceUnavailable>;
+    ) => Effect.Effect<void, CreateSessionError>;
     readonly prompt: (
       sessionId: SessionId,
       request: Prompt,
