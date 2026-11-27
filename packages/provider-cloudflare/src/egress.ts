@@ -7,7 +7,7 @@ import * as Redacted from "effect/Redacted";
 
 import { fetchWithAuthorization } from "./github-fetch";
 
-/** Where Cloudflare writes the CA a container's intercepted HTTPS is signed with; the Claude image trusts it. */
+/** Where Cloudflare writes the CA a container's intercepted HTTPS is signed with; the Claude and workspace images trust it. */
 export const egressCaPath = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
 
 /** What the Claude image sends in place of a credential; the egress handler sends the real one instead. */

@@ -25,8 +25,8 @@ const hmacKey = (secret: Redacted.Redacted) =>
     ["sign", "verify"],
   );
 
-// A token is the Browser Run session id and its HMAC under the Worker secret, so only the Worker
-// mints one and the relay keeps no state of its own.
+// A token is the Browser Run session id and its HMAC under the deploy's CDP secret, so only the
+// deploy's Workers can mint one, and the relay in the Workspace Worker keeps no state of its own.
 export const signToken = async (secret: Redacted.Redacted, browserSessionId: string) => {
   const signature = await crypto.subtle.sign(
     "HMAC",
