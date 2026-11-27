@@ -35,6 +35,9 @@ interface RegistryRpc extends Rpc.DurableObjectBranded {
   openPreview(sessionId: string, port: number): { token: string };
 }
 
+// GATEWAY is the Workspace Worker's default entrypoint with a workspace's gateway props, as the
+// container's outbound requests reach it. BROWSER_STUB is the Workspace Worker's Browser binding
+// stub, which records the sessions it is asked for.
 declare global {
   namespace Cloudflare {
     interface Env {
@@ -43,10 +46,7 @@ declare global {
       readonly TENTACLES: Fetcher & {
         scheduled(options: { cron: string; scheduledTime: Date }): Promise<{ outcome: string }>;
       };
-      // The Workspace Worker's default entrypoint with a workspace's gateway props, as the
-      // container's outbound requests reach it.
       readonly GATEWAY: Fetcher;
-      // The Workspace Worker's Browser binding stub, which records the sessions it is asked for.
       readonly BROWSER_STUB: Fetcher & { connectedSessions(): Promise<ReadonlyArray<string>> };
       readonly SessionObject: DurableObjectNamespace<SessionRpc>;
       readonly RegistryObject: DurableObjectNamespace<RegistryRpc>;

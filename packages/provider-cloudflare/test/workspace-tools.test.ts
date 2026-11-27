@@ -2,15 +2,26 @@ import { getWorkspace } from "@cloudflare/computer";
 import { describe, expect, it } from "@effect/vitest";
 import { env } from "cloudflare:workers";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 import { workspaceTools } from "../src/workspace-tools";
-import { followUp, idleSession, scripted, toolResults } from "./sessions";
+import { followUp, idleSession, notesPath, scripted, toolResults, writeNotes } from "./sessions";
 
-const file = "/workspace/repo/notes.txt";
+const notesCall = writeNotes("alpha\nbeta needle\ngamma\n");
 
-const write = { name: "write", arguments: { path: file, content: "alpha\nbeta needle\ngamma\n" } };
+const decodeExecDetails = Schema.decodeUnknownSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      command: Schema.String,
+      backend: Schema.String,
+      exitCode: Schema.NullOr(Schema.Int),
+      stdout: Schema.String,
+      stderr: Schema.String,
+    }),
+  ),
+);
 
-const execResult = (output: string | undefined) => JSON.parse(output ?? "");
+const execDetails = (output: string | undefined) => decodeExecDetails(output ?? "");
 
 describe("the workspace's tools", () => {
   it("mark the tools that only read as safe to replay and the others as unsafe", async () => {
@@ -36,23 +47,23 @@ describe("the workspace's tools", () => {
       sessionId,
       null,
       scripted([
-        write,
-        { name: "read", arguments: { path: file } },
+        notesCall,
+        { name: "read", arguments: { path: notesPath } },
         { name: "ls", arguments: { path: "/workspace/repo" } },
         { name: "grep", arguments: { path: "/workspace/repo", query: "needle" } },
       ]),
     );
 
-    const results = await toolResults(sessionId);
+    const fileToolResults = await toolResults(sessionId);
 
-    expect(results.map(({ isError }) => isError)).toEqual([false, false, false, false]);
-    expect(results[1]?.output).toContain("beta needle");
-    expect(results[2]?.output).toContain("notes.txt");
-    expect(results[3]?.output).toContain("needle");
+    expect(fileToolResults.map(({ isError }) => isError)).toEqual([false, false, false, false]);
+    expect(fileToolResults[1]?.output).toContain("beta needle");
+    expect(fileToolResults[2]?.output).toContain("notes.txt");
+    expect(fileToolResults[3]?.output).toContain("needle");
 
     const files = await env.WorkspaceObject.getByName(sessionId).files();
 
-    expect(files.find(({ path }) => path === file)?.text).toBe("alpha\nbeta needle\ngamma\n");
+    expect(files.find(({ path }) => path === notesPath)?.text).toBe("alpha\nbeta needle\ngamma\n");
   });
 
   it("run a command on the shell and return its output and exit code", async () => {
@@ -64,10 +75,10 @@ describe("the workspace's tools", () => {
       scripted([{ name: "exec", arguments: { command: "echo hi", backend: "shell" } }]),
     );
 
-    const [result] = await toolResults(sessionId);
+    const [execToolResult] = await toolResults(sessionId);
 
-    expect(result?.isError).toBe(false);
-    expect(execResult(result?.output)).toEqual({
+    expect(execToolResult?.isError).toBe(false);
+    expect(execDetails(execToolResult?.output)).toEqual({
       command: "echo hi",
       backend: "shell",
       exitCode: 0,
@@ -90,10 +101,10 @@ describe("the workspace's tools", () => {
       ]),
     );
 
-    const [result] = await toolResults(sessionId);
+    const [execToolResult] = await toolResults(sessionId);
 
-    expect(result?.isError).toBe(true);
-    expect(execResult(result?.output)).toMatchObject({
+    expect(execToolResult?.isError).toBe(true);
+    expect(execDetails(execToolResult?.output)).toMatchObject({
       exitCode: 3,
       stdout: "out\n",
       stderr: "err\n",
@@ -103,14 +114,14 @@ describe("the workspace's tools", () => {
   it("reach the same workspace after the session object restarts", async () => {
     const sessionId = crypto.randomUUID();
 
-    await idleSession(sessionId, null, scripted([write]));
+    await idleSession(sessionId, null, scripted([notesCall]));
     await env.SessionObject.getByName(sessionId)
       .restart()
       .catch(() => undefined);
-    await followUp(sessionId, scripted([{ name: "read", arguments: { path: file } }]));
+    await followUp(sessionId, scripted([{ name: "read", arguments: { path: notesPath } }]));
 
-    const results = await toolResults(sessionId);
+    const afterRestartResults = await toolResults(sessionId);
 
-    expect(results.at(-1)?.output).toContain("beta needle");
+    expect(afterRestartResults.at(-1)?.output).toContain("beta needle");
   });
 });

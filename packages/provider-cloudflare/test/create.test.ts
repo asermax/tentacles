@@ -5,12 +5,13 @@ import {
   WorkspaceUnavailable,
 } from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
+import { SessionListing } from "@tentacles/worker-api/session-state";
 import type { Settings } from "@tentacles/worker-api/settings";
 import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
 import { agentsArchive, contextArchive, skillsArchive } from "./archives";
-import { fixtureRepositories } from "./github-fixture";
+import { fixtureRepositories, fixtureRepository } from "./github-fixture";
 import { apiFetch, testSettings, waitUntilIdle } from "./sessions";
 
 const withinLimit = 5_200_000;
@@ -51,22 +52,20 @@ const decodeInvalidWorkspace = Schema.decodeUnknownSync(InvalidWorkspace);
 
 const decodeWorkspaceUnavailable = Schema.decodeUnknownSync(WorkspaceUnavailable);
 
-const withRepository = (path: string) => ({
+const withRepository = (repositoryPath: string) => ({
   ...testSettings,
-  repository: { url: `https://github.com/${path}.git`, shallow: true },
+  repository: fixtureRepository(repositoryPath, true),
 });
 
-const decodeEntries = Schema.decodeUnknownSync(
-  Schema.Array(Schema.Struct({ sessionId: Schema.String, status: Schema.String })),
-);
-
-const failedEntries = async (parentId: string) => decodeEntries(await list(parentId));
+const decodeListedSessions = Schema.decodeUnknownSync(Schema.Array(SessionListing));
 
 const list = async (parentId: string) => {
   const response = await apiFetch(`/sessions?harness=pi&sessionId=${parentId}`);
 
   return response.json();
 };
+
+const listedSessions = async (parentId: string) => decodeListedSessions(await list(parentId));
 
 describe("create through the Worker", () => {
   it("stores the skills archive it received, as the same bytes, in the session object", async () => {
@@ -77,7 +76,6 @@ describe("create through the Worker", () => {
     const { sessionId } = decodeCreated(await response.json());
 
     expect(response.status).toBe(200);
-    expect(skills.byteLength).toBeGreaterThan(5_000_000);
 
     const files = await env.WorkspaceObject.getByName(sessionId).files();
 
@@ -191,10 +189,10 @@ describe("create through the Worker with a repository", () => {
       "https://github.com/acme/missing.git",
     );
 
-    const [entry] = await failedEntries(parentId);
+    const [listedSession] = await listedSessions(parentId);
 
-    expect(entry?.status).toBe("failed");
-    expect(await env.WorkspaceObject.getByName(entry?.sessionId ?? "").files()).toEqual([]);
+    expect(listedSession?.status).toBe("failed");
+    expect(await env.WorkspaceObject.getByName(listedSession?.sessionId ?? "").files()).toEqual([]);
   });
 
   it("answers 400 InvalidWorkspace naming the image and size the deploy does not offer", async () => {
@@ -218,9 +216,9 @@ describe("create through the Worker with a repository", () => {
       "https://github.com/acme/unreachable.git",
     );
 
-    const [entry] = await failedEntries(parentId);
+    const [listedSession] = await listedSessions(parentId);
 
-    expect(await env.WorkspaceObject.getByName(entry?.sessionId ?? "").files()).toEqual([]);
+    expect(await env.WorkspaceObject.getByName(listedSession?.sessionId ?? "").files()).toEqual([]);
   });
 });
 

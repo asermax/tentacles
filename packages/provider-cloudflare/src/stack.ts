@@ -42,7 +42,7 @@ export const stack = Effect.gen(function* () {
   // The Worker that holds every session's workspace object and its container, with the egress
   // gateway, the Browser binding and the secrets the git client and the gateway use. Its main module is hand-written,
   // because Computer's mixin and named exports cannot go through Alchemy's generated class.
-  const workspace = yield* Cloudflare.Worker("WorkspaceWorker", {
+  const workspaceWorker = yield* Cloudflare.Worker("WorkspaceWorker", {
     name: workspaceWorkerName,
     main: `${import.meta.dirname}/workspace-worker.ts`,
     compatibility: { date: "2026-08-11", flags: ["nodejs_compat"] },
@@ -62,12 +62,12 @@ export const stack = Effect.gen(function* () {
 
   const worker = yield* TentaclesWorker.pipe(
     Effect.provideService(WorkerScripts, {
-      codemode: codemode.workerName,
-      workspace: workspace.workerName,
+      codemodeScript: codemode.workerName,
+      workspaceScript: workspaceWorker.workerName,
     }),
   );
 
-  return { api: worker.url, codemode: codemode.workerName, workspace: workspace.workerName };
+  return { api: worker.url, codemode: codemode.workerName, workspace: workspaceWorker.workerName };
 });
 
 /** The Alchemy providers the stack runs with. */

@@ -5,6 +5,8 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 
+import { fetchWithAuthorization } from "./github-fetch";
+
 /** Where Cloudflare writes the CA a container's intercepted HTTPS is signed with; the Claude image trusts it. */
 export const egressCaPath = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
 
@@ -30,31 +32,20 @@ export const loopback = (state: Cloudflare.DurableObjectState["Service"]) => {
       );
 };
 
-const withAuthorization = (request: Request, authorization: string) => {
-  const headers = new Headers(request.headers);
-
-  headers.set("authorization", authorization);
-
-  return fetch(new Request(request, { headers }));
-};
-
-const forward = (request: Request, authorization: string) =>
-  Effect.promise(() => withAuthorization(request, authorization));
-
 /**
  * The Claude container's outbound traffic: the anthropic handler, run by the Worker's default
  * entrypoint, which the container reaches through its loopback interceptor. The workspace
  * containers' traffic goes to the Workspace Worker's gateway instead. Runs in the Worker's init.
  */
-export const egress = () =>
-  Effect.gen(function* () {
-    const claudeToken = yield* Config.Redacted("TENTACLES_CLAUDE_TOKEN");
+export const egress = Effect.gen(function* () {
+  const claudeToken = yield* Config.Redacted("TENTACLES_CLAUDE_TOKEN");
 
-    const anthropic = (request: Request): Effect.Effect<Response, never, RuntimeContext> =>
-      forward(request, `Bearer ${Redacted.value(claudeToken)}`);
-
-    return (request: Request) =>
-      new URL(request.url).hostname === EgressHosts.anthropic
-        ? Option.some(anthropic(request))
-        : Option.none();
-  });
+  return (request: Request): Option.Option<Effect.Effect<Response, never, RuntimeContext>> =>
+    new URL(request.url).hostname === EgressHosts.anthropic
+      ? Option.some(
+          Effect.promise(() =>
+            fetchWithAuthorization(request, `Bearer ${Redacted.value(claudeToken)}`),
+          ),
+        )
+      : Option.none();
+});

@@ -28,13 +28,11 @@ interface CompletionChunk {
   };
 }
 
-const chunk = (body: CompletionChunk) => `data: ${JSON.stringify(body)}\n\n`;
+const chunkEvent = (body: CompletionChunk) => `data: ${JSON.stringify(body)}\n\n`;
 
-const Content = Schema.Union([
-  Schema.String,
-  Schema.Array(Schema.Struct({ text: Schema.optional(Schema.String) })),
-  Schema.Null,
-]);
+const ContentParts = Schema.Array(Schema.Struct({ text: Schema.optional(Schema.String) }));
+
+const Content = Schema.Union([Schema.String, ContentParts, Schema.Null]);
 
 const Message = Schema.Struct({ role: Schema.String, content: Schema.optional(Content) });
 
@@ -51,75 +49,66 @@ const scriptPrefix = "SCRIPT ";
 const textOf = (content: typeof Content.Type | undefined) =>
   Schema.is(Schema.String)(content)
     ? content
-    : Schema.is(Schema.Array(Schema.Struct({ text: Schema.optional(Schema.String) })))(content)
+    : Schema.is(ContentParts)(content)
       ? content.map((part) => part.text ?? "").join("")
       : "";
 
-const response = (chunks: ReadonlyArray<CompletionChunk>) =>
-  new Response([...chunks.map(chunk), "data: [DONE]\n\n"].join(""), {
+const eventStreamResponse = (chunks: ReadonlyArray<CompletionChunk>) =>
+  new Response([...chunks.map(chunkEvent), "data: [DONE]\n\n"].join(""), {
     headers: { "content-type": "text/event-stream" },
   });
 
 const usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 };
 
-const say = (content: string) =>
-  response([
-    {
-      id: "test",
-      object: "chat.completion.chunk",
-      choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }],
-    },
-    {
-      id: "test",
-      object: "chat.completion.chunk",
-      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-      usage,
-    },
+const chunkOf = (choice: Omit<CompletionChunk["choices"][number], "index">): CompletionChunk => ({
+  id: "test",
+  object: "chat.completion.chunk",
+  choices: [{ index: 0, ...choice }],
+});
+
+const textResponse = (content: string) =>
+  eventStreamResponse([
+    chunkOf({ delta: { role: "assistant", content }, finish_reason: null }),
+    { ...chunkOf({ delta: {}, finish_reason: "stop" }), usage },
   ]);
 
-const call = (step: number, name: string, args: string) =>
-  response([
-    {
-      id: "test",
-      object: "chat.completion.chunk",
-      choices: [
-        {
-          index: 0,
-          delta: {
-            role: "assistant",
-            tool_calls: [
-              {
-                index: 0,
-                id: `call-${step}`,
-                type: "function",
-                function: { name, arguments: args },
-              },
-            ],
+const toolCallResponse = (toolResultCount: number, name: string, args: string) =>
+  eventStreamResponse([
+    chunkOf({
+      delta: {
+        role: "assistant",
+        tool_calls: [
+          {
+            index: 0,
+            id: `call-${toolResultCount}`,
+            type: "function",
+            function: { name, arguments: args },
           },
-          finish_reason: null,
-        },
-      ],
-    },
-    {
-      id: "test",
-      object: "chat.completion.chunk",
-      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-      usage,
-    },
+        ],
+      },
+      finish_reason: null,
+    }),
+    { ...chunkOf({ delta: {}, finish_reason: "tool_calls" }), usage },
   ]);
 
 export const scriptedModel = async (request: Request) => {
   const { messages } = decodeRequest(await request.json());
-  const lastPrompt = messages.findLastIndex((message) => message.role === "user");
-  const prompt = textOf(messages[lastPrompt]?.content);
+  const lastPromptIndex = messages.findLastIndex((message) => message.role === "user");
+  const prompt = textOf(messages[lastPromptIndex]?.content);
 
   if (!prompt.startsWith(scriptPrefix)) {
-    return say("done");
+    return textResponse("done");
   }
 
-  const calls = decodeToolCalls(prompt.slice(scriptPrefix.length));
-  const step = messages.slice(lastPrompt).filter((message) => message.role === "tool").length;
-  const next = calls[step];
+  const scriptedCalls = decodeToolCalls(prompt.slice(scriptPrefix.length));
 
-  return next == null ? say("done") : call(step, next.name, next.arguments);
+  const toolResultCount = messages
+    .slice(lastPromptIndex)
+    .filter((message) => message.role === "tool").length;
+
+  const nextCall = scriptedCalls[toolResultCount];
+
+  return nextCall == null
+    ? textResponse("done")
+    : toolCallResponse(toolResultCount, nextCall.name, nextCall.arguments);
 };

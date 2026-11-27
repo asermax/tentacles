@@ -4,19 +4,15 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
 import { signToken } from "../src/browser";
+import { Forwarded } from "./echo";
 import { testSecrets } from "./secrets";
 
 // What the images send in place of a credential; the gateway replaces whatever arrives.
 const placeholder = "tentacles-egress-credential";
 
-const Forwarded = Schema.Struct({
-  url: Schema.String,
-  headers: Schema.Record(Schema.String, Schema.String),
-});
-
 const decodeForwarded = Schema.decodeUnknownSync(Forwarded);
 
-const cdp = (token: string) =>
+const fetchCdp = (token: string) =>
   env.GATEWAY.fetch(`http://tentacles.asermax.com/cdp/${token}`, {
     headers: { upgrade: "websocket" },
   });
@@ -53,7 +49,7 @@ describe("the workspace container's gateway", () => {
   it("connects a signed CDP token to the browser session it names", async () => {
     const token = await signToken(Redacted.make(testSecrets.TENTACLES_CDP_SECRET), "browser-7");
 
-    await cdp(token);
+    await fetchCdp(token);
 
     expect(await env.BROWSER_STUB.connectedSessions()).toContain("browser-7");
   });
@@ -61,7 +57,7 @@ describe("the workspace container's gateway", () => {
   it("refuses a token whose signature the Worker did not make", async () => {
     const forged = `browser-forged.${btoa("not the signature").replaceAll("=", "")}`;
 
-    const response = await cdp(forged);
+    const response = await fetchCdp(forged);
 
     expect(response.status).toBe(404);
     expect(response.webSocket).toBeNull();
@@ -69,7 +65,7 @@ describe("the workspace container's gateway", () => {
   });
 
   it("refuses a token with no signature", async () => {
-    const response = await cdp("browser-session");
+    const response = await fetchCdp("browser-session");
 
     expect(response.status).toBe(404);
   });

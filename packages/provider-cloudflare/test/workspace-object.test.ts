@@ -5,22 +5,10 @@ import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
 import { failureOf } from "../src/workspace-failure";
-import { contextArchive, skillsArchive } from "./archives";
-import { fixtureRepositories } from "./github-fixture";
-
-const init = (overrides: Partial<WorkspaceInit> = {}): WorkspaceInit => ({
-  repository: null,
-  image: "default",
-  size: "basic",
-  skills: null,
-  context: null,
-  ...overrides,
-});
-
-const repository = (path: string, shallow = false) => ({
-  url: `https://github.com/${path}.git`,
-  shallow,
-});
+import { contextArchive, contextArchiveWithScript, skillsArchive } from "./archives";
+import { fixtureRepositories, fixtureRepository } from "./github-fixture";
+import { rejection } from "./rejection";
+import { workspaceInit } from "./workspace-init";
 
 // A workspace object that resets itself breaks the stub that called it, so a test reaches the
 // object again by its name.
@@ -30,16 +18,8 @@ const workspaceOf = () => {
   return () => env.WorkspaceObject.getByName(name);
 };
 
-const failureOfSetup = async (
-  workspace: ReturnType<typeof workspaceOf>,
-  request: WorkspaceInit,
-) => {
-  const error = await workspace()
-    .setup(request)
-    .then(
-      () => null,
-      (cause: unknown) => cause,
-    );
+const failureOfSetup = async (workspace: ReturnType<typeof workspaceOf>, init: WorkspaceInit) => {
+  const error = await rejection(workspace().setup(init));
 
   expect(error).not.toBeNull();
 
@@ -51,9 +31,9 @@ describe("a workspace object's setup", () => {
     const workspace = workspaceOf();
 
     await workspace().setup(
-      init({
+      workspaceInit({
         skills: await skillsArchive("implement"),
-        context: await contextArchive("notes.md"),
+        context: await contextArchiveWithScript("notes.md"),
       }),
     );
 
@@ -61,18 +41,25 @@ describe("a workspace object's setup", () => {
 
     expect(files.map(({ path }) => path).toSorted()).toEqual([
       "/workspace/context/notes.md",
+      "/workspace/context/run.sh",
       "/workspace/skills/implement/SKILL.md",
     ]);
     expect(files.find(({ path }) => path.endsWith("notes.md"))).toMatchObject({
       mode: 0o644,
       text: "context\n",
     });
+    expect(files.find(({ path }) => path.endsWith("run.sh"))?.mode).toBe(0o755);
+    expect(files.find(({ path }) => path.endsWith("SKILL.md"))?.text).toBe(
+      "---\nname: implement\ndescription: The implement skill\n---\n\nFollow implement.",
+    );
   });
 
   it("clones a readable repository into /workspace/repo", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setup(init({ repository: repository(fixtureRepositories.readable) }));
+    await workspace().setup(
+      workspaceInit({ repository: fixtureRepository(fixtureRepositories.readable) }),
+    );
 
     const files = await workspace().files();
 
@@ -84,7 +71,9 @@ describe("a workspace object's setup", () => {
   it("clones only the latest commit when the repository is shallow", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setup(init({ repository: repository(fixtureRepositories.readable, true) }));
+    await workspace().setup(
+      workspaceInit({ repository: fixtureRepository(fixtureRepositories.readable, true) }),
+    );
 
     const files = await workspace().files();
 
@@ -97,14 +86,14 @@ describe("a workspace object's setup", () => {
 
     const failure = await failureOfSetup(
       workspace,
-      init({
-        repository: repository(fixtureRepositories.missing),
+      workspaceInit({
+        repository: fixtureRepository(fixtureRepositories.missing),
         skills: await skillsArchive("implement"),
       }),
     );
 
     expect(Schema.is(InvalidWorkspace)(failure)).toBe(true);
-    expect(failure.message).toContain(repository(fixtureRepositories.missing).url);
+    expect(failure.message).toContain(fixtureRepository(fixtureRepositories.missing).url);
     expect(await workspace().files()).toEqual([]);
   });
 
@@ -113,7 +102,7 @@ describe("a workspace object's setup", () => {
 
     const failure = await failureOfSetup(
       workspace,
-      init({
+      workspaceInit({
         skills: await skillsArchive("implement"),
         context: new TextEncoder().encode("not an archive"),
       }),
@@ -127,7 +116,10 @@ describe("a workspace object's setup", () => {
   it("fails with InvalidWorkspace for an image or size the deploy does not offer", async () => {
     const workspace = workspaceOf();
 
-    const failure = await failureOfSetup(workspace, init({ size: "huge", image: "custom" }));
+    const failure = await failureOfSetup(
+      workspace,
+      workspaceInit({ size: "huge", image: "custom" }),
+    );
 
     expect(Schema.is(InvalidWorkspace)(failure)).toBe(true);
     expect(failure.message).toContain('image "custom"');
@@ -139,32 +131,29 @@ describe("a workspace object's setup", () => {
 
     const failure = await failureOfSetup(
       workspace,
-      init({ repository: repository(fixtureRepositories.unreachable) }),
+      workspaceInit({ repository: fixtureRepository(fixtureRepositories.unreachable) }),
     );
 
     expect(Schema.is(WorkspaceUnavailable)(failure)).toBe(true);
+    expect(failure.message).toContain(fixtureRepository(fixtureRepositories.unreachable).url);
     expect(await workspace().files()).toEqual([]);
   });
 });
 
 describe("a workspace object's destroy", () => {
   it("clears its files, so a later setup under the same name starts empty", async () => {
-    const id = crypto.randomUUID();
+    const workspace = workspaceOf();
 
-    await env.WorkspaceObject.getByName(id).setup(
-      init({ context: await contextArchive("old.md") }),
-    );
-    await env.WorkspaceObject.getByName(id)
+    await workspace().setup(workspaceInit({ context: await contextArchive("old.md") }));
+    await workspace()
       .destroy()
       .catch(() => undefined);
 
-    expect(await env.WorkspaceObject.getByName(id).files()).toEqual([]);
+    expect(await workspace().files()).toEqual([]);
 
-    await env.WorkspaceObject.getByName(id).setup(
-      init({ context: await contextArchive("new.md") }),
-    );
+    await workspace().setup(workspaceInit({ context: await contextArchive("new.md") }));
 
-    expect((await env.WorkspaceObject.getByName(id).files()).map(({ path }) => path)).toEqual([
+    expect((await workspace().files()).map(({ path }) => path)).toEqual([
       "/workspace/context/new.md",
     ]);
   });

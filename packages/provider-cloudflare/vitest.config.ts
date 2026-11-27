@@ -2,42 +2,34 @@ import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
 import { bundleDir, compatibility, workspaceBundleDir } from "./test/bundle-worker";
+import { echo } from "./test/echo";
 import { githubFixture } from "./test/github-fixture";
 import { scriptedModel } from "./test/scripted-model";
 import { testSecrets } from "./test/secrets";
-import { workspaceWorkerName } from "./src/workspace-names";
+import { workspaceObjectClass, workspaceWorkerName } from "./src/workspace-names";
 
-const workerName = "tentacles";
+const tentaclesWorkerName = "tentacles";
 
-// Every outbound request the Worker makes ends here, answered with what it received, so a test
-// reads the forwarded request from the response.
-const echo = async (request: Request) =>
-  Response.json({
-    url: request.url,
-    method: request.method,
-    headers: Object.fromEntries(request.headers),
-  });
+const workspaceBinding = { className: workspaceObjectClass, scriptName: workspaceWorkerName };
 
-const objects = ["SessionObject", "RegistryObject", "ClaudeObject"] as const;
-
-const workspaceObject = "WorkspaceObject";
+const objectClasses = ["SessionObject", "RegistryObject", "ClaudeObject"] as const;
 
 // The Browser binding of the Workspace Worker: it records the sessions the gateway connects to and
 // refuses them, so a test reads which session a signed token reached.
-const browserStub = `
+const browserStubSource = `
 import { WorkerEntrypoint } from "cloudflare:workers";
 
-const connected = [];
+const connectedSessionIds = [];
 
 export default class BrowserStub extends WorkerEntrypoint {
   async connectSession(sessionId) {
-    connected.push(sessionId);
+    connectedSessionIds.push(sessionId);
 
     throw new Error("The test browser has no sessions");
   }
 
   async connectedSessions() {
-    return connected;
+    return connectedSessionIds;
   }
 }
 `;
@@ -52,7 +44,9 @@ const workspaceSecrets = {
 };
 
 // The tentacles Worker and the Workspace Worker run as their own Miniflare workers, from the bundles
-// Alchemy would upload, and the tests reach them through bindings. Inside the test runner the plugin wraps Durable Objects in a class
+// Alchemy would upload, and the tests reach them through bindings. GATEWAY is the container's
+// gateway as the workspace object hands it to the container, and the Workspace Worker's LOADER is
+// the Worker Loader Computer's isolate shell runs on. Inside the test runner the plugin wraps Durable Objects in a class
 // that answers RPC only for methods their prototype declares, while Alchemy's objects answer
 // every method through a Proxy.
 export default defineConfig({
@@ -66,20 +60,22 @@ export default defineConfig({
               // The cron test calls the Worker's scheduled handler through its service binding.
               compatibilityFlags: [...compatibility.flags, "service_binding_extra_handlers"],
               serviceBindings: {
-                TENTACLES: workerName,
-                // The container's gateway, as the workspace object hands it to the container.
-                GATEWAY: { name: workspaceWorkerName, props: { gateway: "test-workspace" } },
+                TENTACLES: tentaclesWorkerName,
+                GATEWAY: { name: workspaceWorkerName, props: { isGateway: true } },
                 BROWSER_STUB: browserStubName,
               },
               durableObjects: {
                 ...Object.fromEntries(
-                  objects.map((name) => [name, { className: name, scriptName: workerName }]),
+                  objectClasses.map((name) => [
+                    name,
+                    { className: name, scriptName: tentaclesWorkerName },
+                  ]),
                 ),
-                [workspaceObject]: { className: workspaceObject, scriptName: workspaceWorkerName },
+                [workspaceObjectClass]: workspaceBinding,
               },
               workers: [
                 {
-                  name: workerName,
+                  name: tentaclesWorkerName,
                   modules: inject("workerModules"),
                   modulesRoot: bundleDir,
                   compatibilityDate: compatibility.date,
@@ -87,12 +83,9 @@ export default defineConfig({
                   bindings: testSecrets,
                   durableObjects: {
                     ...Object.fromEntries(
-                      objects.map((name) => [name, { className: name, useSQLite: true }]),
+                      objectClasses.map((name) => [name, { className: name, useSQLite: true }]),
                     ),
-                    [workspaceObject]: {
-                      className: workspaceObject,
-                      scriptName: workspaceWorkerName,
-                    },
+                    [workspaceObjectClass]: workspaceBinding,
                   },
                   serviceBindings: { AI: scriptedModel, BROWSER: echo },
                   outboundService: echo,
@@ -105,9 +98,8 @@ export default defineConfig({
                   compatibilityFlags: compatibility.flags,
                   bindings: workspaceSecrets,
                   durableObjects: {
-                    [workspaceObject]: { className: workspaceObject, useSQLite: true },
+                    [workspaceObjectClass]: { className: workspaceObjectClass, useSQLite: true },
                   },
-                  // Computer's isolate shell runs on a Worker Loader.
                   workerLoaders: { LOADER: {} },
                   serviceBindings: { BROWSER: browserStubName },
                   outboundService: githubFixture(),
@@ -115,7 +107,7 @@ export default defineConfig({
                 {
                   name: browserStubName,
                   modules: true,
-                  script: browserStub,
+                  script: browserStubSource,
                   compatibilityDate: compatibility.date,
                 },
               ],

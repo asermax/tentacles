@@ -1,29 +1,36 @@
 import { InvalidWorkspace, WorkspaceUnavailable } from "@tentacles/worker-api/errors";
-import * as Match from "effect/Match";
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 
-type WorkspaceFailure = InvalidWorkspace | WorkspaceUnavailable;
+const WorkspaceFailure = Schema.Union([InvalidWorkspace, WorkspaceUnavailable]);
 
-const reasonPattern = /^(InvalidWorkspace|WorkspaceUnavailable): ([\s\S]*)$/;
+type WorkspaceFailure = typeof WorkspaceFailure.Type;
+
+export const isWorkspaceFailure = Schema.is(WorkspaceFailure);
+
+const decodeWorkspaceFailure = Schema.decodeUnknownOption(WorkspaceFailure);
+
+const reasonPattern = /^(\w+): ([\s\S]*)$/;
+
+/** The reason a workspace object aborts with when it destroys itself, which rejects the destroy call. */
+export const destroyedReason = "workspace deleted";
 
 // A workspace object that resets itself aborts, and the call it aborts rejects with the abort's
 // reason as an error message, so the reason is what carries the failure to the session object.
 /** The text a workspace object aborts with to fail a call with `failure`. */
-export const failureReason = (failure: WorkspaceFailure) =>
-  Match.valueTags(failure, {
-    InvalidWorkspace: ({ message }) => `InvalidWorkspace: ${message}`,
-    WorkspaceUnavailable: ({ message }) => `WorkspaceUnavailable: ${message}`,
-  });
+export const failureReason = ({ _tag, message }: WorkspaceFailure) => `${_tag}: ${message}`;
 
 /**
  * The failure a rejected call to a workspace object stands for: the one its abort reason carries,
  * and WorkspaceUnavailable for any other cause.
  */
 export const failureOf = (cause: unknown): WorkspaceFailure => {
-  const message = Predicate.isError(cause) ? cause.message : String(cause);
-  const [, tag, text = message] = reasonPattern.exec(message) ?? [];
+  const causeMessage = Predicate.isError(cause) ? cause.message : String(cause);
+  const [, _tag, failureMessage = causeMessage] = reasonPattern.exec(causeMessage) ?? [];
 
-  return tag === "InvalidWorkspace"
-    ? new InvalidWorkspace({ message: text })
-    : new WorkspaceUnavailable({ message: text });
+  return Option.getOrElse(
+    decodeWorkspaceFailure({ _tag, message: failureMessage }),
+    () => new WorkspaceUnavailable({ message: causeMessage }),
+  );
 };

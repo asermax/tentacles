@@ -2,6 +2,7 @@
 // Computer's documented setup, with the mixin on the class, the two proxies exported and a Worker
 // Loader binding. Alchemy bundles it from its path and never imports it in Node.
 import { DurableObject } from "cloudflare:workers";
+import { dirname } from "node:path/posix";
 
 import { Workspace, WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";
 import { withWorkspaceContainer } from "@cloudflare/computer/backends/container";
@@ -16,26 +17,28 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { githubFetch } from "./github-fetch";
-import { gateway, gatewayStub } from "./workspace-gateway";
+import { gateway, gatewayStub, type GatewayEnvironment } from "./workspace-gateway";
 import { IdentifiedContainerBackend } from "./identified-container-backend";
-import { failureReason } from "./workspace-failure";
-import { previewPortHeader, workspaceContainerId, workspaceObjectClass } from "./workspace-names";
-import { ContainerSettings, defaultSize, unsupportedSettings } from "./workspace-settings";
+import { destroyedReason, failureReason, isWorkspaceFailure } from "./workspace-failure";
+import {
+  previewPortHeader,
+  workspaceBackends,
+  workspaceContainerId,
+  workspaceObjectClass,
+} from "./workspace-names";
+import { ContainerSettings, defaultSize, unsupportedSettingsMessage } from "./workspace-settings";
 
 export { WorkspaceProxy, WorkspaceServiceProxy };
 
-interface WorkspaceEnvironment {
+interface WorkspaceEnvironment extends GatewayEnvironment {
   readonly LOADER: WorkerLoader;
-  readonly TENTACLES_GITHUB_TOKEN: string;
   readonly TENTACLES_GIT_AUTHOR_NAME: string;
   readonly TENTACLES_GIT_AUTHOR_EMAIL: string;
 }
 
-const settingsKey = "tentacles.workspace";
+const containerSettingsKey = "tentacles.workspace";
 
-const decodeSettings = Schema.decodeUnknownOption(ContainerSettings);
-
-const isFailure = Schema.is(Schema.Union([InvalidWorkspace, WorkspaceUnavailable]));
+const decodeContainerSettings = Schema.decodeUnknownOption(ContainerSettings);
 
 /**
  * One session's workspace: Computer's workspace over this object's SQLite, the isolate shell and
@@ -44,58 +47,58 @@ const isFailure = Schema.is(Schema.Union([InvalidWorkspace, WorkspaceUnavailable
 export class WorkspaceObject extends withWorkspaceContainer(
   class extends DurableObject<WorkspaceEnvironment> {},
 ) {
-  readonly ref = { binding: workspaceObjectClass, id: this.ctx.id.toString() };
+  readonly workspaceRef = { binding: workspaceObjectClass, id: this.ctx.id.toString() };
 
-  readonly identity = {
+  readonly gitIdentity = {
     name: this.env.TENTACLES_GIT_AUTHOR_NAME,
     email: this.env.TENTACLES_GIT_AUTHOR_EMAIL,
   };
 
-  // The URLs GitHub answered 404 for during a clone, which tell a missing repository from a
-  // failing transport.
-  readonly notFound: string[] = [];
+  // Whether GitHub answered 404 during a clone, which tells a missing repository from a failing
+  // transport.
+  #hasNotFoundResponse = false;
 
-  readonly egress = {
-    mode: "http-gateway" as const,
-    gateway: gatewayStub(this.ctx.exports, this.ctx.id.name ?? "unnamed"),
-    revision: "v1",
-  };
-
-  readonly container = new IdentifiedContainerBackend(
+  readonly containerBackend = new IdentifiedContainerBackend(
     {
-      id: "container",
+      id: workspaceBackends.container,
       container: () => this,
-      workspace: this.ref,
-      egress: this.egress,
+      workspace: this.workspaceRef,
+      egress: {
+        mode: "http-gateway" as const,
+        gateway: gatewayStub(this.ctx.exports),
+        revision: "v1",
+      },
       name: workspaceContainerId,
-      instance: this.storedSize(),
+      instance: this.#readStoredSize(),
       connectTimeoutMs: 120_000,
     },
-    this.identity,
+    this.gitIdentity,
   );
 
   readonly workspace = new Workspace({
     storage: this.ctx.storage,
     backends: [
       new WorkerShellBackend({
-        id: "shell",
+        id: workspaceBackends.shell,
         loader: this.env.LOADER,
-        workspace: this.ref,
+        workspace: this.workspaceRef,
         ctx: this.ctx,
       }),
-      this.container,
+      this.containerBackend,
     ],
     git: createGitClient({
-      fetch: githubFetch(this.env.TENTACLES_GITHUB_TOKEN, (url) => this.notFound.push(url)),
+      fetch: githubFetch(this.env.TENTACLES_GITHUB_TOKEN, () => {
+        this.#hasNotFoundResponse = true;
+      }),
     }),
-    defaultGitIdentity: this.identity,
+    defaultGitIdentity: this.gitIdentity,
   });
 
   // The container's instance type, kept at setup so a restarted object starts the same one.
-  storedSize() {
-    const stored = this.ctx.storage.kv.get(settingsKey);
+  #readStoredSize() {
+    const storedSettings = this.ctx.storage.kv.get(containerSettingsKey);
 
-    return Option.match(decodeSettings(stored), {
+    return Option.match(decodeContainerSettings(storedSettings), {
       onNone: () => defaultSize,
       onSome: ({ size }) => size,
     });
@@ -113,16 +116,16 @@ export class WorkspaceObject extends withWorkspaceContainer(
     const port = request.headers.get(previewPortHeader);
 
     if (port == null) {
-      return this.container.handleFetch(request);
+      return this.containerBackend.handleFetch(request);
     }
 
     const url = new URL(request.url);
-    const forwarded = new Request(`http://localhost${url.pathname}${url.search}`, request);
+    const forwardedRequest = new Request(`http://localhost${url.pathname}${url.search}`, request);
 
-    forwarded.headers.delete(previewPortHeader);
+    forwardedRequest.headers.delete(previewPortHeader);
 
     try {
-      return await this.getWorkspaceContainer().fetchPort(Number(port), forwarded);
+      return await this.getWorkspaceContainer().fetchPort(Number(port), forwardedRequest);
     } catch {
       return new Response(`Nothing answers on port ${port}`, { status: 502 });
     }
@@ -130,41 +133,41 @@ export class WorkspaceObject extends withWorkspaceContainer(
 
   async setup(init: WorkspaceInit) {
     try {
-      await this.prepare(init);
+      await this.#populateWorkspace(init);
     } catch (error) {
-      await this.reset(error);
+      await this.#resetAfterFailedSetup(error);
     }
   }
 
-  async prepare(init: WorkspaceInit) {
-    const settings = decodeSettings({ image: init.image, size: init.size });
+  async #populateWorkspace(init: WorkspaceInit) {
+    const containerSettings = decodeContainerSettings({ image: init.image, size: init.size });
 
-    if (Option.isNone(settings)) {
-      throw new InvalidWorkspace({ message: unsupportedSettings(init) });
+    if (Option.isNone(containerSettings)) {
+      throw new InvalidWorkspace({ message: unsupportedSettingsMessage(init) });
     }
 
     if (init.repository != null) {
-      await this.clone(init.repository);
+      await this.#cloneRepository(init.repository);
     }
 
-    const archives: Partial<Record<ArchiveKind, Uint8Array | null>> = {
+    const archivesByKind: Partial<Record<ArchiveKind, Uint8Array | null>> = {
       skills: init.skills,
       context: init.context,
     };
 
     for (const { kind, directory } of archiveExpansions) {
-      const archive = archives[kind];
+      const archive = archivesByKind[kind];
 
       if (archive != null) {
-        await this.expand(kind, directory, archive);
+        await this.#expandArchive(kind, directory, archive);
       }
     }
 
-    this.ctx.storage.kv.put(settingsKey, settings.value);
+    this.ctx.storage.kv.put(containerSettingsKey, containerSettings.value);
   }
 
-  async clone(repository: NonNullable<WorkspaceInit["repository"]>) {
-    this.notFound.length = 0;
+  async #cloneRepository(repository: NonNullable<WorkspaceInit["repository"]>) {
+    this.#hasNotFoundResponse = false;
 
     try {
       await this.workspace.git.clone({
@@ -174,7 +177,7 @@ export class WorkspaceObject extends withWorkspaceContainer(
         singleBranch: false,
       });
     } catch (error) {
-      throw this.notFound.length > 0
+      throw this.#hasNotFoundResponse
         ? new InvalidWorkspace({
             message: `GitHub answered 404 for the repository ${repository.url}: it does not exist, or the deploy's token cannot read it`,
           })
@@ -184,8 +187,8 @@ export class WorkspaceObject extends withWorkspaceContainer(
     }
   }
 
-  async expand(kind: string, directory: string, archive: Uint8Array) {
-    const entries = await Effect.runPromise(
+  async #expandArchive(kind: ArchiveKind, directory: string, archive: Uint8Array) {
+    const archiveEntries = await Effect.runPromise(
       readArchive(archive).pipe(
         Effect.mapError(
           (error) =>
@@ -195,10 +198,16 @@ export class WorkspaceObject extends withWorkspaceContainer(
     );
 
     try {
-      for (const entry of entries) {
-        const path = `${directory}/${entry.path}`;
+      const archiveFiles = archiveEntries.map((entry) => ({
+        entry,
+        path: `${directory}/${entry.path}`,
+      }));
 
-        await this.workspace.fs.mkdir(path.slice(0, path.lastIndexOf("/")), { recursive: true });
+      for (const parentDirectory of new Set(archiveFiles.map(({ path }) => dirname(path)))) {
+        await this.workspace.fs.mkdir(parentDirectory, { recursive: true });
+      }
+
+      for (const { entry, path } of archiveFiles) {
         await this.workspace.fs.writeFile(path, entry.bytes, { mode: entry.mode });
       }
     } catch (error) {
@@ -211,21 +220,21 @@ export class WorkspaceObject extends withWorkspaceContainer(
   // A failed setup leaves nothing behind: the storage is cleared and written, and the object
   // resets, so the next call builds a new Workspace over empty storage. The reset aborts the call
   // that failed, so the abort's reason carries the failure.
-  async reset(cause: unknown): Promise<never> {
-    const failure = isFailure(cause)
+  async #resetAfterFailedSetup(cause: unknown): Promise<never> {
+    const failure = isWorkspaceFailure(cause)
       ? cause
       : new WorkspaceUnavailable({ message: `Setting up the workspace failed: ${String(cause)}` });
 
-    await this.clear();
+    await this.#clearStorage();
 
-    const reason = failureReason(failure);
+    const abortReason = failureReason(failure);
 
-    this.ctx.abort(reason);
+    this.ctx.abort(abortReason);
 
-    throw new Error(reason);
+    throw new Error(abortReason);
   }
 
-  async clear() {
+  async #clearStorage() {
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
 
@@ -240,11 +249,11 @@ export class WorkspaceObject extends withWorkspaceContainer(
       await container.destroy();
     }
 
-    await this.clear();
+    await this.#clearStorage();
 
     // The Workspace in memory still believes its tables exist; dropping the instance makes the
     // next call build a fresh one over the empty storage. abort() also rejects this call.
-    this.ctx.abort("workspace deleted");
+    this.ctx.abort(destroyedReason);
   }
 }
 

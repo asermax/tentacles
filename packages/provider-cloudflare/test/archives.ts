@@ -4,6 +4,7 @@ import * as Predicate from "effect/Predicate";
 interface ArchiveFile {
   readonly path: string;
   readonly content: string | Uint8Array;
+  readonly mode?: number;
 }
 
 const encoder = new TextEncoder();
@@ -13,7 +14,7 @@ const packArchive = (files: ReadonlyArray<ArchiveFile>) =>
     files.map((file) => ({
       path: file.path,
       bytes: Predicate.isString(file.content) ? encoder.encode(file.content) : file.content,
-      mode: 0o644,
+      mode: file.mode ?? 0o644,
     })),
   );
 
@@ -42,6 +43,13 @@ export const skillsArchive = (name: string, fillerBytes = 0) =>
 
 export const agentsArchive = (name: string) =>
   packArchive([{ path: `${name}.md`, content: definition(name, `You are ${name}.`) }]);
+
+/** A context archive holding the file `name` and an executable script, run.sh. */
+export const contextArchiveWithScript = (name: string) =>
+  packArchive([
+    { path: name, content: "context\n" },
+    { path: "run.sh", content: "#!/bin/sh\n", mode: 0o755 },
+  ]);
 
 /** A context archive holding the file `name`, plus a file of incompressible bytes when `fillerBytes` is set. */
 export const contextArchive = (name: string, fillerBytes = 0) =>

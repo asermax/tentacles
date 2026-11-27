@@ -1,7 +1,8 @@
+import type { Settings } from "@tentacles/worker-api/settings";
 import * as Schema from "effect/Schema";
 
 /** The one workspace image; custom images are not offered. */
-export const defaultImage = "default";
+const defaultImage = "default";
 
 const InstanceTypes = {
   lite: "lite",
@@ -22,5 +23,5 @@ export const ContainerSettings = Schema.Struct({
 });
 
 /** Why a session's settings name no container this setup can start. */
-export const unsupportedSettings = ({ image, size }: { image: string; size: string }) =>
+export const unsupportedSettingsMessage = ({ image, size }: Pick<Settings, "image" | "size">) =>
   `The workspace takes the image "${defaultImage}" and a Cloudflare instance type as its size; got image "${image}" and size "${size}"`;

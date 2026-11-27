@@ -22,29 +22,29 @@ const gitEnvironment = ({ name, email }: GitIdentity) => ({
  * each exec; it comes after the caller's own variables, which cannot override it.
  */
 export class IdentifiedContainerBackend extends ContainerBackend {
-  readonly #environment: Record<string, string>;
+  readonly #gitEnvironment: Record<string, string>;
 
   constructor(options: ContainerBackendOptions, identity: GitIdentity) {
     super(options);
-    this.#environment = gitEnvironment(identity);
+    this.#gitEnvironment = gitEnvironment(identity);
   }
 
   override async connect(): Promise<BackendHandle> {
-    const handle = await super.connect();
-    const { shell, sync } = handle.rpc;
+    const backendHandle = await super.connect();
+    const { shell, sync } = backendHandle.rpc;
 
     return {
-      ...handle,
+      ...backendHandle,
       rpc: {
         sync,
         shell: {
-          exec: (input) => shell.exec({ ...input, env: { ...input.env, ...this.#environment } }),
+          exec: (input) => shell.exec({ ...input, env: { ...input.env, ...this.#gitEnvironment } }),
           getExec: (input) => shell.getExec(input),
           killExec: (input) => shell.killExec(input),
           disposeExec: (input) => shell.disposeExec(input),
         },
       },
-      close: () => handle.close(),
+      close: () => backendHandle.close(),
     };
   }
 }

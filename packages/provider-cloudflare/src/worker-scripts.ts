@@ -10,8 +10,11 @@ import { workspaceWorkerName } from "./workspace-names";
  * running Worker the names are the plain constants, since the bindings are not read there.
  */
 export const WorkerScripts = Context.Reference<{
-  readonly codemode: Input<string>;
-  readonly workspace: Input<string>;
+  readonly codemodeScript: Input<string>;
+  readonly workspaceScript: Input<string>;
 }>("tentacles/WorkerScripts", {
-  defaultValue: () => ({ codemode: codemodeWorkerName, workspace: workspaceWorkerName }),
+  defaultValue: () => ({
+    codemodeScript: codemodeWorkerName,
+    workspaceScript: workspaceWorkerName,
+  }),
 });

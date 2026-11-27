@@ -2,15 +2,11 @@ import { describe, expect, it } from "@effect/vitest";
 import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
+import { Forwarded } from "./echo";
 import { testSecrets } from "./secrets";
 
 // What the Claude image sends in place of a credential; the egress replaces whatever arrives.
 const placeholder = "tentacles-egress-credential";
-
-const Forwarded = Schema.Struct({
-  url: Schema.String,
-  headers: Schema.Record(Schema.String, Schema.String),
-});
 
 describe("the Claude container's egress", () => {
   it("forwards a request to api.anthropic.com with the subscription token", async () => {

@@ -1,6 +1,6 @@
 import { Entry } from "@tentacles/worker-api/entries";
 import { Parent } from "@tentacles/worker-api/parent";
-import { SessionState, SessionStatuses } from "@tentacles/worker-api/session-state";
+import { SessionState } from "@tentacles/worker-api/session-state";
 import type { Repository, Settings } from "@tentacles/worker-api/settings";
 import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
@@ -28,20 +28,24 @@ const statusOf = async (sessionId: string) => {
   return Schema.decodeUnknownSync(SessionState)(await response.json());
 };
 
-const isIdle = Schema.is(Schema.TaggedStruct(SessionStatuses.idle, {}));
-
-/** Waits until the session's first run has finished; the test model answers at once. */
-export const waitUntilIdle = async (sessionId: string) => {
+const pollUntil = async (isDone: () => Promise<boolean>, failureMessage: string) => {
   for (let attempt = 0; attempt < 50; attempt++) {
-    if (isIdle(await statusOf(sessionId))) {
+    if (await isDone()) {
       return;
     }
 
     await scheduler.wait(100);
   }
 
-  throw new Error(`Session ${sessionId} never went idle`);
+  throw new Error(failureMessage);
 };
+
+/** Waits until the session's first run has finished; the test model answers at once. */
+export const waitUntilIdle = (sessionId: string) =>
+  pollUntil(
+    async () => SessionState.guards.idle(await statusOf(sessionId)),
+    `Session ${sessionId} never went idle`,
+  );
 
 export const testSettings: Settings = {
   provider: "cloudflare",
@@ -71,6 +75,15 @@ export const idleSession = async (
   await waitUntilIdle(sessionId);
 };
 
+/** The file the notes tool calls write, in the session's workspace. */
+export const notesPath = "/workspace/repo/notes.txt";
+
+/** The scripted tool call that writes the notes file. */
+export const writeNotes = (content: string) => ({
+  name: "write",
+  arguments: { path: notesPath, content },
+});
+
 interface ToolCall {
   readonly name: string;
   readonly arguments: Record<string, string>;
@@ -82,16 +95,19 @@ export const scripted = (calls: ReadonlyArray<ToolCall>) =>
 
 const decodeEntries = Schema.decodeUnknownSync(Schema.Array(Entry));
 
-/** The tool results of the session's last entries, oldest first. */
-export const toolResults = async (sessionId: string, count = 30) => {
+const entriesOf = async (sessionId: string, count: number) => {
   const response = await apiFetch(`/sessions/${sessionId}/messages?count=${count}`);
 
-  return decodeEntries(await response.json()).filter(Entry.guards.toolResult);
+  return decodeEntries(await response.json());
 };
+
+/** The tool results of the session's last entries, oldest first. */
+export const toolResults = async (sessionId: string, count = 30) =>
+  (await entriesOf(sessionId, count)).filter(Entry.guards.toolResult);
 
 /** Sends a follow-up prompt and waits until the run it starts has answered. */
 export const followUp = async (sessionId: string, text: string) => {
-  const before = await answers(sessionId);
+  const answerCountBefore = await answerCount(sessionId);
 
   await apiFetch(`/sessions/${sessionId}/prompt`, {
     method: "POST",
@@ -99,19 +115,11 @@ export const followUp = async (sessionId: string, text: string) => {
     body: JSON.stringify({ text, mode: "followUp" }),
   });
 
-  for (let attempt = 0; attempt < 50; attempt++) {
-    if ((await answers(sessionId)) > before) {
-      return;
-    }
-
-    await scheduler.wait(100);
-  }
-
-  throw new Error(`Session ${sessionId} never answered the follow-up`);
+  await pollUntil(
+    async () => (await answerCount(sessionId)) > answerCountBefore,
+    `Session ${sessionId} never answered the follow-up`,
+  );
 };
 
-const answers = async (sessionId: string) => {
-  const response = await apiFetch(`/sessions/${sessionId}/messages?count=100`);
-
-  return decodeEntries(await response.json()).filter(Entry.guards.text).length;
-};
+const answerCount = async (sessionId: string) =>
+  (await entriesOf(sessionId, 100)).filter(Entry.guards.text).length;

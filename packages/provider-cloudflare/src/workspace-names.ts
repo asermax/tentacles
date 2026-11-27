@@ -10,5 +10,8 @@ export const workspaceLoaderBinding = "LOADER";
 /** The header the session object marks a preview request with, naming the port it is for. */
 export const previewPortHeader = "x-tentacles-preview-port";
 
+/** The ids the workspace object registers its exec backends under, which the exec tool names. */
+export const workspaceBackends = { shell: "shell", container: "container" } as const;
+
 /** The workspace container's id: the deploy publishes the image under it and Computer starts it by it. */
 export const workspaceContainerId = "WorkspaceContainer";

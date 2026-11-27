@@ -38,22 +38,22 @@ const notFound = () => HttpServerResponse.text("Not found", { status: 404 });
 export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>()(
   "TentaclesWorker",
   Effect.gen(function* () {
-    const scripts = yield* WorkerScripts;
+    const workerScripts = yield* WorkerScripts;
 
+    // The codemode and Workspace Workers host these classes, so scripts and workspaces run off the
+    // session objects' threads.
     return {
       name: "tentacles",
       main: import.meta.url,
       observability: { enabled: true },
       domain: apiHost,
       routes: [{ pattern: previewRoute, zoneName: zone }],
-      // The codemode and Workspace Workers host these classes, so scripts and workspaces run off
-      // the session objects' threads.
       env: {
         [codemodeSandboxClass]: Cloudflare.DurableObject(codemodeSandboxClass, {
-          scriptName: scripts.codemode,
+          scriptName: workerScripts.codemodeScript,
         }),
         [workspaceObjectClass]: Cloudflare.DurableObject(workspaceObjectClass, {
-          scriptName: scripts.workspace,
+          scriptName: workerScripts.workspaceScript,
         }),
       },
     };
@@ -72,7 +72,7 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
     yield* Cloudflare.Browser("BROWSER");
     yield* Config.Redacted("TENTACLES_CDP_SECRET");
 
-    const egressRoute = yield* egress();
+    const egressRoute = yield* egress;
     const scheduler = yield* cloudflareScheduler;
 
     const contracts = Layer.mergeAll(sessionHostLayer(sessions), registryStoreLayer(registries));

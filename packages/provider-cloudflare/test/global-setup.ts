@@ -4,16 +4,16 @@ import { bundleWorkers } from "./bundle-worker";
 
 declare module "vitest" {
   interface ProvidedContext {
-    readonly workerModules: Awaited<ReturnType<typeof bundleWorkers>>["worker"];
-    readonly workspaceModules: Awaited<ReturnType<typeof bundleWorkers>>["workspace"];
+    readonly workerModules: Awaited<ReturnType<typeof bundleWorkers>>["workerModules"];
+    readonly workspaceModules: Awaited<ReturnType<typeof bundleWorkers>>["workspaceModules"];
   }
 }
 
 const provide = async (project: TestProject) => {
-  const { worker, workspace } = await bundleWorkers();
+  const { workerModules, workspaceModules } = await bundleWorkers();
 
-  project.provide("workerModules", worker);
-  project.provide("workspaceModules", workspace);
+  project.provide("workerModules", workerModules);
+  project.provide("workspaceModules", workspaceModules);
 };
 
 /**

@@ -15,11 +15,11 @@ export const compatibility = {
   flags: ["nodejs_compat"],
 };
 
-const bundle = async (entry: string, dir: string) => {
-  await rm(dir, { recursive: true, force: true });
+const bundle = async (entryFile: string, outputDir: string) => {
+  await rm(outputDir, { recursive: true, force: true });
 
   await build({
-    input: path(entry),
+    input: path(entryFile),
     external: ["lightningcss", "fsevents"],
     plugins: [
       cloudflare({
@@ -32,16 +32,16 @@ const bundle = async (entry: string, dir: string) => {
     transform: { define: { "globalThis.__ALCHEMY_RUNTIME__": "true" } },
     moduleTypes: { ".sql": "text" },
     experimental: { lazyBarrel: true },
-    output: { dir, entryFileNames: "worker.js", format: "esm" },
+    output: { dir: outputDir, entryFileNames: "worker.js", format: "esm" },
     logLevel: "warn",
   });
 
   // The entry first, then every chunk and asset it imports.
-  const files = (await readdir(dir, { recursive: true, withFileTypes: true }))
-    .filter((item) => item.isFile() && item.name !== "worker.js")
-    .map((item) => join(item.parentPath, item.name));
+  const files = (await readdir(outputDir, { recursive: true, withFileTypes: true }))
+    .filter((dirent) => dirent.isFile() && dirent.name !== "worker.js")
+    .map((dirent) => join(dirent.parentPath, dirent.name));
 
-  return [join(dir, "worker.js"), ...files].map((file) =>
+  return [join(outputDir, "worker.js"), ...files].map((file) =>
     file.endsWith(".sql")
       ? { type: "Text" as const, path: file }
       : { type: "ESModule" as const, path: file },
@@ -53,7 +53,11 @@ const bundle = async (entry: string, dir: string) => {
  * tests run what ships: Alchemy's and Effect's deploy-time modules are tree-shaken out, which
  * Vite's module runner cannot do.
  */
-export const bundleWorkers = async () => ({
-  worker: await bundle("./entry.js", bundleDir),
-  workspace: await bundle("./workspace-entry.js", workspaceBundleDir),
-});
+export const bundleWorkers = async () => {
+  const [workerModules, workspaceModules] = await Promise.all([
+    bundle("./entry.js", bundleDir),
+    bundle("./workspace-entry.js", workspaceBundleDir),
+  ]);
+
+  return { workerModules, workspaceModules };
+};

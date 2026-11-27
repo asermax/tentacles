@@ -33,7 +33,7 @@ import { modelProvidersLayer } from "./model-providers";
 import { CloudflarePreviewRouter } from "./preview-router";
 import { RegistryObject, registryStoreLayer } from "./registry-object";
 import { destroyWorkspace, workspaceLayer } from "./workspace";
-import { workspaceObjectClass } from "./workspace-names";
+import { previewPortHeader, workspaceObjectClass } from "./workspace-names";
 import type { WorkspaceObject } from "./workspace-worker";
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
@@ -66,7 +66,6 @@ export class SessionObject extends Cloudflare.DurableObject<SessionObject, Sessi
 // A request the Worker passes to the object through fetch carries what it is for in a header,
 // and keeps its own URL, which the preview forwards to the workspace as it came.
 const routeHeader = "x-tentacles-session-route";
-const portHeader = "x-tentacles-preview-port";
 const notFoundHeader = "x-tentacles-session-not-found";
 
 const FetchRoutes = {
@@ -152,6 +151,8 @@ export const SessionObjectLive = SessionObject.make(
         Scope.provide(Scope.makeUnsafe()),
       );
 
+      // delete has core stop the session, then destroys its workspace object, and last removes what
+      // this object stored: a destroy that fails leaves the session whole for the next try.
       return {
         create: (request: CreateSession) => handle.create(request),
 
@@ -160,8 +161,6 @@ export const SessionObjectLive = SessionObject.make(
         close: () => handle.close(),
         messages: (count: number) => handle.messages(count),
         status: () => handle.status(),
-        // core stops the session, then its workspace object is destroyed, and last what this
-        // object stored is removed: a destroy that fails leaves the session whole for the next try.
         delete: () =>
           handle
             .delete()
@@ -188,10 +187,10 @@ export const SessionObjectLive = SessionObject.make(
 
             case FetchRoutes.preview: {
               const headers = new Headers(request.headers);
-              const port = Number(headers.get(portHeader));
+              const port = Number(headers.get(previewPortHeader));
 
               headers.delete(routeHeader);
-              headers.delete(portHeader);
+              headers.delete(previewPortHeader);
 
               const response = yield* handle.preview(port, new Request(request, { headers }));
 
@@ -250,7 +249,7 @@ export const sessionHostLayer = (sessions: Cloudflare.DurableObject<SessionObjec
       preview: (sessionId, port, request) =>
         throughFetch(sessionId, request, {
           [routeHeader]: FetchRoutes.preview,
-          [portHeader]: String(port),
+          [previewPortHeader]: String(port),
         }),
     }),
   );
