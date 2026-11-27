@@ -13,5 +13,4 @@ export const SettingsDefaults = Config.all({
   effort: Config.String("TENTACLES_SESSION_EFFORT").pipe(Config.withDefault("max")),
   image: Config.String("TENTACLES_WORKSPACE_IMAGE").pipe(Config.withDefault("default")),
   size: Config.String("TENTACLES_WORKSPACE_SIZE").pipe(Config.withDefault("standard-2")),
-  lifetime: Config.Int("TENTACLES_WORKSPACE_LIFETIME").pipe(Config.withDefault(15)),
 });

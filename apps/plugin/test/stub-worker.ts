@@ -5,9 +5,11 @@ import { TentaclesApi } from "@tentacles/worker-api/api";
 import type { Entry } from "@tentacles/worker-api/entries";
 import {
   type InvalidArchive,
+  type InvalidWorkspace,
   QuestionNotWaiting,
   SessionNotFound,
   Unauthorized,
+  type WorkspaceUnavailable,
 } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import type { Parent } from "@tentacles/worker-api/parent";
@@ -43,7 +45,7 @@ export interface ScriptedSession {
 /** What the stub answers; `createFailure` makes create answer with that error instead of the created id. */
 export interface StubScript {
   readonly createdId?: SessionId;
-  readonly createFailure?: InvalidArchive;
+  readonly createFailure?: InvalidArchive | InvalidWorkspace | WorkspaceUnavailable;
   readonly sessions?: ReadonlyMap<SessionId, ScriptedSession>;
   readonly listed?: ReadonlyArray<SessionRef>;
   readonly isQuestionWaiting?: boolean;

@@ -24,7 +24,7 @@ export const SpawnRequest = CreateSession.mapFields((fields) => ({
   context: Schema.optionalKey(
     Schema.Array(Schema.String).annotate({
       description:
-        "Paths of files or folders on this machine; the remote agent finds them in /context, each under its own name.",
+        "Paths of files or folders on this machine; the remote agent finds them in /workspace/context, each under its own name.",
     }),
   ),
 }));
