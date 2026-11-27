@@ -41,17 +41,17 @@ The workspace's files live in the SQLite of the session's workspace Durable Obje
 > [!NOTE] Why `node_modules` stays in the synced workspace
 > Keeping it on the container's disk would hide it from the file tools and the shell, and a stop would lose it. Syncing costs install time instead: an npm install took 11.4 s synced against 4.8 s on the container's disk.
 
-At spawn, the session object calls the workspace Durable Object's `setUpWorkspace` with the setup's init values. The setup runs without starting a container. It checks the image and size. It then clones the repository into `/workspace/repo` through the git client and, at the same time, writes the skills and context files into `/workspace/skills` and `/workspace/context` through the workspace's file system. Once both end, it stores the image and size. With no repository it creates `/workspace/repo` empty, and it creates the skills and context folders when no files fill them. When a step fails, the object clears its storage and resets itself before it returns the error.
+At spawn, the session object calls the workspace Durable Object's `setUpWorkspace` with the setup's init values. The setup runs without starting a container. It checks the image and size. It then clones the repository into `/workspace/repo` through the git client and, at the same time, writes the skills and context files into `/workspace/skills` and `/workspace/context` through the workspace's file system. Once both end, it stores the image and size. With no repository it creates `/workspace/repo` empty, and it creates the skills and context folders when no files fill them. When a step fails, the object clears its storage and answers with the failure: its error name and message, as plain data. The session object decodes that answer into the typed error. A rejected call or an answer it cannot decode becomes `WorkspaceUnavailable`.
 
-When the session is deleted, the workspace Durable Object stops its container, clears its storage, waits until the cleared storage is written and resets itself, so a later call with the same name finds an empty workspace.
+When the session is deleted, the workspace Durable Object stops its container, deletes its alarm, clears its storage and waits until the cleared storage is written.
 
-The reset aborts the call that failed. A call to an aborted object rejects with the abort's reason as its message, so the object passes `<error name>: <message>` as the reason. The session object rebuilds the typed error from that text, and any other rejection becomes `WorkspaceUnavailable`. The setup and the deletion run one at a time through a promise chain inside the object, so a deletion that arrives during a setup waits for it.
+The session object keeps one stub for the workspace object and uses it for the client, the setup and the preview requests. The setup and the deletion run one at a time through a promise chain inside the object, so a deletion that arrives during a setup waits for it.
 
-> [!NOTE] Why the typed error travels in the abort reason
-> The reset has to abort the object, because the `Workspace` in memory still believes its tables exist, and an aborted call rejects with nothing but the abort's reason. A text carrying the error's name and message is the one channel that reaches the session object, so the session object parses it back.
+> [!NOTE] Why the setup answers its failure instead of throwing it
+> A call that throws reaches the session object as an untyped error, so the type of the failure would have to travel in the error's text. The setup answers with the failure as data instead, validated with the schema of the two setup errors on both sides.
 
-> [!WARNING] A stub that called an aborted object stays broken
-> The stub keeps failing after the object aborts, so the session object reaches the workspace object through a new stub on every call.
+> [!NOTE] Why the workspace object does not reset itself
+> The `Workspace` in memory still believes its tables exist once the storage is cleared. Nothing calls it afterwards: a session id is never reused, a session whose setup failed is never set up again, and the only later call is the deletion, which clears storage and container without using Computer's tables.
 
 > [!TIP] Rejected: blocking concurrency around the setup and the deletion
 > `blockConcurrencyWhile` would also keep the two apart, but the clone streams a request body that never completes inside its callback, so the setup hangs. The promise chain gives the same order without it.
