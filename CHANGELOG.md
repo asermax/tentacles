@@ -1,3 +1,35 @@
+# [1.4.0](https://github.com/asermax/tentacles/compare/v1.3.0...v1.4.0) (2026-11-27)
+
+
+### Bug Fixes
+
+* **core:** name the reason a subagent did not answer ([f3e8261](https://github.com/asermax/tentacles/commit/f3e826121d857bf8ae267c1913b25bb74b1f5b00))
+* **provider-cloudflare:** create the repository, skills and context folders at setup when nothing fills them ([8e7cc97](https://github.com/asermax/tentacles/commit/8e7cc97f0a696bb836d94d18c2950f6bedfe1c22))
+* **provider-cloudflare:** import each Computer adapter from its own module ([90f2ce6](https://github.com/asermax/tentacles/commit/90f2ce648d5cfae4b24deae1fa270692f45835fa))
+* **provider-cloudflare:** make Node trust the interception CA in container commands ([9e5b2d2](https://github.com/asermax/tentacles/commit/9e5b2d201d8346b009397ce664ebd7a25e9a09fd))
+* **provider-cloudflare:** put mise's default shims directory on the workspace image's PATH ([9eebcfd](https://github.com/asermax/tentacles/commit/9eebcfd9b4ea97d8e7f29307f9c7cafed7e01bd6))
+* **provider-cloudflare:** reset the session object once it has deleted itself ([2da97f0](https://github.com/asermax/tentacles/commit/2da97f09d776a497657dc62dd1346ac8e18d36cc))
+* **provider-cloudflare:** run the workspace object's setup and destroy one at a time ([6277769](https://github.com/asermax/tentacles/commit/62777697b1dfe4166ebb9909f401803e019668f6))
+* **provider-cloudflare:** send the GitHub token only on HTTPS requests ([ba48609](https://github.com/asermax/tentacles/commit/ba4860953bba31eae0d1e8f5c8d6c09cccf5da35))
+* **provider-cloudflare:** start the workspace container at the size the session asked for ([a526660](https://github.com/asermax/tentacles/commit/a526660bdcbdbb198ee37bdec04b8bece905aa25))
+
+
+### Features
+
+* add the call that deletes one session ([a53b6cb](https://github.com/asermax/tentacles/commit/a53b6cbbb5ccfc576fc6ae693d3d9245f783e839))
+* **contracts:** replace the workspace contract with tools, create and forward ([f28581b](https://github.com/asermax/tentacles/commit/f28581b60b7e7e89adb617dad3fe3b5b3d21ed87))
+* **core:** keep a failed registry entry when the workspace setup fails ([a832a48](https://github.com/asermax/tentacles/commit/a832a48d96832b01a64f2fc3a5ab426751f2c5ea))
+* **core:** name the workspace's directories in the remote agent's instructions ([51c31ef](https://github.com/asermax/tentacles/commit/51c31ef2f8d87c2826d440cb9e684dd764fe6180))
+* **plugin:** drop the workspace lifetime and the repository check and point context at /workspace/context ([39b47a9](https://github.com/asermax/tentacles/commit/39b47a943db7dbdabd9723c0f56f57dbf0404612))
+* **provider-cloudflare:** add the Workspace Worker and its workspace object ([3336ac8](https://github.com/asermax/tentacles/commit/3336ac8dcefeac8ce04832aa3a074b60da0782c6))
+* **provider-cloudflare:** route the workspace container's egress through the Workspace Worker's gateway ([355624a](https://github.com/asermax/tentacles/commit/355624a072f1cf552afba03744de80facc66544b))
+* **provider-cloudflare:** work the session's workspace through its workspace object ([20bab60](https://github.com/asermax/tentacles/commit/20bab6063349a082a5c7c53e978ccdf298849aaa))
+
+
+### Performance Improvements
+
+* **provider-cloudflare:** clone the repository while the archive files are written ([d00e3a2](https://github.com/asermax/tentacles/commit/d00e3a29633ae9feb69cf9ac325de3be93c9a044))
+
 # [1.3.0](https://github.com/asermax/tentacles/compare/v1.2.0...v1.3.0) (2026-11-15)
 
 
