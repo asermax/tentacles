@@ -3,7 +3,7 @@ import { callIdHeader } from "@tentacles/relay-protocol/call-id";
 import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
 
 /** How the scripted relay answers one POST /stream. */
-export type RelayAnswer = "done" | "lost" | "refusal" | "stopping" | "cut";
+export type RelayAnswer = "done" | "lost" | "refusal" | "stopping" | "cut" | "unreachable";
 
 export interface FakeContainerSetup {
   readonly isRunning: boolean;
@@ -86,6 +86,10 @@ const answerResponses = {
   stopping: () => new Response(lostCallMessage("the relay is stopping"), { status: 503 }),
 
   cut: () => new Response(ndjson(doneEvents().slice(0, 1))),
+
+  unreachable: () => {
+    throw new TypeError("The container is not listening");
+  },
 } satisfies Record<RelayAnswer, () => Response>;
 
 export type FakeContainerSnapshot = ReturnType<ReturnType<typeof createFakeContainer>["snapshot"]>;

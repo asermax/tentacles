@@ -1,10 +1,14 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
+import { CallId, callIdHeader } from "@tentacles/relay-protocol/call-id";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
+import { claudeCalls as createClaudeCalls } from "./claude-calls";
 import { credentialPlaceholder, EgressHosts, egressCaPath, loopback } from "./egress";
 
 /** Every session reaches the same Claude container. */
@@ -62,9 +66,27 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
         }
 
         const egress = yield* loopback(state);
+        const claudeCalls = createClaudeCalls(state.raw.storage, sleepAfter);
 
         // Concurrent first calls share one start.
         const starting = yield* Semaphore.make(1);
+
+        // Settled once the container the object holds is gone and its calls are forgotten.
+        let stopped = Deferred.makeUnsafe<void>();
+
+        // monitor() settles when the container stops, whoever stopped it, and rejects when it fails.
+        const watchContainer = Effect.gen(function* () {
+          const settled = Deferred.makeUnsafe<void>();
+
+          stopped = settled;
+
+          yield* state.waitUntil(
+            Effect.promise(() => container.monitor().catch(() => {})).pipe(
+              Effect.andThen(Effect.sync(() => claudeCalls.reset())),
+              Effect.andThen(Deferred.succeed(settled, undefined)),
+            ),
+          );
+        });
 
         const start = Effect.gen(function* () {
           const image = yield* Effect.fromNullishOr(container.images[claudeContainerId]).pipe(
@@ -89,25 +111,51 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
             ]),
           );
 
+          yield* watchContainer;
           yield* relayReady(container);
         });
 
+        // A call that finds the object stopping waits for the container to be gone, and is counted
+        // again since the container's stop forgot it.
+        const waitForStop = (callId: CallId) =>
+          Effect.suspend(() =>
+            container.running ? Deferred.await(stopped) : Effect.sync(() => claudeCalls.reset()),
+          ).pipe(Effect.andThen(Effect.sync(() => claudeCalls.add(callId))));
+
         return {
           fetch: Effect.gen(function* () {
+            // Counted before anything is awaited, so no alarm pass sees an empty count while the call
+            // is on its way.
+            const callId = Schema.decodeSync(CallId)(crypto.randomUUID());
+
+            claudeCalls.add(callId);
+
             const request = yield* HttpServerRequest.HttpServerRequest.pipe(
               Effect.flatMap(HttpServerRequest.toWeb),
               Effect.orDie,
             );
 
-            yield* starting.withPermit(
-              Effect.suspend(() => (container.running ? Effect.void : start)),
-            );
+            if (claudeCalls.isStopping()) {
+              yield* waitForStop(callId);
+            }
 
-            const response = yield* Effect.promise(() =>
-              container.getTcpPort(relayPort).fetch(request),
-            );
+            // The relay reports a call's end only once it has the call, so a call that never reaches it
+            // is taken off the count here.
+            return yield* Effect.gen(function* () {
+              yield* starting.withPermit(
+                Effect.suspend(() => (container.running ? Effect.void : start)),
+              );
 
-            return HttpServerResponse.raw(response, { status: response.status });
+              const forwarded = new Request(request);
+
+              forwarded.headers.set(callIdHeader, callId);
+
+              const response = yield* Effect.promise(() =>
+                container.getTcpPort(relayPort).fetch(forwarded),
+              );
+
+              return HttpServerResponse.raw(response, { status: response.status });
+            }).pipe(Effect.onError(() => Effect.sync(() => claudeCalls.remove(callId))));
           }),
         };
       }),
