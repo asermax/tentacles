@@ -99,7 +99,9 @@ describe("prompt expansion", () => {
   it.live("a trigger inside a path or with punctuation attached stays as written", () =>
     Effect.gen(function* () {
       const archives = yield* definitionArchives();
-      const text = "read /skills/implement/SKILL.md, then /implement. Also (/review) and x/review";
+
+      const text =
+        "read /workspace/skills/implement/SKILL.md, then /implement. Also (/review) and x/review";
 
       expect((yield* promptWith(text, archives)).at(-1)).toBe(text);
     }).pipe(Effect.provide(testWorld)),
@@ -213,10 +215,10 @@ describe("the skill tool and the skills section", () => {
 
       expect(skills).toContain("<name>implement</name>");
       expect(skills).toContain("<description>Implement a change from its design</description>");
-      expect(skills).toContain("<location>/skills/implement/SKILL.md</location>");
+      expect(skills).toContain("<location>/workspace/skills/implement/SKILL.md</location>");
       expect(skills).toContain("<name>review</name>");
       expect(skills).toContain("<description>Review a change before it is merged</description>");
-      expect(skills).toContain("<location>/skills/review/SKILL.md</location>");
+      expect(skills).toContain("<location>/workspace/skills/review/SKILL.md</location>");
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -249,7 +251,7 @@ describe("prompt expansion reads", () => {
   const held: SkillEntry = {
     name: "implement",
     description: "Implement a change",
-    path: "/skills/implement/SKILL.md",
+    path: "/workspace/skills/implement/SKILL.md",
   };
 
   const countingRead = () => {

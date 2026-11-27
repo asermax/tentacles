@@ -29,8 +29,8 @@ export interface AgentFixture {
 
 /** The block a held skill expands to: where its SKILL.md is and what its relative paths resolve against. */
 export const skillBlockOf = (name: string) =>
-  `<skill name="${name}" location="/skills/${name}/SKILL.md">\n` +
-  `Read /skills/${name}/SKILL.md before acting on this skill. Paths it names, such as references/ or scripts/, are relative to /skills/${name}/.\n` +
+  `<skill name="${name}" location="/workspace/skills/${name}/SKILL.md">\n` +
+  `Read /workspace/skills/${name}/SKILL.md before acting on this skill. Paths it names, such as references/ or scripts/, are relative to /workspace/skills/${name}/.\n` +
   "</skill>";
 
 const definition = (name: string, description: string, body: string) =>
