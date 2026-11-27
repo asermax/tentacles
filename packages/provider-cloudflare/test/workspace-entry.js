@@ -48,6 +48,15 @@ export class WorkspaceObject extends DeployedWorkspaceObject {
     return requestedInstances;
   }
 
+  // The given paths that exist in the object as directories, empty ones included.
+  async directoriesAmong(paths) {
+    const stats = await Promise.all(
+      paths.map((path) => this.workspace.fs.stat(path).catch(() => null)),
+    );
+
+    return paths.filter((_, index) => stats[index]?.isDirectory === true);
+  }
+
   // Every path under /workspace with its mode, and each file's text, as the object holds them.
   async files() {
     const hasWorkspace = await this.workspace.fs.stat(workspaceDirectory).then(

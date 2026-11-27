@@ -17,6 +17,8 @@ import { apiFetch, testSettings, waitUntilIdle } from "./sessions";
 const withinLimit = 5_200_000;
 const overLimit = 5_300_000;
 
+const workspaceFolders = ["/workspace/repo", "/workspace/skills", "/workspace/context"];
+
 const base64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 
 interface Archives {
@@ -136,6 +138,17 @@ describe("create through the Worker", () => {
     await waitUntilIdle(sessionId);
   });
 
+  it("creates the repository, skills and context folders for a create without a repository or archives", async () => {
+    const response = await create(crypto.randomUUID());
+    const { sessionId } = decodeCreated(await response.json());
+
+    expect(
+      await env.WorkspaceObject.getByName(sessionId).directoriesAmong(workspaceFolders),
+    ).toEqual(workspaceFolders);
+
+    await waitUntilIdle(sessionId);
+  });
+
   it("answers 400 for a context archive over the limit, with no registry entry", async () => {
     const parentId = crypto.randomUUID();
     const context = await contextArchive("bulky.bin", overLimit);
@@ -175,6 +188,10 @@ describe("create through the Worker with a repository", () => {
     expect(response.status).toBe(200);
     expect(files.find(({ path }) => path === "/workspace/repo/README.md")?.text).toBe("# app\n");
     expect(files.some(({ path }) => path === "/workspace/repo/.git/shallow")).toBe(true);
+
+    expect(
+      await env.WorkspaceObject.getByName(sessionId).directoriesAmong(workspaceFolders),
+    ).toEqual(workspaceFolders);
 
     await waitUntilIdle(sessionId);
   });

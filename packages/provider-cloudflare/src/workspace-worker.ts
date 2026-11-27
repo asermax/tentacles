@@ -149,6 +149,8 @@ export class WorkspaceObject extends withWorkspaceContainer(
 
     if (init.repository != null) {
       await this.#cloneRepository(init.repository);
+    } else {
+      await this.workspace.fs.mkdir(repositoryDirectory, { recursive: true });
     }
 
     const archivesByKind: Partial<Record<ArchiveKind, Uint8Array | null>> = {
@@ -157,6 +159,8 @@ export class WorkspaceObject extends withWorkspaceContainer(
     };
 
     for (const { kind, directory } of archiveExpansions) {
+      await this.workspace.fs.mkdir(directory, { recursive: true });
+
       const archive = archivesByKind[kind];
 
       if (archive != null) {

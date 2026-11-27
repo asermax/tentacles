@@ -25,6 +25,7 @@ interface WorkspaceRpc extends Rpc.DurableObjectBranded {
   requestedInstances(): Promise<ReadonlyArray<string | undefined>>;
   __getWorkspaceStub(): Promise<ReturnType<Workspace["stub"]>>;
   files(): ReadonlyArray<{ path: string; mode: number; size: number; text: string }>;
+  directoriesAmong(paths: ReadonlyArray<string>): ReadonlyArray<string>;
 }
 
 // The registry object's RPC as a test calls it from outside the Worker: each member of
