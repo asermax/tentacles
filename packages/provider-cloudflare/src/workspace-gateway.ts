@@ -1,20 +1,56 @@
+import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
+import * as Redacted from "effect/Redacted";
+
+import { cdpRelay } from "./browser";
+import { githubFetch } from "./github-fetch";
+import { apiHost } from "./hosts";
 
 /** What the workspace object mints into the gateway's props, to mark a request as the container's. */
 export interface GatewayProps {
   readonly gateway?: string;
 }
 
-/** The Workspace Worker's default entrypoint: the container's http-gateway. */
+/** What the gateway reads from the Workspace Worker's bindings. */
+export interface GatewayEnvironment {
+  readonly TENTACLES_GITHUB_TOKEN: string;
+  readonly TENTACLES_CDP_SECRET: string;
+  readonly BROWSER: BrowserRun;
+}
+
+const cdpPath = /^\/cdp\/([^/]+)$/;
+
+/**
+ * The Workspace Worker's default entrypoint: the container's http-gateway, which every outbound
+ * request of the container reaches, routed by its host. github.com gets the deploy's token, the
+ * API host's /cdp/<token> path reaches the session's browser, and every other host is passed
+ * through unchanged.
+ */
 export const gateway = {
   async fetch(
     request: Request,
-    _environment: Cloudflare.Env,
+    environment: GatewayEnvironment,
     context: ExecutionContext<GatewayProps>,
   ): Promise<Response> {
-    return context.props?.gateway == null
-      ? new Response("Not found", { status: 404 })
-      : fetch(request);
+    if (context.props?.gateway == null) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const url = new URL(request.url);
+
+    if (url.hostname === apiHost) {
+      const token = cdpPath.exec(url.pathname)?.[1];
+
+      if (token == null) {
+        return new Response("Not found", { status: 404 });
+      }
+
+      return Effect.runPromise(
+        cdpRelay(environment.BROWSER, Redacted.make(environment.TENTACLES_CDP_SECRET))(token),
+      ).catch(() => new Response("The browser is unavailable", { status: 502 }));
+    }
+
+    return githubFetch(environment.TENTACLES_GITHUB_TOKEN)(request);
   },
 };
 

@@ -1,38 +1,30 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
-import { SessionId } from "@tentacles/worker-api/ids";
 import type { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
-import * as Schema from "effect/Schema";
 
-/** Where Cloudflare writes the CA a container's intercepted HTTPS is signed with; both images trust it. */
+/** Where Cloudflare writes the CA a container's intercepted HTTPS is signed with; the Claude image trusts it. */
 export const egressCaPath = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
 
-/** What the images send in place of a credential; the egress handler sends the real one instead. */
+/** What the Claude image sends in place of a credential; the egress handler sends the real one instead. */
 export const credentialPlaceholder = "tentacles-egress-credential";
 
 export const EgressHosts = {
-  github: "github.com",
   anthropic: "api.anthropic.com",
 } as const;
 
-/** The props a workspace's loopback stub carries. */
-export const EgressProps = Schema.Struct({ sessionId: SessionId });
-
-export type EgressProps = typeof EgressProps.Type;
-
 /**
- * The interceptor a container's outbound requests go to: the Worker's own default entrypoint, since
- * an Effect Worker exports no named entrypoint. A workspace passes its session in the props.
+ * The interceptor the Claude container's outbound requests go to: the Worker's own default
+ * entrypoint, since an Effect Worker exports no named entrypoint.
  */
-export const loopback = (state: Cloudflare.DurableObjectState["Service"], props?: EgressProps) => {
+export const loopback = (state: Cloudflare.DurableObjectState["Service"]) => {
   const entrypoint = state.exports.default;
 
   return entrypoint == null
     ? Effect.die(new Error("The Worker exports no default entrypoint"))
-    : entrypoint(props == null ? {} : { props }).pipe(
+    : entrypoint({}).pipe(
         Effect.map((fetcher) => fetcher.raw),
         Effect.orDie,
       );
@@ -50,33 +42,19 @@ const forward = (request: Request, authorization: string) =>
   Effect.promise(() => withAuthorization(request, authorization));
 
 /**
- * The containers' outbound traffic: each host's handler, run by the Worker's default entrypoint,
- * which the containers reach through their loopback interceptors. Runs in the Worker's init.
+ * The Claude container's outbound traffic: the anthropic handler, run by the Worker's default
+ * entrypoint, which the container reaches through its loopback interceptor. The workspace
+ * containers' traffic goes to the Workspace Worker's gateway instead. Runs in the Worker's init.
  */
 export const egress = () =>
   Effect.gen(function* () {
-    const githubToken = yield* Config.Redacted("TENTACLES_GITHUB_TOKEN");
     const claudeToken = yield* Config.Redacted("TENTACLES_CLAUDE_TOKEN");
 
-    // git sends credentials only after a 401, and GitHub answers anonymous requests from the
-    // containers' shared addresses with 429, so every request carries the token, not only the
-    // ones that carry the placeholder.
-    const github = (request: Request) =>
-      forward(request, `Basic ${btoa(`x-access-token:${Redacted.value(githubToken)}`)}`);
-
-    const anthropic = (request: Request) =>
+    const anthropic = (request: Request): Effect.Effect<Response, never, RuntimeContext> =>
       forward(request, `Bearer ${Redacted.value(claudeToken)}`);
 
-    const handlers = new Map<
-      string,
-      (request: Request) => Effect.Effect<Response, never, RuntimeContext>
-    >([
-      [EgressHosts.github, github],
-      [EgressHosts.anthropic, anthropic],
-    ]);
-
     return (request: Request) =>
-      Option.map(Option.fromNullishOr(handlers.get(new URL(request.url).hostname)), (handler) =>
-        handler(request),
-      );
+      new URL(request.url).hostname === EgressHosts.anthropic
+        ? Option.some(anthropic(request))
+        : Option.none();
   });

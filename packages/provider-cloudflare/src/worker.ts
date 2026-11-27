@@ -13,7 +13,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import { apiKeyLayer } from "./api-key";
-import { cdpRelay } from "./browser";
 import { ClaudeObject } from "./claude-object";
 import { codemodeSandboxClass } from "./codemode-sandbox";
 import { egress } from "./egress";
@@ -25,8 +24,6 @@ import { SessionObject, SessionObjectLive, sessionHostLayer } from "./session-ob
 import { WorkerScripts } from "./worker-scripts";
 import { workspaceObjectClass } from "./workspace-names";
 
-const cdpPath = /^\/cdp\/([^/]+)$/;
-
 const respond = (response: Response) =>
   HttpServerResponse.raw(response, { status: response.status });
 
@@ -34,8 +31,8 @@ const notFound = () => HttpServerResponse.text("Not found", { status: 404 });
 
 /**
  * The tentacles Worker. Its routes run in a fixed order: a preview host, then the egress hosts the
- * containers reach through the loopback (which carry no API key), then the CDP relay, and only
- * then the API behind the key. Effect's request URL holds only the path, so the host comes from
+ * Claude container reaches through the loopback (which carry no API key), and only then the API
+ * behind the key. Effect's request URL holds only the path, so the host comes from
  * the Web request.
  */
 export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>()(
@@ -68,9 +65,13 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
     // Only the session objects call the Claude object, but an isolate that wakes for the Claude
     // object alone builds the Worker's init, which has to register its class.
     yield* ClaudeObject;
-    const browser = yield* Cloudflare.Browser("BROWSER");
     const apiKey = yield* Config.Redacted("TENTACLES_API_KEY");
-    const cdpSecret = yield* Config.Redacted("TENTACLES_CDP_SECRET");
+
+    // The session objects read the browser and its signing secret; the Worker that hosts them
+    // declares both bindings.
+    yield* Cloudflare.Browser("BROWSER");
+    yield* Config.Redacted("TENTACLES_CDP_SECRET");
+
     const egressRoute = yield* egress();
     const scheduler = yield* cloudflareScheduler;
 
@@ -110,12 +111,6 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
 
         if (Option.isSome(egressResponse)) {
           return respond(yield* egressResponse.value);
-        }
-
-        const cdp = cdpPath.exec(url.pathname);
-
-        if (cdp?.[1] != null) {
-          return respond(yield* cdpRelay(yield* browser.raw, cdpSecret)(cdp[1]));
         }
 
         if (url.pathname.startsWith("/api/")) {

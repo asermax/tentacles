@@ -27,7 +27,7 @@ const hmacKey = (secret: Redacted.Redacted) =>
 
 // A token is the Browser Run session id and its HMAC under the Worker secret, so only the Worker
 // mints one and the relay keeps no state of its own.
-const signToken = async (secret: Redacted.Redacted, browserSessionId: string) => {
+export const signToken = async (secret: Redacted.Redacted, browserSessionId: string) => {
   const signature = await crypto.subtle.sign(
     "HMAC",
     await hmacKey(secret),
@@ -96,7 +96,7 @@ export const browserLayer = (
 
             storage.kv.put(browserSessionKey, sessionId);
 
-            return { cdpUrl: `wss://${apiHost}/cdp/${await signToken(secret, sessionId)}` };
+            return { cdpUrl: `ws://${apiHost}/cdp/${await signToken(secret, sessionId)}` };
           },
           catch: (cause) => new BrowserUnavailable({ message: String(cause) }),
         }),
@@ -109,9 +109,9 @@ const forwardClose = (to: WebSocket) => (event: CloseEvent) =>
   to.close(sendableCode(event.code), event.reason);
 
 /**
- * The /cdp route: checks the token and bridges the caller's WebSocket to the Browser Run session it
- * names. agent-browser cannot trust the egress CA on its CDP connection, so the container reaches
- * the browser through the Worker's own certificate instead.
+ * The workspace gateway's /cdp route: checks the token and bridges the caller's WebSocket to the
+ * Browser Run session it names. agent-browser cannot trust the egress CA on its CDP connection, so
+ * the container asks for it over plain ws:// and the gateway answers.
  */
 export const cdpRelay = (browser: BrowserRun, secret: Redacted.Redacted) => (token: string) =>
   Effect.promise(async () => {

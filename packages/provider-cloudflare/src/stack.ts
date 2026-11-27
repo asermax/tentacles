@@ -40,7 +40,7 @@ export const stack = Effect.gen(function* () {
   });
 
   // The Worker that holds every session's workspace object and its container, with the egress
-  // gateway and the secrets the git client and the gateway use. Its main module is hand-written,
+  // gateway, the Browser binding and the secrets the git client and the gateway use. Its main module is hand-written,
   // because Computer's mixin and named exports cannot go through Alchemy's generated class.
   const workspace = yield* Cloudflare.Worker("WorkspaceWorker", {
     name: workspaceWorkerName,
@@ -52,7 +52,9 @@ export const stack = Effect.gen(function* () {
         containers: [WorkspaceContainer],
       }),
       [workspaceLoaderBinding]: Cloudflare.WorkerLoader(workspaceLoaderBinding),
+      BROWSER: Cloudflare.Browser("BROWSER"),
       TENTACLES_GITHUB_TOKEN: Config.Redacted("TENTACLES_GITHUB_TOKEN"),
+      TENTACLES_CDP_SECRET: Config.Redacted("TENTACLES_CDP_SECRET"),
       TENTACLES_GIT_AUTHOR_NAME: Config.String("TENTACLES_GIT_AUTHOR_NAME"),
       TENTACLES_GIT_AUTHOR_EMAIL: Config.String("TENTACLES_GIT_AUTHOR_EMAIL"),
     },
