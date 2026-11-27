@@ -37,6 +37,8 @@ interface WorkspaceRpc extends Rpc.DurableObjectBranded {
 interface ClaudeRpc extends Rpc.DurableObjectBranded {
   restart(): void;
   reset(setup: FakeContainerSetup): Promise<void>;
+  speedUpTime(scale: number): void;
+  restoreTime(): void;
   containerState(): FakeContainerSnapshot;
   workerErrors(): ReadonlyArray<string>;
   stopContainer(): void;

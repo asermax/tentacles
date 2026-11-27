@@ -21,13 +21,16 @@ const FailureLine = Schema.Struct({
 
 const decodeFailureLine = Schema.decodeUnknownOption(Schema.fromJsonString(FailureLine));
 
-// pi-durable waits 2, 4 and 8 seconds before its three retries.
+// pi-durable waits 2, 4 and 8 seconds before its three retries, on a clock the test runs this
+// many times faster.
 const firstRetryDelayMs = 2_000;
 const retryDelaysMs = [firstRetryDelayMs, 4_000, 8_000];
-const generousRunMs = 60_000;
+const clockSpeedUp = 100;
+const generousRunMs = 30_000;
 
 const runSession = async (answers: ReadonlyArray<RelayAnswer>) => {
   await resetClaude({ answers });
+  await claudeObject().speedUpTime(clockSpeedUp);
 
   const sessionId = crypto.randomUUID();
 
@@ -38,7 +41,10 @@ const runSession = async (answers: ReadonlyArray<RelayAnswer>) => {
     settings: { ...claudeSettings, repository: null },
   });
 
-  const state = await waitUntilRunEnds(sessionId, generousRunMs / 100);
+  const state = await waitUntilRunEnds(sessionId, generousRunMs / 100).finally(() =>
+    claudeObject().restoreTime(),
+  );
+
   const { relayRequests } = await claudeObject().containerState();
 
   const failures = (await claudeObject().workerErrors()).flatMap((line) =>

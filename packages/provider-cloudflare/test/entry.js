@@ -18,6 +18,10 @@ export default makeWorkerBridge(WorkerEntrypoint, meta);
 const DurableObjectBridge = makeDurableObjectBridge(DurableObject, meta);
 
 export class SessionObject extends DurableObjectBridge("SessionObject") {
+  constructor(state, env) {
+    super(withSpeedUpAlarm(state), env);
+  }
+
   // Aborts the object, as an eviction or a crash does: the next call runs on a new instance.
   restart() {
     this.ctx.abort("restart");
@@ -52,12 +56,35 @@ console.error = (...args) => {
   realConsoleError(...args);
 };
 
+// A test can run the Worker's clock faster: Date.now advances scale times as fast, and timers wait
+// scale times less, so a wait pi-durable makes on the harness clock, such as a retry's backoff,
+// passes in a fraction of the time and still ends once the clock reaches it.
+const realDateNow = Date.now;
+const realClock = { scale: 1, realAt: 0, fakeAt: 0 };
+let clock = realClock;
+
+Date.now = () => clock.fakeAt + (realDateNow() - clock.realAt) * clock.scale;
+
+// Alarms run on Miniflare's real clock, and pi-durable has the session object's alarm wake a task
+// that sleeps until a time on the harness clock, so the object sets the alarm at the real time the
+// sped-up time falls on.
+const inRealTime = (at) => clock.realAt + (at - clock.fakeAt) / clock.scale;
+
+const withSpeedUpAlarm = (state) => {
+  const { storage } = state;
+  const setAlarm = storage.setAlarm.bind(storage);
+
+  storage.setAlarm = (at, options) => setAlarm(inRealTime(at), options);
+
+  return state;
+};
+
 // An alarm pass of the Claude object waits keepAliveWait before it sets the next alarm; the wait
 // is shortened here so a test does not wait it out. Effect's sleep reads setTimeout when it runs.
 const realSetTimeout = globalThis.setTimeout;
 
 globalThis.setTimeout = (callback, delay, ...args) =>
-  realSetTimeout(callback, delay === keepAliveWait ? 20 : delay, ...args);
+  realSetTimeout(callback, delay === keepAliveWait ? 20 : delay / clock.scale, ...args);
 
 // The Claude object reads ctx.container; the fake takes its place, so no container starts.
 const withFakeContainer = (state) => {
@@ -80,9 +107,21 @@ export class ClaudeObject extends DurableObjectBridge("ClaudeObject") {
   async reset(setup) {
     fakeContainer.reset(setup);
     loggedErrors.length = 0;
+    clock = realClock;
 
     await this.ctx.storage.deleteAll();
     await this.ctx.storage.deleteAlarm();
+  }
+
+  speedUpTime(scale) {
+    const now = realDateNow();
+
+    clock = { scale, realAt: now, fakeAt: now };
+  }
+
+  // Puts the clock back on real time, which is earlier than the sped-up one.
+  restoreTime() {
+    clock = realClock;
   }
 
   // What the object did to the container, and what its relay received.
