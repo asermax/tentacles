@@ -23,6 +23,10 @@ const sleepAfter = 15 * 60_000;
 // progress while the container runs.
 export const keepAliveWait = 50_000;
 
+const alarmDelay = 1_000;
+
+const sigterm = 15;
+
 // The deploy publishes the class's image under the Container's id, and start names it.
 const claudeContainerId = "ClaudeContainer";
 
@@ -88,6 +92,28 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
           );
         });
 
+        // Keeps the container and the object up while the container runs: the platform's timeout, both
+        // interceptions (which a new container lacks), the monitor and the alarm loop that hold the object in use.
+        const armContainer = Effect.gen(function* () {
+          yield* Effect.promise(() =>
+            Promise.all([
+              container.setInactivityTimeout(sleepAfter),
+              container.interceptOutboundHttps(EgressHosts.anthropic, egress),
+              container.interceptOutboundHttp(EgressHosts.internal, egress),
+            ]),
+          );
+
+          yield* watchContainer;
+
+          claudeCalls.startIdleTimer(Date.now());
+
+          yield* Effect.promise(async () => {
+            if ((await state.raw.storage.getAlarm()) == null) {
+              await state.raw.storage.setAlarm(Date.now() + alarmDelay);
+            }
+          });
+        });
+
         const start = Effect.gen(function* () {
           const image = yield* Effect.fromNullishOr(container.images[claudeContainerId]).pipe(
             Effect.mapError(() => new Error("The deploy published no Claude image")),
@@ -103,15 +129,7 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
             }),
           );
 
-          // The interceptor does not survive a restart, so it is set after every start.
-          yield* Effect.promise(() =>
-            Promise.all([
-              container.setInactivityTimeout(sleepAfter),
-              container.interceptOutboundHttps(EgressHosts.anthropic, egress),
-            ]),
-          );
-
-          yield* watchContainer;
+          yield* armContainer;
           yield* relayReady(container);
         });
 
@@ -122,7 +140,31 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
             container.running ? Deferred.await(stopped) : Effect.sync(() => claudeCalls.reset()),
           ).pipe(Effect.andThen(Effect.sync(() => claudeCalls.add(callId))));
 
+        // A container that is not running has no calls, whatever an earlier instance stored.
+        if (container.running) {
+          yield* armContainer;
+        } else {
+          claudeCalls.reset();
+        }
+
         return {
+          // The object stops the container itself once no call is in flight and the idle time has
+          // passed. The check and the mark happen in one step, so a call counted meanwhile either sees
+          // the stopping mark or was counted before the check.
+          alarm: () =>
+            Effect.gen(function* () {
+              if (container.running && claudeCalls.isIdle(Date.now())) {
+                claudeCalls.beginStopping();
+                container.signal(sigterm);
+              }
+
+              yield* Effect.sleep(keepAliveWait);
+
+              if (container.running) {
+                yield* Effect.promise(() => state.raw.storage.setAlarm(Date.now() + alarmDelay));
+              }
+            }),
+
           fetch: Effect.gen(function* () {
             // Counted before anything is awaited, so no alarm pass sees an empty count while the call
             // is on its way.

@@ -15,6 +15,7 @@ export const credentialPlaceholder = "tentacles-egress-credential";
 
 export const EgressHosts = {
   anthropic: "api.anthropic.com",
+  internal: "tentacles.internal",
 } as const;
 
 /**

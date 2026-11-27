@@ -21,3 +21,9 @@ export const callClaude = (session?: string) =>
 /** Empties the Claude object and puts its container in the given state. */
 export const resetClaude = (setup: Partial<FakeContainerSetup> = {}) =>
   claudeObject().reset({ isRunning: false, readyOnProbe: 1, answers: ["done"], ...setup });
+
+/** Aborts the Claude object; the next call to it runs on a new instance. */
+export const restartClaude = () =>
+  claudeObject()
+    .restart()
+    .catch(() => undefined);
