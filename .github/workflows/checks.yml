@@ -16,13 +16,6 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      # core's tests run pi-env's daemon in a bubblewrap sandbox. Ubuntu 24.04
-      # lets AppArmor block unprivileged user namespaces, which bwrap needs.
-      - name: Set up bubblewrap
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bubblewrap
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm test
