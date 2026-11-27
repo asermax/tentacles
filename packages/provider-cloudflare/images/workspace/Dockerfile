@@ -1,4 +1,6 @@
-FROM ghcr.io/cloudflare/computer-computerd-linux-x64:0.11.4 AS computerd
+# The release of Computer's daemon, which the stack passes from the Computer package's version.
+ARG COMPUTERD_VERSION
+FROM ghcr.io/cloudflare/computer-computerd-linux-x64:${COMPUTERD_VERSION} AS computerd
 
 FROM debian:trixie-slim
 

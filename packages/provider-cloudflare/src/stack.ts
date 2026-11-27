@@ -2,6 +2,7 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 
+import packageJson from "../package.json" with { type: "json" };
 import { egressCaPath } from "./egress";
 import { codemodeSandboxClass, codemodeWorkerName } from "./codemode-sandbox";
 import { gatewayId } from "./model-providers";
@@ -16,11 +17,17 @@ import {
 } from "./workspace-names";
 
 // The workspace image: Computer's daemon, FUSE and the agent's tools. The deploy publishes it under
-// the Container's id, which Computer's container backend starts by name.
+// the Container's id, which Computer's container backend starts by name. The daemon's release is
+// the version of the Computer package the Worker bundles, which package.json pins exactly.
 const WorkspaceContainer = Cloudflare.Container(workspaceContainerId, {
   schedulingPolicy: "durable_object",
   context: `${import.meta.dirname}/../images/workspace`,
-  build: { args: { EGRESS_CA_PATH: egressCaPath } },
+  build: {
+    args: {
+      EGRESS_CA_PATH: egressCaPath,
+      COMPUTERD_VERSION: packageJson.dependencies["@cloudflare/computer"],
+    },
+  },
 });
 
 /**
