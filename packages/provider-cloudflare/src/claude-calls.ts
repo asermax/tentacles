@@ -30,9 +30,11 @@ export const claudeCalls = (storage: DurableObjectStorage, idleAfterMs: number) 
       kv.put(lastActivityKey, now);
     },
 
+    /** Takes a call off the count; a call the object no longer holds changes nothing. */
     remove: (callId: CallId) => {
-      kv.delete(`${callPrefix}${callId}`);
-      kv.put(lastActivityKey, Date.now());
+      if (kv.delete(`${callPrefix}${callId}`)) {
+        kv.put(lastActivityKey, Date.now());
+      }
     },
 
     beginStopping: () => {

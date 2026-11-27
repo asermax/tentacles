@@ -11,9 +11,6 @@ import * as Semaphore from "effect/Semaphore";
 import { claudeCalls as createClaudeCalls } from "./claude-calls";
 import { credentialPlaceholder, EgressHosts, egressCaPath, loopback } from "./egress";
 
-/** Every session reaches the same Claude container. */
-export const claudeObjectName = "claude";
-
 const relayPort = 8080;
 
 // The container sleeps once no call has reached it for this long.
@@ -54,8 +51,10 @@ const relayReady = (container: Container) =>
   );
 
 /**
- * The shared Claude object: starts the Claude container on the first call after it slept and
- * passes each relay request to it. The container calls api.anthropic.com through the egress.
+ * The shared Claude object: starts the Claude container on the first call after it slept, keeps itself and
+ * the container up while the container is in use, stops it after 15 idle minutes, and passes each relay
+ * request to it. The container calls api.anthropic.com through the egress and reports each call's end to the
+ * Worker, which tells this object.
  */
 export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
   "ClaudeObject",
@@ -148,6 +147,8 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
         }
 
         return {
+          callEnded: (callId: CallId) => Effect.sync(() => claudeCalls.remove(callId)),
+
           // The object stops the container itself once no call is in flight and the idle time has
           // passed. The check and the mark happen in one step, so a call counted meanwhile either sees
           // the stopping mark or was counted before the check.
