@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { env } from "cloudflare:workers";
 
-import { contextArchive } from "./archives";
+import { contextEntries } from "./archives";
 import { rejection } from "./rejection";
 import { idleSession, parent, scripted, testSettings, writeNotes } from "./sessions";
 import { workspaceInit } from "./workspace-init";
@@ -27,7 +27,7 @@ describe("deleting a session", () => {
     expect(await env.SessionObject.getByName(sessionId).storedTables()).toEqual([]);
 
     await env.WorkspaceObject.getByName(sessionId).setup(
-      workspaceInit({ context: await contextArchive("fresh.md") }),
+      workspaceInit({ context: contextEntries("fresh.md") }),
     );
 
     expect(

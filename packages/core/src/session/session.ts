@@ -172,7 +172,7 @@ const make = (sessionId: SessionId) =>
           // The archives are read before anything is stored, so one that
           // cannot be read leaves no trace.
           const archives = yield* readArchives(request);
-          const skills = archives.skills.map(toSkillEntry);
+          const skills = archives.skills.skills.map(toSkillEntry);
           const { agents } = archives;
 
           const registerSession = status.register(request.name, request.parent, {
@@ -188,8 +188,8 @@ const make = (sessionId: SessionId) =>
               repository: request.settings.repository,
               image: request.settings.image,
               size: request.settings.size,
-              skills: request.skills ?? null,
-              context: request.context ?? null,
+              skills: archives.skills.entries,
+              context: archives.context,
             })
             .pipe(Effect.tapError(() => Effect.andThen(registerSession, status.reportFailed)));
 

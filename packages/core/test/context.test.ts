@@ -9,7 +9,13 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { createBody, post, serveApi } from "./support/api";
-import { contextArchive, definitionArchives, definitionNames } from "./support/archives";
+import {
+  contextArchive,
+  definitionArchives,
+  definitionNames,
+  definitionSkillEntries,
+  entriesOf,
+} from "./support/archives";
 import { eventually } from "./support/eventually";
 import { createRequest, detailsOf, parent } from "./support/fixtures";
 import { type ModelRequest, routedModel } from "./support/model";
@@ -27,12 +33,13 @@ const say = (text: string) => fauxAssistantMessage(text);
 const sentence =
   "<context>\nThe parent sent files for context. They are in /workspace/context.\n</context>";
 
-const files = () =>
-  contextArchive(
-    { path: "notes.md", content: "# notes\n" },
-    { path: "scratch/plan.md", content: "the plan\n" },
-    { path: "scratch/run.sh", content: "#!/bin/sh\necho ran\n", mode: 0o755 },
-  );
+const contextFiles = [
+  { path: "notes.md", content: "# notes\n" },
+  { path: "scratch/plan.md", content: "the plan\n" },
+  { path: "scratch/run.sh", content: "#!/bin/sh\necho ran\n", mode: 0o755 },
+];
+
+const files = () => contextArchive(...contextFiles);
 
 const startSession = (
   answer: (request: ModelRequest) => AssistantMessage | Promise<AssistantMessage>,
@@ -77,7 +84,9 @@ describe("create with context", () => {
 
         yield* finished(sessionId);
 
-        expect(world.workspaceCreates.map(({ init }) => init.context)).toEqual([context]);
+        expect(world.workspaceCreates.map(({ init }) => init.context)).toEqual([
+          entriesOf(contextFiles),
+        ]);
         expect(sections[0]).toBe(sentence);
       }).pipe(Effect.provide(testWorld)),
   );
@@ -96,7 +105,7 @@ describe("create with context", () => {
 
         yield* finished(sessionId);
 
-        expect(world.workspaceCreates.map(({ init }) => init.context)).toEqual([null]);
+        expect(world.workspaceCreates.map(({ init }) => init.context)).toEqual([[]]);
         expect(sections.every((section) => section == null)).toBe(true);
       }).pipe(Effect.provide(testWorld)),
   );
@@ -175,7 +184,7 @@ describe("create with context", () => {
         yield* finished(sessionId);
 
         expect(world.workspaceCreates.map(({ init }) => [init.skills, init.context])).toEqual([
-          [archives.skills, context],
+          [definitionSkillEntries, entriesOf(contextFiles)],
         ]);
         expect(
           yield* json(yield* api(`/sessions?harness=pi&sessionId=${parent.sessionId}`)),

@@ -20,8 +20,11 @@ import {
   agentWithoutBody,
   definitionArchives,
   definitionNames,
+  definitionSkillEntries,
+  entriesOf,
   oversizedSkillsArchive,
   skillBlockOf,
+  skillFiles,
   skillsArchive,
 } from "./support/archives";
 import { eventually } from "./support/eventually";
@@ -165,8 +168,8 @@ describe("the sessions API", () => {
               repository: null,
               image: "default",
               size: "basic",
-              skills: archives.skills,
-              context: null,
+              skills: definitionSkillEntries,
+              context: [],
             },
           },
         ]);
@@ -184,9 +187,8 @@ describe("the sessions API", () => {
       const world = yield* TestWorld;
       const api = yield* serveApi;
 
-      const skills = yield* Effect.promise(() =>
-        skillsArchive({ name: "implement", description: "Does a thing: with a colon" }),
-      );
+      const skill = { name: "implement", description: "Does a thing: with a colon" };
+      const skills = yield* Effect.promise(() => skillsArchive(skill));
 
       world.faux.setResponses([fauxAssistantMessage("ok")]);
 
@@ -199,7 +201,9 @@ describe("the sessions API", () => {
 
       const { sessionId } = decodeCreated(yield* json(response));
 
-      expect(world.workspaceCreates.map(({ init }) => init.skills)).toEqual([skills]);
+      expect(world.workspaceCreates.map(({ init }) => init.skills)).toEqual([
+        entriesOf(skillFiles(skill)),
+      ]);
       expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toMatchObject({
         skills: ["implement"],
       });

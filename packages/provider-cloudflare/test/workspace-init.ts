@@ -5,7 +5,7 @@ export const workspaceInit = (overrides: Partial<WorkspaceInit> = {}): Workspace
   repository: null,
   image: "default",
   size: "basic",
-  skills: null,
-  context: null,
+  skills: [],
+  context: [],
   ...overrides,
 });

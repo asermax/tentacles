@@ -5,7 +5,12 @@ import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
 import { failureOf } from "../src/workspace-failure";
-import { contextArchive, contextArchiveWithScript, skillsArchive } from "./archives";
+import {
+  conflictingContextEntries,
+  contextEntries,
+  contextEntriesWithScript,
+  skillEntries,
+} from "./archives";
 import { fixtureRepositories, fixtureRepository } from "./github-fixture";
 import { rejection } from "./rejection";
 import { workspaceInit } from "./workspace-init";
@@ -32,8 +37,8 @@ describe("a workspace object's setup", () => {
 
     await workspace().setup(
       workspaceInit({
-        skills: await skillsArchive("implement"),
-        context: await contextArchiveWithScript("notes.md"),
+        skills: skillEntries("implement"),
+        context: contextEntriesWithScript("notes.md"),
       }),
     );
 
@@ -88,7 +93,7 @@ describe("a workspace object's setup", () => {
       workspace,
       workspaceInit({
         repository: fixtureRepository(fixtureRepositories.missing),
-        skills: await skillsArchive("implement"),
+        skills: skillEntries("implement"),
       }),
     );
 
@@ -97,19 +102,19 @@ describe("a workspace object's setup", () => {
     expect(await workspace().files()).toEqual([]);
   });
 
-  it("fails with InvalidWorkspace for an archive that is not a tar.gz, and clears what it already wrote", async () => {
+  it("fails with WorkspaceUnavailable when an archive's files cannot be written, and clears what it already wrote", async () => {
     const workspace = workspaceOf();
 
     const failure = await failureOfSetup(
       workspace,
       workspaceInit({
-        skills: await skillsArchive("implement"),
-        context: new TextEncoder().encode("not an archive"),
+        skills: skillEntries("implement"),
+        context: conflictingContextEntries("notes.md"),
       }),
     );
 
-    expect(Schema.is(InvalidWorkspace)(failure)).toBe(true);
-    expect(failure.message).toContain("The context archive is invalid");
+    expect(Schema.is(WorkspaceUnavailable)(failure)).toBe(true);
+    expect(failure.message).toContain("Writing the context archive into /workspace/context failed");
     expect(await workspace().files()).toEqual([]);
   });
 
@@ -158,14 +163,14 @@ describe("a workspace object's destroy", () => {
   it("clears its files, so a later setup under the same name starts empty", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setup(workspaceInit({ context: await contextArchive("old.md") }));
+    await workspace().setup(workspaceInit({ context: contextEntries("old.md") }));
     await workspace()
       .destroy()
       .catch(() => undefined);
 
     expect(await workspace().files()).toEqual([]);
 
-    await workspace().setup(workspaceInit({ context: await contextArchive("new.md") }));
+    await workspace().setup(workspaceInit({ context: contextEntries("new.md") }));
 
     expect((await workspace().files()).map(({ path }) => path)).toEqual([
       "/workspace/context/new.md",

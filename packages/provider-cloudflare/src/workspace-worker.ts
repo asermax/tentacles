@@ -9,10 +9,9 @@ import { withWorkspaceContainer } from "@cloudflare/computer/backends/container"
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
 import { createGitClient } from "@cloudflare/computer/git";
 import { repositoryDirectory, type WorkspaceInit } from "@tentacles/contracts/workspace";
-import { readArchive } from "@tentacles/worker-api/archives";
+import type { ArchiveEntry } from "@tentacles/worker-api/archives";
 import { archiveExpansions, type ArchiveKind } from "@tentacles/worker-api/archive-kinds";
 import { InvalidWorkspace, WorkspaceUnavailable } from "@tentacles/worker-api/errors";
-import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -153,19 +152,14 @@ export class WorkspaceObject extends withWorkspaceContainer(
       await this.workspace.fs.mkdir(repositoryDirectory, { recursive: true });
     }
 
-    const archivesByKind: Partial<Record<ArchiveKind, Uint8Array | null>> = {
+    const archivesByKind: Partial<Record<ArchiveKind, ReadonlyArray<ArchiveEntry>>> = {
       skills: init.skills,
       context: init.context,
     };
 
     for (const { kind, directory } of archiveExpansions) {
       await this.workspace.fs.mkdir(directory, { recursive: true });
-
-      const archive = archivesByKind[kind];
-
-      if (archive != null) {
-        await this.#expandArchive(kind, directory, archive);
-      }
+      await this.#writeArchiveEntries(kind, directory, archivesByKind[kind] ?? []);
     }
 
     this.ctx.storage.kv.put(containerSettingsKey, containerSettings.value);
@@ -192,16 +186,11 @@ export class WorkspaceObject extends withWorkspaceContainer(
     }
   }
 
-  async #expandArchive(kind: ArchiveKind, directory: string, archive: Uint8Array) {
-    const archiveEntries = await Effect.runPromise(
-      readArchive(archive).pipe(
-        Effect.mapError(
-          (error) =>
-            new InvalidWorkspace({ message: `The ${kind} archive is invalid: ${error.message}` }),
-        ),
-      ),
-    );
-
+  async #writeArchiveEntries(
+    kind: ArchiveKind,
+    directory: string,
+    archiveEntries: ReadonlyArray<ArchiveEntry>,
+  ) {
     try {
       const archiveFiles = archiveEntries.map((entry) => ({
         entry,
