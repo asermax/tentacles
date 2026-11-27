@@ -71,7 +71,7 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
     const browser = yield* Cloudflare.Browser("BROWSER");
     const apiKey = yield* Config.Redacted("TENTACLES_API_KEY");
     const cdpSecret = yield* Config.Redacted("TENTACLES_CDP_SECRET");
-    const egressRoute = yield* egress(sessions);
+    const egressRoute = yield* egress();
     const scheduler = yield* cloudflareScheduler;
 
     const contracts = Layer.mergeAll(sessionHostLayer(sessions), registryStoreLayer(registries));

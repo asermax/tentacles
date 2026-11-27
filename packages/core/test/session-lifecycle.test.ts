@@ -1,4 +1,4 @@
-import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
 import { Entry } from "@tentacles/worker-api/entries";
@@ -319,6 +319,31 @@ describe("a session's lifecycle and status", () => {
       expect(yield* handle.messages(2)).toEqual([
         Entry.cases.prompt.make({ text: "a question" }),
         Entry.cases.text.make({ text: "the answer" }),
+      ]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("a run that leaves uncommitted work ends idle with no commit prompt", () =>
+    Effect.gen(function* () {
+      const world = yield* TestWorld;
+
+      world.faux.setResponses([
+        fauxAssistantMessage(
+          fauxToolCall("workspace_write", { path: "README.md", text: "changed" }),
+          { stopReason: "toolUse" },
+        ),
+        fauxAssistantMessage("wrote it"),
+      ]);
+
+      const { handle, records } = yield* startSession();
+
+      yield* eventually(
+        Effect.sync(() => expect(records.states).toEqual([running, idleAfter("wrote it")])),
+      );
+      expect(world.faux.state.callCount).toBe(2);
+      expect(records.workspace.files.get("README.md")).toBe("changed");
+      expect((yield* handle.messages(10)).filter(Entry.guards.prompt)).toEqual([
+        Entry.cases.prompt.make({ text: "start" }),
       ]);
     }).pipe(Effect.provide(testWorld)),
   );

@@ -22,7 +22,7 @@ import { repositoryDirectory, Workspace } from "@tentacles/contracts/workspace";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
-import { isActive, SessionState } from "@tentacles/worker-api/session-state";
+import { SessionState } from "@tentacles/worker-api/session-state";
 import { PromptModes } from "@tentacles/worker-api/sessions";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -39,7 +39,6 @@ import { QuestionsDoc } from "./questions";
 import { readArchives } from "./read-archives";
 import { RecordDoc, type SessionRecord } from "./record";
 import { trackStatus } from "./state";
-import { isWorkspaceNeeded } from "./workspace-needed";
 
 // While work runs, the timer also serves as a recovery heartbeat: a process
 // that dies mid-run is woken within a minute.
@@ -64,8 +63,6 @@ export type SessionHandle = {
 } & {
   /** The host's WakeTimer fired: resume the harness. */
   readonly wake: () => Effect.Effect<void>;
-  /** Whether the workspace should stay up; the ping reports whether git shows pending work. */
-  readonly workspaceNeeded: (isWorkPending: boolean) => Effect.Effect<boolean>;
 };
 
 const make = (sessionId: SessionId) =>
@@ -213,7 +210,6 @@ const make = (sessionId: SessionId) =>
                   settings: request.settings,
                   closed: false,
                   lastStopped: null,
-                  commitPrompts: 0,
                 });
                 await tx.doc(QuestionsDoc);
                 (await tx.doc(SkillsDoc)).skills.push(...skills);
@@ -259,15 +255,10 @@ const make = (sessionId: SessionId) =>
             whenBusy: steers ? "steer" : "followUp",
           };
 
-          // Only a prompt that starts a run starts the commit prompts over; one
-          // sent into a run already going leaves that run's count.
-          const startsRun = !isActive(state);
-
           yield* armActive;
 
-          // One commit admits the prompt, resets the commit prompts and clears
-          // the closed mark, so the status never shows the record without the
-          // run the prompt starts.
+          // One commit admits the prompt and clears the closed mark, so the
+          // status never shows the record without the run the prompt starts.
           yield* Effect.promise(() =>
             harness.commit(async (tx) => {
               await conversation.submit(tx, draft);
@@ -275,10 +266,6 @@ const make = (sessionId: SessionId) =>
               const draftRecord = await tx.doc(RecordDoc, sessionId, found);
 
               draftRecord.closed = false;
-
-              if (startsRun) {
-                draftRecord.commitPrompts = 0;
-              }
             }, BACKGROUND_CONTEXT),
           );
         }),
@@ -388,25 +375,6 @@ const make = (sessionId: SessionId) =>
           yield* armActive;
           harness.resume();
           yield* arm(harness.wake());
-        }),
-
-      workspaceNeeded: (isWorkPending) =>
-        Effect.gen(function* () {
-          const { state, record: found } = yield* status.currentWithRecord;
-          const now = yield* Clock.currentTimeMillis;
-
-          return (
-            found != null &&
-            state != null &&
-            // tentacles manages only the repository its settings name, so
-            // pending work elsewhere in /workspace keeps nothing up.
-            isWorkspaceNeeded(
-              state,
-              found.lastStopped,
-              isWorkPending && found.settings.repository != null,
-              now,
-            )
-          );
         }),
     };
 

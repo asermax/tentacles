@@ -50,7 +50,6 @@ export interface SessionOperations {
   readonly messages: (count: number) => Effect.Effect<ReadonlyArray<Entry>, SessionNotFound>;
   readonly status: () => Effect.Effect<SessionState, SessionNotFound>;
   readonly delete: () => Effect.Effect<void>;
-  readonly workspaceNeeded: (isWorkPending: boolean) => Effect.Effect<boolean>;
 }
 
 /** One object per session, named by its id. */
@@ -179,7 +178,6 @@ export const SessionObjectLive = SessionObject.make(
             handle.delete(),
             Effect.promise(() => raw.storage.deleteAll()),
           ),
-        workspaceNeeded: (isWorkPending: boolean) => handle.workspaceNeeded(isWorkPending),
 
         fetch: Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest.pipe(

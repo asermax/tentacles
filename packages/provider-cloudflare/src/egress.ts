@@ -7,8 +7,6 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
-import type { SessionObject } from "./session-object";
-
 /** Where Cloudflare writes the CA a container's intercepted HTTPS is signed with; both images trust it. */
 export const egressCaPath = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
 
@@ -18,15 +16,12 @@ export const credentialPlaceholder = "tentacles-egress-credential";
 export const EgressHosts = {
   github: "github.com",
   anthropic: "api.anthropic.com",
-  lifetime: "tentacles.internal",
 } as const;
 
-/** The props a workspace's loopback stub carries, so the lifetime ping reaches its own session. */
+/** The props a workspace's loopback stub carries. */
 export const EgressProps = Schema.Struct({ sessionId: SessionId });
 
 export type EgressProps = typeof EgressProps.Type;
-
-const decodeProps = Schema.decodeUnknownEffect(EgressProps);
 
 /**
  * The interceptor a container's outbound requests go to: the Worker's own default entrypoint, since
@@ -58,26 +53,8 @@ const forward = (request: Request, authorization: string) =>
  * The containers' outbound traffic: each host's handler, run by the Worker's default entrypoint,
  * which the containers reach through their loopback interceptors. Runs in the Worker's init.
  */
-export const egress = (sessions: Cloudflare.DurableObject<SessionObject>) => {
-  const lifetime = (request: Request) =>
-    Effect.gen(function* () {
-      const url = new URL(request.url);
-
-      if (url.pathname !== "/lifetime") {
-        return new Response("Not found", { status: 404 });
-      }
-
-      const context = yield* Cloudflare.WorkerExecutionContext;
-      const { sessionId } = yield* context.props.pipe(Effect.flatMap(decodeProps), Effect.orDie);
-
-      const isNeeded = yield* sessions
-        .getByName(sessionId)
-        .workspaceNeeded(url.searchParams.get("pendingWork") === "true");
-
-      return new Response(isNeeded ? "yes" : "no");
-    });
-
-  return Effect.gen(function* () {
+export const egress = () =>
+  Effect.gen(function* () {
     const githubToken = yield* Config.Redacted("TENTACLES_GITHUB_TOKEN");
     const claudeToken = yield* Config.Redacted("TENTACLES_CLAUDE_TOKEN");
 
@@ -96,7 +73,6 @@ export const egress = (sessions: Cloudflare.DurableObject<SessionObject>) => {
     >([
       [EgressHosts.github, github],
       [EgressHosts.anthropic, anthropic],
-      [EgressHosts.lifetime, lifetime],
     ]);
 
     return (request: Request) =>
@@ -104,4 +80,3 @@ export const egress = (sessions: Cloudflare.DurableObject<SessionObject>) => {
         handler(request),
       );
   });
-};

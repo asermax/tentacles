@@ -2,7 +2,6 @@ import type { Context } from "@earendil-works/chord/context";
 import { defineTool, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 import { QuestionId } from "@tentacles/worker-api/ids";
-import * as Match from "effect/Match";
 import * as Schema from "effect/Schema";
 
 import { QuestionsDoc, type StoredQuestion } from "../session/questions";
@@ -15,18 +14,7 @@ const encodeResult = Schema.encodeSync(AskParentResult);
 
 // The model reads the text; the tagged value is kept as the call's structured output.
 const toolResult = (result: AskParentResult) => ({
-  output: [
-    {
-      type: "text" as const,
-      text: Match.valueTags(result, {
-        Answered: ({ answer }) => answer,
-        PendingWork: ({ status }) =>
-          "PendingWork: the repository has work that is not committed and pushed. Commit and " +
-          "push it, drop the changes, or move them out of the repository, then ask again." +
-          `\n\n${status}`,
-      }),
-    },
-  ],
+  output: [{ type: "text" as const, text: result.answer }],
   structuredOutput: encodeResult(result),
 });
 
@@ -98,8 +86,6 @@ export const askParentTool = () =>
         }, context);
       }
 
-      return toolResult(
-        AskParentResult.cases.Answered.make({ answer: await answerOf(api, id, context) }),
-      );
+      return toolResult(AskParentResult.make({ answer: await answerOf(api, id, context) }));
     },
   });
