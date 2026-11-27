@@ -1,4 +1,4 @@
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
 import { Entry } from "@tentacles/worker-api/entries";
@@ -10,6 +10,7 @@ import { eventually } from "./support/eventually";
 import { definitionArchives, definitionNames } from "./support/archives";
 import { createRequest, detailsOf, parent } from "./support/fixtures";
 import { heldAnswer } from "./support/model";
+import { toolUse } from "./support/tool-calls";
 import { BrowserCalls, newSessionId, TestWorld, testWorld } from "./support/world";
 
 const details = detailsOf(createRequest(""), definitionNames);
@@ -328,10 +329,7 @@ describe("a session's lifecycle and status", () => {
       const world = yield* TestWorld;
 
       world.faux.setResponses([
-        fauxAssistantMessage(
-          fauxToolCall("workspace_write", { path: "README.md", text: "changed" }),
-          { stopReason: "toolUse" },
-        ),
+        toolUse("workspace_write", { path: "README.md", text: "changed" }),
         fauxAssistantMessage("wrote it"),
       ]);
 

@@ -1,6 +1,5 @@
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
-import { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import { SessionState } from "@tentacles/worker-api/session-state";
 import * as Effect from "effect/Effect";
@@ -9,10 +8,8 @@ import { script, scriptOutput } from "./support/codemode";
 import { eventually } from "./support/eventually";
 import { createRequest } from "./support/fixtures";
 import { heldAnswer, type ModelRequest, routedModel } from "./support/model";
+import { toolResults, toolUse } from "./support/tool-calls";
 import { newSessionId, TestWorld, testWorld } from "./support/world";
-
-const toolUse = (name: string, args: Record<string, string>) =>
-  fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
 
 const startSession = Effect.gen(function* () {
   const world = yield* TestWorld;
@@ -24,7 +21,7 @@ const startSession = Effect.gen(function* () {
   return { world, sessionId, handle, records: world.records(sessionId) };
 });
 
-const idle = (sessionId: SessionId) =>
+const waitUntilIdle = (sessionId: SessionId) =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
 
@@ -33,13 +30,6 @@ const idle = (sessionId: SessionId) =>
         expect(world.records(sessionId).states.filter(SessionState.guards.idle)).toHaveLength(1),
       ),
     );
-  });
-
-const toolResults = (sessionId: SessionId) =>
-  Effect.gen(function* () {
-    const world = yield* TestWorld;
-
-    return (yield* (yield* world.handle(sessionId)).messages(30)).filter(Entry.guards.toolResult);
   });
 
 describe("the workspace's tools", () => {
@@ -58,20 +48,20 @@ describe("the workspace's tools", () => {
 
       const { sessionId } = yield* startSession;
 
-      yield* idle(sessionId);
+      yield* waitUntilIdle(sessionId);
 
-      const [first] = requests;
+      const [firstRequest] = requests;
 
-      expect(first?.tools).toContain("workspace_write");
-      expect(first?.tools).toContain("workspace_read");
+      expect(firstRequest?.tools).toContain("workspace_write");
+      expect(firstRequest?.tools).toContain("workspace_read");
 
-      for (const coding of ["bash", "read", "write", "edit"]) {
-        expect(first?.tools).not.toContain(coding);
+      for (const codingToolName of ["bash", "read", "write", "edit"]) {
+        expect(firstRequest?.tools).not.toContain(codingToolName);
       }
 
-      expect(first?.sections.get("tentacles")).toContain("/workspace/repo");
-      expect(first?.sections.get("tentacles")).toContain("/workspace/skills");
-      expect(first?.sections.get("tentacles")).toContain("/workspace/context");
+      expect(firstRequest?.sections.get("tentacles")).toContain("/workspace/repo");
+      expect(firstRequest?.sections.get("tentacles")).toContain("/workspace/skills");
+      expect(firstRequest?.sections.get("tentacles")).toContain("/workspace/context");
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -92,7 +82,7 @@ describe("the workspace's tools", () => {
       yield* eventually(Effect.sync(() => expect(world.faux.state.callCount).toBe(2)));
       yield* world.evict(sessionId);
       yield* (yield* world.handle(sessionId)).wake();
-      yield* idle(sessionId);
+      yield* waitUntilIdle(sessionId);
 
       expect(
         (yield* toolResults(sessionId)).map(({ output, isError }) => [output, isError]),
@@ -116,7 +106,7 @@ describe("the workspace's tools", () => {
 
       const { sessionId, records } = yield* startSession;
 
-      yield* idle(sessionId);
+      yield* waitUntilIdle(sessionId);
 
       expect(scriptOutput((yield* toolResults(sessionId))[0]?.output)).toContain("from a script");
       expect(records.workspace.files.get("a.txt")).toBe("from a script");

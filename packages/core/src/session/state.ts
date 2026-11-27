@@ -225,7 +225,6 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
       register: (name: string, parent: Parent, details: SessionDetails) =>
         registry.add(sessionId, name, parent, details).pipe(Effect.orDie),
 
-      /** The registry's failed status for a session whose setup failed, which has no record. */
       reportSetupFailed: registry.reportSetupFailed(sessionId).pipe(Effect.orDie),
 
       /**

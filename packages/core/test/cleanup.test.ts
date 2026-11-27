@@ -42,7 +42,7 @@ const isFailed = (state: SessionState | undefined) =>
   state != null && SessionState.guards.failed(state);
 
 /** A session whose create failed in the workspace's setup, which leaves only its registry entry. */
-const setupFailedSession = Effect.gen(function* () {
+const setupFailedSessionId = Effect.gen(function* () {
   const world = yield* TestWorld;
   const sessionId = newSessionId();
   const handle = yield* world.handle(sessionId);
@@ -130,7 +130,7 @@ describe("the daily cleanup", () => {
 
   it.live("deletes a setup-failed entry a month after the failure", () =>
     Effect.gen(function* () {
-      const sessionId = yield* setupFailedSession;
+      const sessionId = yield* setupFailedSessionId;
 
       expect(yield* listed).toEqual([sessionId]);
 
@@ -145,7 +145,7 @@ describe("the daily cleanup", () => {
 
   it.live("keeps a recently failed entry", () =>
     Effect.gen(function* () {
-      const sessionId = yield* setupFailedSession;
+      const sessionId = yield* setupFailedSessionId;
 
       yield* later("1 day")(cleanup);
 

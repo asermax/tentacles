@@ -1,4 +1,4 @@
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { DEFAULT_RESTART_LIMIT } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "@effect/vitest";
 import { Entry } from "@tentacles/worker-api/entries";
@@ -12,14 +12,12 @@ import { script, scriptOutput } from "./support/codemode";
 import { eventually } from "./support/eventually";
 import { definitionArchives, definitionNames } from "./support/archives";
 import { createRequest, detailsOf } from "./support/fixtures";
+import { toolResults, toolUse } from "./support/tool-calls";
 import { newSessionId, TestWorld, testWorld } from "./support/world";
-
-const toolUse = (name: string, args: Record<string, string>) =>
-  fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
 
 const ask = (question: string) => toolUse("ask_parent", { question });
 
-const writeFile = (path: string, text: string) => toolUse("workspace_write", { path, text });
+const writeFileToolUse = (path: string, text: string) => toolUse("workspace_write", { path, text });
 
 const startSession = (sessionId = newSessionId()) =>
   Effect.gen(function* () {
@@ -54,14 +52,6 @@ const waitingOn = (sessionId: SessionId) =>
         return state.question;
       }),
     );
-  });
-
-const toolResults = (sessionId: SessionId) =>
-  Effect.gen(function* () {
-    const world = yield* TestWorld;
-    const entries = yield* (yield* world.handle(sessionId)).messages(30);
-
-    return entries.filter(Entry.guards.toolResult);
   });
 
 const finished = (sessionId: SessionId) =>
@@ -120,7 +110,7 @@ describe("the question tool", () => {
         const world = yield* TestWorld;
 
         world.faux.setResponses([
-          writeFile("README.md", "change"),
+          writeFileToolUse("README.md", "change"),
           ask("Should I go on?"),
           fauxAssistantMessage("Going on."),
         ]);

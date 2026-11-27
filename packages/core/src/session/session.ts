@@ -175,7 +175,7 @@ const make = (sessionId: SessionId) =>
           const skills = archives.skills.map(toSkillEntry);
           const { agents } = archives;
 
-          const register = status.register(request.name, request.parent, {
+          const registerSession = status.register(request.name, request.parent, {
             settings: request.settings,
             skills: skills.map((skill) => skill.name),
             agents: agents.map((agent) => agent.name),
@@ -191,9 +191,9 @@ const make = (sessionId: SessionId) =>
               skills: request.skills ?? null,
               context: request.context ?? null,
             })
-            .pipe(Effect.tapError(() => Effect.andThen(register, status.reportSetupFailed)));
+            .pipe(Effect.tapError(() => Effect.andThen(registerSession, status.reportSetupFailed)));
 
-          yield* register;
+          yield* registerSession;
 
           const conversation = yield* Effect.promise(() =>
             harness.root(BACKGROUND_CONTEXT, {

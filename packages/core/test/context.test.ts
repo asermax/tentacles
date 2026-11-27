@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
 import { Entry } from "@tentacles/worker-api/entries";
 import { InvalidArchive } from "@tentacles/worker-api/errors";
@@ -13,6 +13,7 @@ import { contextArchive, definitionArchives, definitionNames } from "./support/a
 import { eventually } from "./support/eventually";
 import { createRequest, detailsOf, parent } from "./support/fixtures";
 import { type ModelRequest, routedModel } from "./support/model";
+import { toolUse } from "./support/tool-calls";
 import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 const decodeCreated = Schema.decodeUnknownSync(Schema.Struct({ sessionId: SessionId }));
@@ -22,9 +23,6 @@ const decodeState = Schema.decodeUnknownSync(SessionState);
 const json = (response: Response) => Effect.promise(() => response.json());
 
 const say = (text: string) => fauxAssistantMessage(text);
-
-const toolUse = (name: string, args: Readonly<Record<string, string>>) =>
-  fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
 
 const sentence =
   "<context>\nThe parent sent files for context. They are in /workspace/context.\n</context>";

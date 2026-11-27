@@ -56,13 +56,13 @@ export interface SessionRecords {
 
 /**
  * Contract calls a test makes fail, each with the contract's own error;
- * SessionHost.delete has none and fails as a defect.
+ * SessionHost.delete has none and fails as a defect. `workspaceCreate` fails every
+ * Workspace.create with it while it is set.
  */
 export interface Failures {
   browserOpen: boolean;
   openPreview: boolean;
   stoppedBefore: boolean;
-  /** Fails every Workspace.create with it, as long as it is set. */
   workspaceCreate: InvalidWorkspace | WorkspaceUnavailable | null;
   /** Session ids whose next delete fails. */
   readonly deleteOnce: Set<SessionId>;
@@ -180,7 +180,6 @@ export class TestWorld extends Context.Service<
     readonly failures: Failures;
     /** RegistryStore's add, setStatus and openPreview calls, as "add <id>", "<status> <id>" and "openPreview <id>". */
     readonly registryCalls: string[];
-    /** Every Workspace.create call of every session, in order. */
     readonly workspaceCreates: WorkspaceCreate[];
     readonly records: (sessionId: SessionId) => SessionRecords;
     /** The running instance's handle, made on first use as a host makes one on a request. */
@@ -266,23 +265,27 @@ const makeWorld = Effect.gen(function* () {
   const workspaces = new Map<SessionId, Workspace["Service"]>();
 
   const recordsOf = (sessionId: SessionId) => {
-    const found = records.get(sessionId);
+    const existingRecords = records.get(sessionId);
 
-    if (found != null) {
-      return found;
+    if (existingRecords != null) {
+      return existingRecords;
     }
 
-    const created = testWorkspace(sessionId, workspaceCreates, () => failures.workspaceCreate);
+    const createdWorkspace = testWorkspace(
+      sessionId,
+      workspaceCreates,
+      () => failures.workspaceCreate,
+    );
 
     const record: SessionRecords = {
       states: [],
       wakes: [],
       browser: [],
-      workspace: created.record,
+      workspace: createdWorkspace.record,
     };
 
     records.set(sessionId, record);
-    workspaces.set(sessionId, created.workspace);
+    workspaces.set(sessionId, createdWorkspace.workspace);
 
     return record;
   };

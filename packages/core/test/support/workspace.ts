@@ -13,7 +13,6 @@ export interface WorkspaceCreate {
 
 /** What the test reads back from one session's workspace. */
 export interface WorkspaceRecord {
-  /** The files the workspace's tools wrote, by path. */
   readonly files: Map<string, string>;
   /** Answers Workspace.forward. */
   forward: (port: number, request: Request) => Response;
@@ -47,8 +46,8 @@ const workspaceTools = (files: Map<string, string>): ToolRegistration[] => [
  */
 export const testWorkspace = (
   sessionId: SessionId,
-  creates: WorkspaceCreate[],
-  failure: () => InvalidWorkspace | WorkspaceUnavailable | null,
+  workspaceCreates: WorkspaceCreate[],
+  workspaceFailure: () => InvalidWorkspace | WorkspaceUnavailable | null,
 ) => {
   const files = new Map<string, string>();
 
@@ -61,11 +60,11 @@ export const testWorkspace = (
     tools: workspaceTools(files),
     create: (init) =>
       Effect.suspend(() => {
-        creates.push({ sessionId, init });
+        workspaceCreates.push({ sessionId, init });
 
-        const failed = failure();
+        const createFailure = workspaceFailure();
 
-        return failed == null ? Effect.void : Effect.fail(failed);
+        return createFailure == null ? Effect.void : Effect.fail(createFailure);
       }),
     forward: (port, request) => Effect.sync(() => record.forward(port, request)),
   });
