@@ -4,11 +4,11 @@ import { text } from "node:stream/consumers";
 import { normalizeContext, type Message } from "@earendil-works/pi-ai";
 import { CLAUDE_CODE_MODELS } from "@earendil-works/pi-claude-code/src/model-catalog.ts";
 import { streamClaudeCode } from "@earendil-works/pi-claude-code/src/stream.ts";
+import { decodeStreamRequest } from "@tentacles/relay-protocol/stream-request";
 import * as Option from "effect/Option";
 
 import { egressCaTrust } from "./egress-ca";
 import { resolveModel } from "./resolve-model";
-import { decodeStreamRequest } from "./stream-request";
 
 const health = (response: ServerResponse) => {
   response.writeHead(200, { "content-type": "application/json" });

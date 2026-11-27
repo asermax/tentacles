@@ -38,4 +38,5 @@ export const streamBody = (modelId: string) =>
     modelId,
     context: { messages: [{ role: "user", content: "Say hello.", timestamp: 0 }] },
     options: { reasoning: "low" },
+    sender: { session: "0194b0a1-7d52-7c3e-8a41-5f2b9c6d1e30" },
   });

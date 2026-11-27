@@ -11,6 +11,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "1.5.1",
     "@earendil-works/pi-claude-code": "github:asermax/pi-claude-code#8540184dd8db8fddee590e1a4453bb6da36a2bc8",
+    "@tentacles/relay-protocol": "workspace:*",
     "effect": "4.1.3"
   },
   "devDependencies": {

@@ -19,6 +19,7 @@
     "@platformatic/vfs": "0.5.0",
     "@tentacles/contracts": "workspace:*",
     "@tentacles/core": "workspace:*",
+    "@tentacles/relay-protocol": "workspace:*",
     "@tentacles/sql-registry": "workspace:*",
     "@tentacles/worker-api": "workspace:*",
     "alchemy": "2.0.0-beta.85",
