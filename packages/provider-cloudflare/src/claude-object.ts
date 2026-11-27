@@ -15,6 +15,10 @@ const relayPort = 8080;
 // The container sleeps once no call has reached it for this long.
 const sleepAfter = 15 * 60_000;
 
+// An alarm pass waits this long before it sets the next alarm, so the object always has work in
+// progress while the container runs.
+export const keepAliveWait = 50_000;
+
 // The deploy publishes the class's image under the Container's id, and start names it.
 const claudeContainerId = "ClaudeContainer";
 

@@ -56,6 +56,13 @@ export const testSettings: Settings = {
   repository: null,
 };
 
+/** Settings that name a Claude model, which the session reaches through the Claude object. */
+export const claudeSettings: Settings = {
+  ...testSettings,
+  provider: "claude",
+  model: "claude-sonnet-5-5",
+};
+
 /**
  * Creates a session under a known id through its object, as the Worker's SessionHost does, and
  * waits until its first run has finished.
@@ -64,12 +71,13 @@ export const idleSession = async (
   sessionId: string,
   repository: Repository | null = null,
   prompt = "Say done.",
+  settings: Settings = testSettings,
 ) => {
   await env.SessionObject.getByName(sessionId).create({
     name: "worker",
     parent,
     prompt,
-    settings: { ...testSettings, repository },
+    settings: { ...settings, repository },
   });
 
   await waitUntilIdle(sessionId);
