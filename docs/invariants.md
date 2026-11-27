@@ -23,7 +23,16 @@ The sections below are the usual kinds of rule. Keep the ones this project has r
 
 - A session's alarm belongs to pi-durable, to resume a run after an eviction; nothing else schedules on it ([sessions](technical-design/sessions.md)).
 - tentacles' shared logic depends on the provider contracts, never on a provider directly ([runtime-components](technical-design/runtime-components.md)).
+- One Claude call's failure never ends another call or the relay process ([claude-container](technical-design/providers/cloudflare/claude-container.md)).
+- The Claude container stays up while any call is in flight; only the Claude object's idle stop or the platform stops it ([claude-container](technical-design/providers/cloudflare/claude-container.md)).
+- A Claude call lost on the way always reaches pi-durable as an error it retries ([claude-container](technical-design/providers/cloudflare/claude-container.md), [sessions](technical-design/sessions.md)).
+- A running Claude container always has the interception that adds the subscription token ([claude-container](technical-design/providers/cloudflare/claude-container.md)).
+- A relay that received SIGTERM takes no new call ([claude-container](technical-design/providers/cloudflare/claude-container.md)).
 - Every operation runs on the cheapest place that can do it: the workspace's own storage, then the isolate shell, then the container ([workspace](technical-design/workspace.md), [computer-workspace](technical-design/providers/cloudflare/computer-workspace.md)).
+
+## 📜 Logging
+
+- Every Claude call's start and end, every relay error and every signal the relay receives leaves a log line, and no log line carries a prompt or an output ([claude-container](technical-design/providers/cloudflare/claude-container.md)).
 
 ## 💽 Data
 

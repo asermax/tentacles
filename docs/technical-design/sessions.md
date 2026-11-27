@@ -200,7 +200,7 @@ A session starts running when the parent spawns it, since spawn carries the firs
 
 When the agent asks a question, the session waits. The conversation cannot continue until the parent answers. A prompt sent meanwhile is a steer whatever its mode, and reaches the agent after the answer; it neither answers nor cancels the question.
 
-A run ends in one of two ways. When it finishes, the session is idle. When the run fails on an error it cannot recover from, the session is failed: it behaves like idle and records why the last run failed. The plugin notifies the parent either way, and a prompt on either starts a new run. The session's preview, if one is open, closes when a run stops.
+A run ends in one of two ways. When it finishes, the session is idle. When a model call fails with an error that pi-durable reads as transient, such as a lost Claude call ([claude-container](providers/cloudflare/claude-container.md)), pi-durable retries the call after 2, 4 and 8 seconds, and the run keeps its conversation and resumes from the step that failed. When the run fails on an error it cannot recover from, or on a transient one that still fails after the third retry, the session is failed: it behaves like idle and records why the last run failed. The plugin notifies the parent either way, and a prompt on either starts a new run. The session's preview, if one is open, closes when a run stops.
 
 close aborts whatever the session is doing and leaves it closed: kept in its session object, where its history and state stay readable until it is deleted. close sets `closed` and aborts any run; the status turns closed once the session sees no run and `closed` set, at once for an idle or failed session. A prompt on a closed session clears `closed` and starts a new run, whether sent as a follow-up or a steer, and the status leaves closed once the run starts.
 
@@ -396,7 +396,7 @@ Read /workspace/skills/implement/SKILL.md before acting on this skill. Paths it 
 
 Without an agent name, run starts the subagent with no instructions of its own, and spawn starts it with a line giving the subagent's name.
 
-When a subagent's input ends unanswered, pi-durable settles it with a reason (`aborted`, or the failure's code such as `model_error`) and, for failures, the error's message. run fails with `The subagent did not answer: unanswered (<reason>)`. A spawned subagent's reporter posts `[subagent <name> stopped: aborted]` or `[subagent <name> failed: <reason>]` to the parent, and wait returns that same text.
+When a subagent's input ends unanswered, pi-durable settles it with a reason (`aborted`, or the failure's code such as `model_error`) and, for failures, the error's message. run fails with `The subagent did not answer: unanswered (<reason>)`. pi-durable first retries a subagent's lost Claude call the same way, so the subagent's input ends unanswered with `model_error` only once the retries are spent. A spawned subagent's reporter posts `[subagent <name> stopped: aborted]` or `[subagent <name> failed: <reason>]` to the parent, and wait returns that same text.
 
 > [!WARNING] A skill that names a skill the session does not hold
 > Skills often load other skills by name, sometimes with a plugin prefix such as `plugin:skill`, and refer to their own files through variables such as `${CLAUDE_PLUGIN_ROOT}`. tentacles resolves neither. The model works them out from the listing and the `/workspace/skills/<name>/` layout, and a skill the parent did not send is missing: the agent finds no such name and carries on without it.
