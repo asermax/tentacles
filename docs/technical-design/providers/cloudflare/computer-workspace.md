@@ -116,6 +116,10 @@ Computer and the platform run the container; the provider has no start, stop or 
 > [!NOTE] Why a wrapper adds the size to each start
 > Computer's container backend fixes its instance type when it is built, before any setup has stored the size the session asked for, and takes no function to read it later. The wrapper reads the stored size at each start and restart, so the first container and one after a restart get the requested size. A stop keeps `/workspace` and loses the running processes, including servers started for a preview, and anything outside `/workspace`. A cold start with the image cached takes about 1 to 3 seconds before the first command runs.
 
+## 🧩 The Computer adapters
+
+The code that adapts Computer 0.11.4 to this setup sits in one folder of the provider package, `packages/provider-cloudflare/src/computer/`, so an upgrade of the Computer package is reviewed in one place. Its index lists each adapter with the Computer API it intercepts and why. There are three: the container backend wrapper that adds the git identity and `NODE_EXTRA_CA_CERTS` to every container command, the wrapper around the container host that adds the stored size to every start and restart, and the tools, which wrap Computer's file tools and replace its `exec`. Each is described in the section of this note that covers what it changes. The Workspace Worker, the workspace object, the gateway and the session object use the adapters and stay outside the folder.
+
 ---
 
 Related: [workspace](../../workspace.md), [deploy](deploy.md), [preview-and-browser](preview-and-browser.md), [runtime-components](../../runtime-components.md)
