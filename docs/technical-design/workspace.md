@@ -243,7 +243,7 @@ stateDiagram-v2
 The provider sets up the workspace at spawn, and its files live with the session from then on, in a place the provider ties to the session alone: a later start of the session finds the same workspace. The container starts on the first command sent to it, and the provider stops it when it has been idle; core never starts or stops it. A stop keeps `/workspace` and loses the running processes and anything outside `/workspace`, which is the container's own disk. A failed setup clears the workspace and leaves only the session's registry entry, marked failed. A workspace's setup and its deletion run one at a time, so a deletion that arrives during a setup waits for it. Deleting the session deletes the workspace, unpushed work included, and only branches the agent pushed outlive it.
 
 > [!NOTE] Why tentacles does not check for unpushed work
-> The workspace's files live with the session, so a container stop loses no work, and work is lost only when the session is deleted a month after its last run. A provider whose workspace can lose files on a stop protects them itself.
+> The workspace's files live with the session, so a container stop loses no work, and work is lost only when the session is deleted: by the daily job a month after its last run, or by a delete call. A provider whose workspace can lose files on a stop protects them itself.
 
 ## 🖼️ The preview and the browser
 

@@ -139,7 +139,7 @@ A deleted session leaves the list the first time the plugin learns of it: the st
 > The local list lets a harness that has never spawned a remote session start without calling the Worker. The Worker's copy lets a harness that does have sessions recover their current status, including changes it missed while it was closed.
 
 > [!WARNING] A deleted session lingers until the plugin learns of it
-> The daily cleanup deletes a session without telling its parent. The local list still names the session, and so does the status line if the session was open. This lasts until the next start-up sync, the next call on the session, or, for an open session, the watch's next connection to it.
+> The daily cleanup, or a delete call on the Worker's API, deletes a session without telling its parent. The local list still names the session, and so does the status line if the session was open. This lasts until the next start-up sync, the next call on the session, or, for an open session, the watch's next connection to it.
 
 ## 📦 Publishing and installing
 

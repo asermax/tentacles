@@ -8,7 +8,7 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-The Worker's API is the plugin's only way to reach tentacles: seven calls (create, prompt, answer, close, messages, status, list) and one socket per session. Every request and every socket carries the API key, and the plugin reads the Worker's URL and the key from environment variables. The socket sends one construct, the session state, when it connects and again on every change, and the status call returns the same construct. Calls on an existing session succeed, closed ones included; a deleted or unknown session returns an error.
+The Worker's API is the plugin's only way to reach tentacles: eight calls (create, prompt, answer, close, delete, messages, status, list) and one socket per session. Every request and every socket carries the API key, and the plugin reads the Worker's URL and the key from environment variables. The socket sends one construct, the session state, when it connects and again on every change, and the status call returns the same construct. Calls on an existing session succeed, closed ones included; a deleted or unknown session returns an error.
 
 ## ♠️ What it exposes
 
@@ -18,6 +18,7 @@ The Worker's API is the plugin's only way to reach tentacles: seven calls (creat
 | `prompt` | the session id, the text, and a mode: follow-up or steer | sends the text to the session; on an idle, failed or closed session it starts a new run, reopening a closed one; a prompt sent while a question waits is a steer whatever its mode, and queues until the answer | the prompt tool |
 | `answer` | the session id, the question id and the answer text | resolves the waiting question, and the run continues | the answer tool |
 | `close` | the session id | aborts whatever the session is doing and closes it | the close tool |
+| `delete` | the session id | stops whatever the session is doing, deletes its workspace and its own storage, drops its registry entry, and answers with no content; works on a session in any state, a running, closed or setup-failed one included; when the registry does not know the id, returns the session-not-found error; when the deletion fails, returns an error and keeps the entry, so the same call can be sent again | no tool: a caller of the API directly |
 | `messages` | the session id and a count, 1 when absent | the last entries of the root conversation, as many as the count | the messages tool |
 | `status` | the session id | the session state at any time | the plugin, when it needs one session's state |
 | `list` | the parent | all of the parent's sessions from the registry, closed ones included, each with its id, name, status, settings and the names of its skills and agents | the list tool and the start-up sync |
@@ -27,7 +28,7 @@ A message is any entry in the root conversation's history: a user prompt, the ag
 
 The registry entry carries each session's name, status, settings and skill and agent names, so `list` answers without a call per session.
 
-A call or a socket on a deleted or unknown session, or an answer to a question that is not waiting, returns an error with a message. The plugin hands that message to the parent agent as a tool failure.
+A call or a socket on a deleted or unknown session, or an answer to a question that is not waiting, returns an error with a message. The plugin hands that message to the parent agent as a tool failure. A deleted session is gone for good: its history, its workspace and its registry entry cannot be read again.
 
 ## 🚀 What create takes
 
