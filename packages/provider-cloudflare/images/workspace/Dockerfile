@@ -29,7 +29,7 @@ ENV PATH=/root/.local/share/mise/shims:$PATH
 COPY --from=computerd /usr/local/bin/computerd /usr/local/bin/computerd
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 
-RUN test -n "$EGRESS_CA_PATH" && chmod +x /usr/local/bin/entrypoint.sh && mkdir -p /workspace
+RUN test -n "$EGRESS_CA_PATH"
 
 ENV PORT=8080
 ENV MOUNT_POINT=/workspace
