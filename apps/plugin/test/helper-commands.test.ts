@@ -131,26 +131,26 @@ describe("helper commands against the Worker", () => {
 
     const stub = await startWorker({ createFailure: error });
 
-    const result = await runHelperCommand(
+    const spawnResult = await runHelperCommand(
       "spawn",
       { name: "migrate", prompt: "go", parent },
       variablesFor(stub.url),
     );
 
-    expect(result).toEqual(Failure.make({ error }));
+    expect(spawnResult).toEqual(Failure.make({ error }));
   });
 
   it("answers Failure with the WorkspaceUnavailable the Worker returns when the setup fails inside", async () => {
     const error = new WorkspaceUnavailable({ message: "The workspace could not be set up" });
     const stub = await startWorker({ createFailure: error });
 
-    const result = await runHelperCommand(
+    const spawnResult = await runHelperCommand(
       "spawn",
       { name: "migrate", prompt: "go", parent },
       variablesFor(stub.url, settingsVariables),
     );
 
-    expect(result).toEqual(Failure.make({ error }));
+    expect(spawnResult).toEqual(Failure.make({ error }));
   });
 
   it("reports a repository URL without a scheme and sends no request", async () => {
