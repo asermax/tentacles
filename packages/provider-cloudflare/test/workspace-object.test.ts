@@ -140,6 +140,20 @@ describe("a workspace object's setup", () => {
   });
 });
 
+describe("a workspace object's container", () => {
+  it("is requested at the instance size the setup stored", async () => {
+    const workspace = workspaceOf();
+
+    await workspace().setup(workspaceInit({ size: "standard-2" }));
+
+    expect(await workspace().requestedInstances()).toEqual(["standard-2"]);
+  });
+
+  it("is requested at the default instance size before any setup stored one", async () => {
+    expect(await workspaceOf()().requestedInstances()).toEqual(["basic"]);
+  });
+});
+
 describe("a workspace object's destroy", () => {
   it("clears its files, so a later setup under the same name starts empty", async () => {
     const workspace = workspaceOf();

@@ -19,6 +19,7 @@ import * as Schema from "effect/Schema";
 import { githubFetch } from "./github-fetch";
 import { gateway, gatewayStub, type GatewayEnvironment } from "./workspace-gateway";
 import { IdentifiedContainerBackend } from "./identified-container-backend";
+import { sizedContainerHolder } from "./sized-container-host";
 import { destroyedReason, failureReason, isWorkspaceFailure } from "./workspace-failure";
 import {
   previewPortHeader,
@@ -61,7 +62,7 @@ export class WorkspaceObject extends withWorkspaceContainer(
   readonly containerBackend = new IdentifiedContainerBackend(
     {
       id: workspaceBackends.container,
-      container: () => this,
+      container: () => sizedContainerHolder(this, () => this.#readStoredSize()),
       workspace: this.workspaceRef,
       egress: {
         mode: "http-gateway" as const,
@@ -69,7 +70,6 @@ export class WorkspaceObject extends withWorkspaceContainer(
         revision: "v1",
       },
       name: workspaceContainerId,
-      instance: this.#readStoredSize(),
       connectTimeoutMs: 120_000,
     },
     this.gitIdentity,
@@ -94,7 +94,8 @@ export class WorkspaceObject extends withWorkspaceContainer(
     defaultGitIdentity: this.gitIdentity,
   });
 
-  // The container's instance type, kept at setup so a restarted object starts the same one.
+  // The container's instance type, kept at setup. The container backend reads it each time it starts
+  // a container, so a session's first container and one after a restart get the size it asked for.
   #readStoredSize() {
     const storedSettings = this.ctx.storage.kv.get(containerSettingsKey);
 

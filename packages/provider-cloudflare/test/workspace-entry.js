@@ -29,6 +29,25 @@ export class WorkspaceObject extends DeployedWorkspaceObject {
     return super.destroy();
   }
 
+  // The instance sizes the container backend asks the host for when it starts a container. The
+  // host here records the launch and refuses it, so no container starts.
+  async requestedInstances() {
+    const requestedInstances = [];
+
+    this.getWorkspaceContainer = () => ({
+      exitInfo: async () => null,
+      start: async ({ instance }) => {
+        requestedInstances.push(instance);
+
+        throw new Error("The test workspace starts no container");
+      },
+    });
+
+    await this.containerBackend.connect().catch(() => undefined);
+
+    return requestedInstances;
+  }
+
   // Every path under /workspace with its mode, and each file's text, as the object holds them.
   async files() {
     const hasWorkspace = await this.workspace.fs.stat(workspaceDirectory).then(
