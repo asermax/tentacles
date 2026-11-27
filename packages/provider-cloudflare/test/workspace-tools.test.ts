@@ -4,7 +4,7 @@ import { env } from "cloudflare:workers";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { workspaceTools } from "../src/workspace-tools";
+import { workspaceTools } from "../src/computer";
 import {
   sendFollowUp,
   idleSession,

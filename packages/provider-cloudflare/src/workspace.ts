@@ -4,9 +4,9 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Predicate from "effect/Predicate";
 
+import { workspaceTools } from "./computer";
 import { destroyedReason, failureOf } from "./workspace-failure";
 import { previewPortHeader } from "./workspace-names";
-import { workspaceTools } from "./workspace-tools";
 import type { WorkspaceObject } from "./workspace-worker";
 
 /**

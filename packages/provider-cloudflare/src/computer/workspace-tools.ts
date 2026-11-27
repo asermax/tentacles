@@ -8,7 +8,7 @@ import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Schema from "effect/Schema";
 
-import { workspaceBackends } from "./workspace-names";
+import { workspaceBackends } from "../workspace-names";
 
 // What each backend can run in this setup, in front of Computer's own text, so the model picks a
 // backend from what the workspace really does.

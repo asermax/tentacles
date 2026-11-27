@@ -15,10 +15,10 @@ import { InvalidWorkspace, WorkspaceUnavailable } from "@tentacles/worker-api/er
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { sizedContainerHolder } from "./computer/sized-container-host";
+import { WorkspaceContainerBackend } from "./computer/workspace-container-backend";
 import { githubFetch } from "./github-fetch";
 import { gateway, gatewayStub, type GatewayEnvironment } from "./workspace-gateway";
-import { WorkspaceContainerBackend } from "./workspace-container-backend";
-import { sizedContainerHolder } from "./sized-container-host";
 import { destroyedReason, failureReason, isWorkspaceFailure } from "./workspace-failure";
 import {
   previewPortHeader,
