@@ -1,10 +1,16 @@
 import { describe, expect, it } from "@effect/vitest";
-import { InvalidArchive } from "@tentacles/worker-api/errors";
+import {
+  InvalidArchive,
+  InvalidWorkspace,
+  WorkspaceUnavailable,
+} from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
+import type { Settings } from "@tentacles/worker-api/settings";
 import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
 import { agentsArchive, contextArchive, skillsArchive } from "./archives";
+import { fixtureRepositories } from "./github-fixture";
 import { apiFetch, testSettings, waitUntilIdle } from "./sessions";
 
 const withinLimit = 5_200_000;
@@ -19,27 +25,42 @@ interface Archives {
 }
 
 // JSON.stringify leaves out the archives that are undefined.
-const createBody = (parentId: string, archives: Archives) =>
+const createBody = (parentId: string, archives: Archives, settings: Settings) =>
   JSON.stringify({
     name: "worker",
     parent: { harness: "pi", sessionId: parentId },
     prompt: "Say done.",
-    settings: testSettings,
+    settings,
     skills: archives.skills == null ? undefined : base64(archives.skills),
     agents: archives.agents == null ? undefined : base64(archives.agents),
     context: archives.context == null ? undefined : base64(archives.context),
   });
 
-const create = (parentId: string, archives: Archives = {}) =>
+const create = (parentId: string, archives: Archives = {}, settings: Settings = testSettings) =>
   apiFetch("/sessions", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: createBody(parentId, archives),
+    body: createBody(parentId, archives, settings),
   });
 
 const decodeCreated = Schema.decodeUnknownSync(Schema.Struct({ sessionId: SessionId }));
 
 const decodeInvalidArchive = Schema.decodeUnknownSync(InvalidArchive);
+
+const decodeInvalidWorkspace = Schema.decodeUnknownSync(InvalidWorkspace);
+
+const decodeWorkspaceUnavailable = Schema.decodeUnknownSync(WorkspaceUnavailable);
+
+const withRepository = (path: string) => ({
+  ...testSettings,
+  repository: { url: `https://github.com/${path}.git`, shallow: true },
+});
+
+const decodeEntries = Schema.decodeUnknownSync(
+  Schema.Array(Schema.Struct({ sessionId: Schema.String, status: Schema.String })),
+);
+
+const failedEntries = async (parentId: string) => decodeEntries(await list(parentId));
 
 const list = async (parentId: string) => {
   const response = await apiFetch(`/sessions?harness=pi&sessionId=${parentId}`);
@@ -139,6 +160,67 @@ describe("create through the Worker", () => {
       "The context archive is invalid: it is not a readable tar.gz",
     );
     expect(await list(parentId)).toEqual([]);
+  });
+});
+
+describe("create through the Worker with a repository", () => {
+  it("clones a readable repository into /workspace/repo", async () => {
+    const response = await create(
+      crypto.randomUUID(),
+      {},
+      withRepository(fixtureRepositories.readable),
+    );
+
+    const { sessionId } = decodeCreated(await response.json());
+    const files = await env.WorkspaceObject.getByName(sessionId).files();
+
+    expect(response.status).toBe(200);
+    expect(files.find(({ path }) => path === "/workspace/repo/README.md")?.text).toBe("# app\n");
+    expect(files.some(({ path }) => path === "/workspace/repo/.git/shallow")).toBe(true);
+
+    await waitUntilIdle(sessionId);
+  });
+
+  it("answers 400 InvalidWorkspace naming a repository GitHub answers 404 for, and lists the session as failed", async () => {
+    const parentId = crypto.randomUUID();
+
+    const response = await create(parentId, {}, withRepository(fixtureRepositories.missing));
+
+    expect(response.status).toBe(400);
+    expect(decodeInvalidWorkspace(await response.json()).message).toContain(
+      "https://github.com/acme/missing.git",
+    );
+
+    const [entry] = await failedEntries(parentId);
+
+    expect(entry?.status).toBe("failed");
+    expect(await env.WorkspaceObject.getByName(entry?.sessionId ?? "").files()).toEqual([]);
+  });
+
+  it("answers 400 InvalidWorkspace naming the image and size the deploy does not offer", async () => {
+    const response = await create(crypto.randomUUID(), {}, { ...testSettings, size: "huge" });
+
+    expect(response.status).toBe(400);
+
+    const { message } = decodeInvalidWorkspace(await response.json());
+
+    expect(message).toContain('image "default"');
+    expect(message).toContain('size "huge"');
+  });
+
+  it("answers 500 WorkspaceUnavailable when GitHub does not answer, and leaves the workspace empty", async () => {
+    const parentId = crypto.randomUUID();
+
+    const response = await create(parentId, {}, withRepository(fixtureRepositories.unreachable));
+
+    expect(response.status).toBe(500);
+    expect(decodeWorkspaceUnavailable(await response.json()).message).toContain(
+      "https://github.com/acme/unreachable.git",
+    );
+
+    const [entry] = await failedEntries(parentId);
+
+    expect(await env.WorkspaceObject.getByName(entry?.sessionId ?? "").files()).toEqual([]);
   });
 });
 

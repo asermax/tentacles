@@ -1,3 +1,4 @@
+import type { Workspace } from "@cloudflare/computer";
 import type { WorkspaceInit } from "@tentacles/contracts/workspace";
 import type { Parent } from "@tentacles/worker-api/parent";
 import type { CreateSession } from "@tentacles/worker-api/sessions";
@@ -10,6 +11,9 @@ import type {
 // The session object's RPC as a test calls it, the way the Worker's SessionHost does.
 interface SessionRpc extends Rpc.DurableObjectBranded {
   create(request: CreateSession): void;
+  delete(): void;
+  restart(): void;
+  storedTables(): ReadonlyArray<string>;
 }
 
 // A workspace object as a test calls it: the deployed object's setup and destroy, and the files the
@@ -17,6 +21,8 @@ interface SessionRpc extends Rpc.DurableObjectBranded {
 interface WorkspaceRpc extends Rpc.DurableObjectBranded {
   setup(init: WorkspaceInit): void;
   destroy(): void;
+  failNextDestroy(): void;
+  __getWorkspaceStub(): Promise<ReturnType<Workspace["stub"]>>;
   files(): ReadonlyArray<{ path: string; mode: number; size: number; text: string }>;
 }
 

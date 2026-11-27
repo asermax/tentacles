@@ -21,11 +21,6 @@ const bundle = async (entry: string, dir: string) => {
   await build({
     input: path(entry),
     external: ["lightningcss", "fsevents"],
-    resolve: {
-      alias: {
-        "node:child_process": path("../src/spawn-shim.ts"),
-      },
-    },
     plugins: [
       cloudflare({
         compatibilityDate: compatibility.date,

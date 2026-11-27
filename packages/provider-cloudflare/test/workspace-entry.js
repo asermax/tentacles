@@ -12,6 +12,21 @@ export { default } from "../src/workspace-worker.ts";
 export { WorkspaceProxy, WorkspaceServiceProxy };
 
 export class WorkspaceObject extends DeployedWorkspaceObject {
+  // Makes the next destroy fail without touching anything, as a destroy that throws does.
+  failNextDestroy() {
+    this.destroyFails = true;
+  }
+
+  async destroy() {
+    if (this.destroyFails === true) {
+      this.destroyFails = false;
+
+      throw new Error("The workspace could not be destroyed");
+    }
+
+    return super.destroy();
+  }
+
   // Every path under /workspace with its mode, and each file's text, as the object holds them.
   async files() {
     const exists = await this.workspace.fs.stat("/workspace").then(

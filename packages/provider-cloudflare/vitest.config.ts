@@ -1,8 +1,11 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
-import { bundleDir, compatibility } from "./test/bundle-worker";
-import { lifetimeSessionId, testSecrets } from "./test/secrets";
+import { bundleDir, compatibility, workspaceBundleDir } from "./test/bundle-worker";
+import { githubFixture } from "./test/github-fixture";
+import { scriptedModel } from "./test/scripted-model";
+import { testSecrets } from "./test/secrets";
+import { workspaceWorkerName } from "./src/workspace-names";
 
 const workerName = "tentacles";
 
@@ -15,48 +18,18 @@ const echo = async (request: Request) =>
     headers: Object.fromEntries(request.headers),
   });
 
-// Workers AI through the gateway, as the model of every test session: one streamed answer that
-// ends the run without a tool call.
-interface CompletionChunk {
-  readonly id: string;
-  readonly object: string;
-  readonly choices: ReadonlyArray<{
-    readonly index: number;
-    readonly delta: { readonly role?: string; readonly content?: string };
-    readonly finish_reason: string | null;
-  }>;
-  readonly usage?: {
-    readonly prompt_tokens: number;
-    readonly completion_tokens: number;
-    readonly total_tokens: number;
-  };
-}
-
-const chunk = (body: CompletionChunk) => `data: ${JSON.stringify(body)}\n\n`;
-
-const model = async () =>
-  new Response(
-    [
-      chunk({
-        id: "test",
-        object: "chat.completion.chunk",
-        choices: [{ index: 0, delta: { role: "assistant", content: "done" }, finish_reason: null }],
-      }),
-      chunk({
-        id: "test",
-        object: "chat.completion.chunk",
-        choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-      }),
-      "data: [DONE]\n\n",
-    ].join(""),
-    { headers: { "content-type": "text/event-stream" } },
-  );
-
 const objects = ["SessionObject", "RegistryObject", "ClaudeObject"] as const;
 
-// The Worker runs as its own Miniflare worker, from the bundle Alchemy would upload, and the tests
-// reach it through bindings. Inside the test runner the plugin wraps Durable Objects in a class
+const workspaceObject = "WorkspaceObject";
+
+const workspaceSecrets = {
+  TENTACLES_GITHUB_TOKEN: testSecrets.TENTACLES_GITHUB_TOKEN,
+  TENTACLES_GIT_AUTHOR_NAME: testSecrets.TENTACLES_GIT_AUTHOR_NAME,
+  TENTACLES_GIT_AUTHOR_EMAIL: testSecrets.TENTACLES_GIT_AUTHOR_EMAIL,
+};
+
+// The tentacles Worker and the Workspace Worker run as their own Miniflare workers, from the bundles
+// Alchemy would upload, and the tests reach them through bindings. Inside the test runner the plugin wraps Durable Objects in a class
 // that answers RPC only for methods their prototype declares, while Alchemy's objects answer
 // every method through a Proxy.
 export default defineConfig({
@@ -69,14 +42,13 @@ export default defineConfig({
               compatibilityDate: compatibility.date,
               // The cron test calls the Worker's scheduled handler through its service binding.
               compatibilityFlags: [...compatibility.flags, "service_binding_extra_handlers"],
-              serviceBindings: {
-                TENTACLES: workerName,
-                // The containers' loopback to the Worker, with a session's egress props.
-                LIFETIME: { name: workerName, props: { sessionId: lifetimeSessionId } },
+              serviceBindings: { TENTACLES: workerName },
+              durableObjects: {
+                ...Object.fromEntries(
+                  objects.map((name) => [name, { className: name, scriptName: workerName }]),
+                ),
+                [workspaceObject]: { className: workspaceObject, scriptName: workspaceWorkerName },
               },
-              durableObjects: Object.fromEntries(
-                objects.map((name) => [name, { className: name, scriptName: workerName }]),
-              ),
               workers: [
                 {
                   name: workerName,
@@ -85,11 +57,31 @@ export default defineConfig({
                   compatibilityDate: compatibility.date,
                   compatibilityFlags: compatibility.flags,
                   bindings: testSecrets,
-                  durableObjects: Object.fromEntries(
-                    objects.map((name) => [name, { className: name, useSQLite: true }]),
-                  ),
-                  serviceBindings: { AI: model, BROWSER: echo },
+                  durableObjects: {
+                    ...Object.fromEntries(
+                      objects.map((name) => [name, { className: name, useSQLite: true }]),
+                    ),
+                    [workspaceObject]: {
+                      className: workspaceObject,
+                      scriptName: workspaceWorkerName,
+                    },
+                  },
+                  serviceBindings: { AI: scriptedModel, BROWSER: echo },
                   outboundService: echo,
+                },
+                {
+                  name: workspaceWorkerName,
+                  modules: inject("workspaceModules"),
+                  modulesRoot: workspaceBundleDir,
+                  compatibilityDate: compatibility.date,
+                  compatibilityFlags: compatibility.flags,
+                  bindings: workspaceSecrets,
+                  durableObjects: {
+                    [workspaceObject]: { className: workspaceObject, useSQLite: true },
+                  },
+                  // Computer's isolate shell runs on a Worker Loader.
+                  workerLoaders: { LOADER: {} },
+                  outboundService: githubFixture(),
                 },
               ],
             },
@@ -98,19 +90,7 @@ export default defineConfig({
         test: {
           name: "worker",
           include: ["test/**/*.test.ts"],
-          exclude: ["test/**/*.node.test.ts"],
           globalSetup: ["test/global-setup.ts"],
-        },
-      },
-      // Tests that run the workspace's code in Node with a fake container: the Worker's runner cannot
-      // load Alchemy's container module, and node:child_process is the shim the bundle also aliases.
-      {
-        resolve: { alias: { "node:child_process": `${import.meta.dirname}/src/spawn-shim.ts` } },
-        test: {
-          name: "node",
-          include: ["test/**/*.node.test.ts"],
-          // Inlined so the alias reaches the node:child_process import in pi-env's client.
-          server: { deps: { inline: ["@earendil-works/pi-env"] } },
         },
       },
     ],

@@ -15,7 +15,22 @@ export default makeWorkerBridge(WorkerEntrypoint, meta);
 
 const DurableObjectBridge = makeDurableObjectBridge(DurableObject, meta);
 
-export class SessionObject extends DurableObjectBridge("SessionObject") {}
+export class SessionObject extends DurableObjectBridge("SessionObject") {
+  // Aborts the object, as an eviction or a crash does: the next call runs on a new instance.
+  restart() {
+    this.ctx.abort("restart");
+  }
+
+  // The tables the object's storage holds, which a delete empties.
+  storedTables() {
+    return this.ctx.storage.sql
+      .exec(
+        "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '_cf_%'",
+      )
+      .toArray()
+      .map(({ name }) => name);
+  }
+}
 
 export class RegistryObject extends DurableObjectBridge("RegistryObject") {}
 
