@@ -4,7 +4,7 @@ import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { workspaceTools } from "./computer";
+import { workspaceTools } from "./computer/workspace-tools";
 import { decodeSetupResult } from "./workspace-failure";
 import { previewPortHeader } from "./workspace-names";
 import type { WorkspaceObject } from "./workspace-worker";

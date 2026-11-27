@@ -118,7 +118,7 @@ Computer and the platform run the container; the provider has no start, stop or 
 
 ## 🧩 The Computer adapters
 
-The code that adapts Computer 0.11.4 to this setup sits in one folder of the provider package, `packages/provider-cloudflare/src/computer/`, so an upgrade of the Computer package is reviewed in one place. Its index lists each adapter with the Computer API it intercepts and why. There are three: the container backend wrapper that adds the git identity and `NODE_EXTRA_CA_CERTS` to every container command, the wrapper around the container host that adds the stored size to every start and restart, and the tools, which wrap Computer's file tools and replace its `exec`. Each is described in the section of this note that covers what it changes. The Workspace Worker, the workspace object, the gateway and the session object use the adapters and stay outside the folder.
+The code that adapts Computer 0.11.4 to this setup sits in one folder of the provider package, `packages/provider-cloudflare/src/computer/`, so an upgrade of the Computer package is reviewed in one place. The folder's README lists each adapter with the Computer API it intercepts and why. There are three: the container backend wrapper that adds the git identity and `NODE_EXTRA_CA_CERTS` to every container command, the wrapper around the container host that adds the stored size to every start and restart, and the tools, which wrap Computer's file tools and replace its `exec`. Each is described in the section of this note that covers what it changes. The Workspace Worker, the workspace object, the gateway and the session object use the adapters and stay outside the folder.
 
 ---
 
