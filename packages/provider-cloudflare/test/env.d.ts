@@ -38,6 +38,7 @@ interface ClaudeRpc extends Rpc.DurableObjectBranded {
   restart(): void;
   reset(setup: FakeContainerSetup): Promise<void>;
   containerState(): FakeContainerSnapshot;
+  workerErrors(): ReadonlyArray<string>;
   stopContainer(): void;
   storedCalls(): {
     callIds: ReadonlyArray<string>;

@@ -1,9 +1,16 @@
-import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, AssistantMessageEvent, ToolCall } from "@earendil-works/pi-ai";
 import { callIdHeader } from "@tentacles/relay-protocol/call-id";
 import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
 
 /** How the scripted relay answers one POST /stream. */
-export type RelayAnswer = "done" | "lost" | "refusal" | "stopping" | "cut" | "unreachable";
+export type RelayAnswer =
+  | "done"
+  | "lost"
+  | "refusal"
+  | "stopping"
+  | "cut"
+  | "unreachable"
+  | "subagent";
 
 export interface FakeContainerSetup {
   readonly isRunning: boolean;
@@ -18,6 +25,7 @@ export interface RelayRequest {
   /** The request body as the relay received it. */
   readonly body: string;
   readonly probesAnswered: number;
+  readonly receivedAt: number;
 }
 
 const assistantMessage = (overrides: Partial<AssistantMessage> = {}): AssistantMessage => ({
@@ -63,6 +71,29 @@ const doneEvents = (): ReadonlyArray<AssistantMessageEvent> => [
   },
 ];
 
+const subagentCall = {
+  type: "toolCall",
+  id: "call-subagent",
+  name: "subagent",
+  arguments: { action: "run", task: "Say done." },
+} as const satisfies ToolCall;
+
+// The model asks for a subagent, which makes its own calls to the relay.
+const subagentEvents = (): ReadonlyArray<AssistantMessageEvent> => [
+  { type: "start", partial: assistantMessage() },
+  {
+    type: "toolcall_end",
+    contentIndex: 0,
+    toolCall: subagentCall,
+    partial: assistantMessage({ content: [subagentCall] }),
+  },
+  {
+    type: "done",
+    reason: "toolUse",
+    message: assistantMessage({ content: [subagentCall], stopReason: "toolUse" }),
+  },
+];
+
 const errorEvents = (errorMessage: string): ReadonlyArray<AssistantMessageEvent> => [
   { type: "start", partial: assistantMessage() },
   {
@@ -86,6 +117,8 @@ const answerResponses = {
   stopping: () => new Response(lostCallMessage("the relay is stopping"), { status: 503 }),
 
   cut: () => new Response(ndjson(doneEvents().slice(0, 1))),
+
+  subagent: () => new Response(ndjson(subagentEvents())),
 
   unreachable: () => {
     throw new TypeError("The container is not listening");
@@ -132,6 +165,7 @@ export const createFakeContainer = () => {
         callId: request.headers.get(callIdHeader),
         body: await request.text(),
         probesAnswered,
+        receivedAt: Date.now(),
       });
 
       const answer = answers[Math.min(callsAnswered, answers.length - 1)] ?? "done";

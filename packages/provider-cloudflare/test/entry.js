@@ -43,6 +43,15 @@ export class RegistryObject extends DurableObjectBridge("RegistryObject") {}
 
 const fakeContainer = createFakeContainer();
 
+// What the Worker writes with console.error, which is where the Claude provider logs a failed call.
+const loggedErrors = [];
+const realConsoleError = console.error;
+
+console.error = (...args) => {
+  loggedErrors.push(args.map(String).join(" "));
+  realConsoleError(...args);
+};
+
 // An alarm pass of the Claude object waits keepAliveWait before it sets the next alarm; the wait
 // is shortened here so a test does not wait it out. Effect's sleep reads setTimeout when it runs.
 const realSetTimeout = globalThis.setTimeout;
@@ -70,6 +79,7 @@ export class ClaudeObject extends DurableObjectBridge("ClaudeObject") {
   // Puts the fake container in the given state and empties the object's storage and alarm.
   async reset(setup) {
     fakeContainer.reset(setup);
+    loggedErrors.length = 0;
 
     await this.ctx.storage.deleteAll();
     await this.ctx.storage.deleteAlarm();
@@ -78,6 +88,10 @@ export class ClaudeObject extends DurableObjectBridge("ClaudeObject") {
   // What the object did to the container, and what its relay received.
   containerState() {
     return fakeContainer.snapshot();
+  }
+
+  workerErrors() {
+    return [...loggedErrors];
   }
 
   // The container ends on its own: it stops running and every monitor() settles.

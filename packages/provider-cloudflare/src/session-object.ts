@@ -135,7 +135,11 @@ export const SessionObjectLive = SessionObject.make(
         browserLayer(yield* browser.raw, cdpSecret, raw.storage),
         CloudflarePreviewRouter,
         registryStoreLayer(registries),
-        modelProvidersLayer(yield* ai.raw, () => claudeObjects.getByName(claudeObjectName)),
+        modelProvidersLayer(
+          yield* ai.raw,
+          () => claudeObjects.getByName(claudeObjectName),
+          sessionId,
+        ),
         codeSandboxLayer(codemodeSandboxes, sessionId),
       );
 

@@ -28,8 +28,8 @@ const statusOf = async (sessionId: string) => {
   return Schema.decodeUnknownSync(SessionState)(await response.json());
 };
 
-const pollUntil = async (isDone: () => Promise<boolean>, failureMessage: string) => {
-  for (let attempt = 0; attempt < 50; attempt++) {
+const pollUntil = async (isDone: () => Promise<boolean>, failureMessage: string, attempts = 50) => {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     if (await isDone()) {
       return;
     }
@@ -46,6 +46,21 @@ export const waitUntilIdle = (sessionId: string) =>
     async () => SessionState.guards.idle(await statusOf(sessionId)),
     `Session ${sessionId} never went idle`,
   );
+
+/** Waits until the session's run has ended, idle or failed, and returns how it ended. */
+export const waitUntilRunEnds = async (sessionId: string, attempts: number) => {
+  await pollUntil(
+    async () => {
+      const state = await statusOf(sessionId);
+
+      return SessionState.guards.idle(state) || SessionState.guards.failed(state);
+    },
+    `Session ${sessionId} never ended its run`,
+    attempts,
+  );
+
+  return statusOf(sessionId);
+};
 
 export const testSettings: Settings = {
   provider: "cloudflare",
