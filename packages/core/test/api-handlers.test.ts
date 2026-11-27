@@ -43,9 +43,6 @@ const createOver = (api: Effect.Success<typeof serveApi>, prompt: string) =>
 
 const decodeInvalidArchive = Schema.decodeUnknownSync(InvalidArchive);
 
-const bash = (command: string) =>
-  fauxAssistantMessage(fauxToolCall("bash", { command }), { stopReason: "toolUse" });
-
 const finishedSession = (api: Effect.Success<typeof serveApi>, answer: string) =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
@@ -110,7 +107,7 @@ describe("the sessions API", () => {
   );
 
   it.live(
-    "create with skills and agents lists their names and stores the skills archive as sent",
+    "create with skills and agents lists their names and hands the skills archive to the workspace as sent",
     () =>
       Effect.gen(function* () {
         const world = yield* TestWorld;
@@ -118,10 +115,7 @@ describe("the sessions API", () => {
         const archives = yield* definitionArchives();
         const request = createRequest("go", null, archives);
 
-        world.faux.setResponses([
-          bash("cat /skills/implement/SKILL.md"),
-          fauxAssistantMessage("read it"),
-        ]);
+        world.faux.setResponses([fauxAssistantMessage("read it")]);
 
         const response = yield* api("/sessions", post(createBody(request)));
 
@@ -134,20 +128,24 @@ describe("the sessions API", () => {
           Effect.sync(() => expect(world.records(sessionId).states).toHaveLength(2)),
         );
 
-        expect(world.archives("skills").get(sessionId)).toEqual(archives.skills);
+        expect(world.workspaceCreates).toEqual([
+          {
+            sessionId,
+            init: {
+              repository: null,
+              image: "default",
+              size: "basic",
+              skills: archives.skills,
+              context: null,
+            },
+          },
+        ]);
         expect(
           yield* json(yield* api(`/sessions?harness=pi&sessionId=${parent.sessionId}`)),
         ).toEqual([{ sessionId, name: "worker", status: "idle", ...named }]);
         expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toEqual(
           SessionState.cases.idle.make(named),
         );
-
-        const results = (yield* (yield* world.handle(sessionId)).messages(10)).filter(
-          Entry.guards.toolResult,
-        );
-
-        expect(results[0]?.isError).toBe(false);
-        expect(results[0]?.output).toContain("name: implement");
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -171,7 +169,7 @@ describe("the sessions API", () => {
 
       const { sessionId } = decodeCreated(yield* json(response));
 
-      expect(world.archives("skills").get(sessionId)).toEqual(skills);
+      expect(world.workspaceCreates.map(({ init }) => init.skills)).toEqual([skills]);
       expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toMatchObject({
         skills: ["implement"],
       });
@@ -200,7 +198,7 @@ describe("the sessions API", () => {
         expect(response.status).toBe(400);
         expect(decodeInvalidArchive(yield* json(response)).message).toContain("skills archive");
         expect(world.registryCalls).toEqual([]);
-        expect(world.archives("skills").size).toBe(0);
+        expect(world.workspaceCreates).toEqual([]);
         expect(world.faux.getPendingResponseCount()).toBe(1);
       }).pipe(Effect.provide(testWorld)),
   );
@@ -228,7 +226,7 @@ describe("the sessions API", () => {
         expect(message).toContain("skills archive");
         expect(message).toContain("name 'impl' does not match the folder 'implement'");
         expect(world.registryCalls).toEqual([]);
-        expect(world.archives("skills").size).toBe(0);
+        expect(world.workspaceCreates).toEqual([]);
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -255,7 +253,7 @@ describe("the sessions API", () => {
         expect(message).toContain("agents archive");
         expect(message).toContain("name 'inspector' does not match the file 'reviewer.md'");
         expect(world.registryCalls).toEqual([]);
-        expect(world.archives("skills").size).toBe(0);
+        expect(world.workspaceCreates).toEqual([]);
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -277,7 +275,7 @@ describe("the sessions API", () => {
       expect(message).toContain("agents archive");
       expect(message).toMatch(/reviewer\.md: .*(body|prompt)/);
       expect(world.registryCalls).toEqual([]);
-      expect(world.archives("skills").size).toBe(0);
+      expect(world.workspaceCreates).toEqual([]);
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -307,7 +305,7 @@ describe("the sessions API", () => {
         expect(message).toContain("agents archive");
         expect(message).toMatch(/reviewer\.md: .*(body|prompt)/);
         expect(world.registryCalls).toEqual([]);
-        expect(world.archives("skills").size).toBe(0);
+        expect(world.workspaceCreates).toEqual([]);
       }).pipe(Effect.provide(testWorld)),
   );
 

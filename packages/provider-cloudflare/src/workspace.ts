@@ -1,29 +1,12 @@
-import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import * as Cloudflare from "@alchemy.run/cloudflare";
-import { ALCHEMY_PHASE } from "alchemy";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { Connection, RemoteExecutionEnv } from "@earendil-works/pi-env";
-import { ArchiveStore } from "@tentacles/contracts/archive-store";
-import {
-  Workspace,
-  type WorkspaceSettings,
-  WorkspaceUnavailable,
-  workspaceDirectory,
-} from "@tentacles/contracts/workspace";
-import { archiveExpansions, type ArchiveKind } from "@tentacles/worker-api/archive-kinds";
-import type { SessionId } from "@tentacles/worker-api/ids";
-import type { Repository } from "@tentacles/worker-api/settings";
+import { Workspace } from "@tentacles/contracts/workspace";
+import { WorkspaceUnavailable } from "@tentacles/worker-api/errors";
+import type { Settings } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
 
-import { credentialPlaceholder, EgressHosts, egressCaPath } from "./egress";
-import { registerExec } from "./spawn-shim";
+import { credentialPlaceholder, egressCaPath } from "./egress";
 
 const InstanceTypes = {
   lite: "lite",
@@ -41,274 +24,65 @@ export const defaultImage = "default";
 export const ContainerSettings = Schema.Struct({
   image: Schema.Literal(defaultImage),
   size: Schema.Enum(InstanceTypes),
-  lifetime: Schema.Int,
 });
 
-const decodeContainerSettings = Schema.decodeUnknownEffect(ContainerSettings);
-
 /** Why a session's settings name no container this setup can start. */
-export const unsupportedSettings = (settings: Pick<WorkspaceSettings, "image" | "size">) =>
+export const unsupportedSettings = (settings: Pick<Settings, "image" | "size">) =>
   `The workspace takes the image "${defaultImage}" and a Cloudflare instance type as its size; got image "${settings.image}" and size "${settings.size}"`;
 
-// The daemon in the image comes from the same pi-env release the Worker bundles, so its client and
-// the daemon always speak the same protocol. Alchemy evaluates the container's props in the running
-// Worker too, where no package.json exists and the build arguments are not used.
-const readPiEnvVersion = Effect.promise(() =>
-  readFile(
-    join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-env"))), "../package.json"),
-    "utf8",
-  ),
-).pipe(
-  Effect.flatMap(
-    Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Struct({ version: Schema.String }))),
-  ),
-  Effect.map((manifest) => manifest.version),
-  Effect.orDie,
-);
-
-const piEnvVersion = Effect.flatMap(ALCHEMY_PHASE, (phase) =>
-  phase === "runtime" ? Effect.succeed("") : readPiEnvVersion,
-);
-
-// The deploy publishes each class's images under their Container's id, and start names the one to
-// run.
+// The deploy publishes each class's images under their Container's id.
 const workspaceContainerId = "WorkspaceContainer";
 
 /** The workspace image, attached to the session object's class. */
 export class WorkspaceContainer extends Cloudflare.Container<WorkspaceContainer>()(
   workspaceContainerId,
-  Effect.gen(function* () {
-    return {
-      schedulingPolicy: "durable_object" as const,
-      context: `${import.meta.dirname}/../images/workspace`,
-      build: {
-        args: {
-          PI_ENV_VERSION: yield* piEnvVersion,
-          EGRESS_CA_PATH: egressCaPath,
-          CREDENTIAL_PLACEHOLDER: credentialPlaceholder,
-        },
+  Effect.succeed({
+    schedulingPolicy: "durable_object" as const,
+    context: `${import.meta.dirname}/../images/workspace`,
+    build: {
+      args: {
+        EGRESS_CA_PATH: egressCaPath,
+        CREDENTIAL_PLACEHOLDER: credentialPlaceholder,
       },
-    };
+    },
   }),
 ) {}
 
-const unavailable = (cause: unknown) => new WorkspaceUnavailable({ message: String(cause) });
-
-const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-
-// --depth alone implies --single-branch, which leaves a pushed new branch without a remote-tracking
-// ref, so the pending-work check would count its commits as not pushed.
-const cloneCommand = (repository: Repository) =>
-  [
-    "git clone",
-    repository.shallow ? "--depth 1 --no-single-branch" : "",
-    "--",
-    shellQuote(repository.url),
-    workspaceDirectory,
-  ]
-    .filter((part) => part !== "")
-    .join(" ");
-
 export interface WorkspaceHandles {
-  readonly sessionId: SessionId;
   readonly container: () => Container | undefined;
-  /** The Worker's default entrypoint with this session's egress props. */
-  readonly egress: Fetcher;
-  /** The deploy's author, set as git's author and committer on every commit the agent makes. */
-  readonly identity: { readonly name: string; readonly email: string };
 }
 
-/**
- * One session's workspace on the session object's container. pi-env's daemon runs in it over
- * ctx.container.exec, through the spawn shim.
- */
-export const workspaceLayer = ({
-  sessionId,
-  container: maybeContainer,
-  egress,
-  identity,
-}: WorkspaceHandles) => {
-  // The session object starts without a container in Miniflare: the workspace's operations need
-  // one, while isRunning reads its absence as a stopped container.
-  const container = () => {
-    const present = maybeContainer();
-
-    if (present == null) {
-      throw new Error("The session object has no container");
-    }
-
-    return present;
-  };
-
-  const program = `container-exec:${sessionId}`;
-
-  registerExec(program, (args) =>
-    container().exec(["/usr/local/bin/pi-env", ...args], {
-      stdin: "pipe",
-      cwd: workspaceDirectory,
-      env: {
-        GIT_AUTHOR_NAME: identity.name,
-        GIT_AUTHOR_EMAIL: identity.email,
-        GIT_COMMITTER_NAME: identity.name,
-        GIT_COMMITTER_EMAIL: identity.email,
-      },
-    }),
-  );
-
-  const connection = new Connection({ command: [program] });
-
-  const env = new RemoteExecutionEnv({
-    connection,
-    id: `workspace:${sessionId}`,
-    cwd: workspaceDirectory,
-  });
-
-  // Right after a deploy the container application can still be provisioning, and the first
-  // starts fail; the daemon answering is what ready means.
-  const daemonReady = Effect.tryPromise({ try: () => connection.info(), catch: unavailable }).pipe(
-    Effect.retry({ schedule: Schedule.spaced("2 seconds"), times: 15 }),
-  );
-
-  const clone = (repository: Repository) =>
-    Effect.tryPromise({
-      try: () => env.exec(cloneCommand(repository), undefined, BACKGROUND_CONTEXT),
-      catch: unavailable,
-    }).pipe(
-      Effect.flatMap((result) =>
-        result.ok && result.value.exitCode === 0
-          ? Effect.void
-          : Effect.fail(
-              new WorkspaceUnavailable({
-                message: `Cloning ${repository.url} into the workspace failed`,
-              }),
-            ),
-      ),
-    );
-
-  const extract = (kind: ArchiveKind, directory: string, archive: Uint8Array) =>
-    Effect.tryPromise({
-      try: async () => {
-        const extraction = await container().exec(
-          ["sh", "-c", `mkdir -p ${directory} && tar -xzf - -C ${directory}`],
-          { stdin: new Blob([archive]).stream() },
-        );
-
-        return extraction.exitCode;
-      },
-      catch: unavailable,
-    }).pipe(
-      Effect.flatMap((exitCode) =>
-        exitCode === 0
-          ? Effect.void
-          : Effect.fail(
-              new WorkspaceUnavailable({
-                message: `Expanding the ${kind} into ${directory} failed`,
-              }),
-            ),
-      ),
-    );
-
-  // Concurrent tool calls share one start and one clone.
-  const starting = Semaphore.makeUnsafe(1);
-
-  const start = (settings: WorkspaceSettings) =>
-    Effect.gen(function* () {
-      const { size, lifetime } = yield* decodeContainerSettings(settings).pipe(
-        Effect.mapError(() => new WorkspaceUnavailable({ message: unsupportedSettings(settings) })),
-      );
-
-      const image = yield* Effect.fromNullishOr(container().images[workspaceContainerId]).pipe(
-        Effect.mapError(
-          () => new WorkspaceUnavailable({ message: "The deploy published no workspace image" }),
-        ),
-      );
-
-      yield* Effect.try({
-        try: () =>
-          container().start({
-            image,
-            instance: size,
-            enableInternet: true,
-          }),
-        catch: unavailable,
-      });
-
-      // The interceptors do not survive a restart, so they are set after every start.
-      yield* Effect.tryPromise({
-        try: () =>
-          Promise.all([
-            container().setInactivityTimeout(lifetime * 60_000),
-            container().interceptOutboundHttps(EgressHosts.github, egress),
-            container().interceptOutboundHttp(EgressHosts.lifetime, egress),
-          ]),
-        catch: unavailable,
-      });
-    });
-
-  // The clone and the extractions write to different directories, so a cold start runs them
-  // together and reports every step that failed.
-  const prepare = (
-    repository: Repository | null | undefined,
-    read: (kind: ArchiveKind) => Effect.Effect<Uint8Array | null>,
-  ) =>
-    Effect.validate(
-      [
-        repository == null ? Effect.void : clone(repository),
-        ...archiveExpansions.map(({ kind, directory }) =>
-          Effect.flatMap(read(kind), (archive) =>
-            archive == null ? Effect.void : extract(kind, directory, archive),
-          ),
-        ),
-      ],
-      (step) => step,
-      { concurrency: "unbounded", discard: true },
-    ).pipe(
-      Effect.mapError(
-        (failures) =>
-          new WorkspaceUnavailable({
-            message: failures.map((failure) => failure.message).join("; "),
-          }),
-      ),
-    );
-
-  // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
-  // plain HTTP.
-  const forward = (port: number, request: Request) =>
-    Effect.tryPromise(() => {
-      const url = new URL(request.url);
-
-      url.protocol = "http:";
-
-      return container().getTcpPort(port).fetch(new Request(url, request));
-    }).pipe(
-      Effect.orElseSucceed(() => new Response(`Nothing answers on port ${port}`, { status: 502 })),
-    );
-
-  return Layer.effect(
+/** One session's workspace on the session object's container. */
+export const workspaceLayer = ({ container: maybeContainer }: WorkspaceHandles) =>
+  Layer.succeed(
     Workspace,
-    Effect.gen(function* () {
-      const archiveStore = yield* ArchiveStore;
+    Workspace.of({
+      tools: [],
 
-      return Workspace.of({
-        ensure: (settings) =>
-          starting.withPermit(
-            Effect.gen(function* () {
-              if (container().running) {
-                return;
-              }
+      create: () =>
+        Effect.fail(
+          new WorkspaceUnavailable({ message: "The workspace cannot be set up from this Worker" }),
+        ),
 
-              yield* start(settings);
-              yield* daemonReady;
-              yield* prepare(settings.repository, archiveStore.read);
-            }),
+      // The preview arrives over HTTPS, and the port's fetch would speak TLS to an app that serves
+      // plain HTTP.
+      forward: (port, request) =>
+        Effect.tryPromise(() => {
+          const container = maybeContainer();
+
+          if (container == null) {
+            throw new Error("The session object has no container");
+          }
+
+          const url = new URL(request.url);
+
+          url.protocol = "http:";
+
+          return container.getTcpPort(port).fetch(new Request(url, request));
+        }).pipe(
+          Effect.orElseSucceed(
+            () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
           ),
-
-        connection: () => Effect.succeed(connection),
-
-        isRunning: () => Effect.sync(() => maybeContainer()?.running ?? false),
-
-        forward,
-      });
+        ),
     }),
   );
-};

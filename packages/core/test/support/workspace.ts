@@ -1,255 +1,74 @@
-import { execFileSync } from "node:child_process";
-import { lstatSync, mkdirSync, readlinkSync } from "node:fs";
-import { dirname, join } from "node:path";
-
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { Connection, localDaemon, RemoteExecutionEnv } from "@earendil-works/pi-env";
-import type { ArchiveStore } from "@tentacles/contracts/archive-store";
-import {
-  Workspace,
-  type WorkspaceSettings,
-  WorkspaceUnavailable,
-} from "@tentacles/contracts/workspace";
-import { archiveExpansions, type ArchiveKind } from "@tentacles/worker-api/archive-kinds";
-import type { Repository } from "@tentacles/worker-api/settings";
+import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
+import { obj, str } from "@earendil-works/pi-schema";
+import { Workspace, type WorkspaceInit } from "@tentacles/contracts/workspace";
+import type { InvalidWorkspace, WorkspaceUnavailable } from "@tentacles/worker-api/errors";
+import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
+
+/** A Workspace.create call: the session it was for and the init it received. */
+export interface WorkspaceCreate {
+  readonly sessionId: SessionId;
+  readonly init: WorkspaceInit;
+}
 
 /** What the test reads back from one session's workspace. */
 export interface WorkspaceRecord {
-  /** Every ensure call, with its settings. */
-  readonly ensures: WorkspaceSettings[];
-  /** The host directory mounted at /workspace. */
-  readonly directory: string;
+  /** The files the workspace's tools wrote, by path. */
+  readonly files: Map<string, string>;
   /** Answers Workspace.forward. */
   forward: (port: number, request: Request) => Response;
-  /** Makes the next ensure a cold start again, as a container that restarted. */
-  restart: () => void;
-  /** Drops the daemon connection while the workspace stays started, so no command runs in it. */
-  stall: () => void;
 }
 
-// Repository URLs must be https, so the bare remotes are named by this host
-// and the sandbox's git rewrites it to the directory that holds them.
-const remoteHost = "https://git.test/";
+const textResult = (text: string) => ({ output: [{ type: "text" as const, text }] });
 
-/** The URL a session's settings use for a bare remote created by bareRepository. */
-export const remoteUrl = (name: string) => `${remoteHost}${name}.git`;
+const workspaceTools = (files: Map<string, string>): ToolRegistration[] => [
+  defineTool({
+    name: "workspace_write",
+    description: "Writes a file in the workspace.",
+    parameters: obj({ path: str(), text: str() }),
+    execute: async ({ path, text }) => {
+      files.set(path, text);
 
-// Distributions point /lib64 at different places (usr/lib on Arch, usr/lib64
-// on Ubuntu), and the dynamic loader's path goes through it, so the sandbox
-// repeats the host's own links instead of assuming one layout.
-const mergedUsrLinks = ["/bin", "/lib", "/lib64"]
-  .filter((path) => lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink() === true)
-  .flatMap((path) => ["--symlink", readlinkSync(path), path]);
-
-// pi-env's published daemon, run locally in a bubblewrap sandbox whose
-// /workspace is the session's directory, so tools see the paths a container
-// gives them. `shared` holds the bare remotes and stays at its own path.
-const sandboxed = (directory: string, shared: string) => {
-  const daemon = localDaemon();
-
-  return [
-    "bwrap",
-    "--ro-bind",
-    "/usr",
-    "/usr",
-    ...mergedUsrLinks,
-    "--ro-bind",
-    "/etc",
-    "/etc",
-    "--proc",
-    "/proc",
-    "--dev",
-    "/dev",
-    "--tmpfs",
-    "/tmp",
-    "--bind",
-    directory,
-    "/workspace",
-    "--bind",
-    shared,
-    shared,
-    "--ro-bind",
-    dirname(daemon),
-    dirname(daemon),
-    "--setenv",
-    "HOME",
-    "/tmp",
-    "--setenv",
-    "GIT_CONFIG_COUNT",
-    "1",
-    "--setenv",
-    "GIT_CONFIG_KEY_0",
-    `url.${shared}/.insteadOf`,
-    "--setenv",
-    "GIT_CONFIG_VALUE_0",
-    remoteHost,
-    "--setenv",
-    "GIT_AUTHOR_NAME",
-    "agent",
-    "--setenv",
-    "GIT_AUTHOR_EMAIL",
-    "agent@tentacles.test",
-    "--setenv",
-    "GIT_COMMITTER_NAME",
-    "agent",
-    "--setenv",
-    "GIT_COMMITTER_EMAIL",
-    "agent@tentacles.test",
-    "--die-with-parent",
-    daemon,
-  ];
-};
-
-const archivePath = (kind: ArchiveKind) => `/tmp/${kind}.tar.gz`;
+      return textResult(`wrote ${path}`);
+    },
+  }),
+  defineTool({
+    name: "workspace_read",
+    description: "Reads a file of the workspace.",
+    parameters: obj({ path: str() }),
+    replay: "safe",
+    execute: async ({ path }) => textResult(files.get(path) ?? `${path} does not exist`),
+  }),
+];
 
 /**
- * A session's Workspace over a local sandboxed daemon. ensure starts the
- * workspace on its first call, clones the repository and expands each kind's archive into its
- * directory then, as a container that just started would; a failed clone or expansion leaves it
- * not started.
+ * A session's Workspace: its two tools act on an in-memory file map, create appends its init to
+ * the world's log and fails with the error the world's failures hold.
  */
 export const testWorkspace = (
-  root: string,
-  shared: string,
-  archiveStore: ArchiveStore["Service"],
-) =>
-  Effect.acquireRelease(
-    Effect.sync(() => {
-      const directory = join(root, "workspace");
+  sessionId: SessionId,
+  creates: WorkspaceCreate[],
+  failure: () => InvalidWorkspace | WorkspaceUnavailable | null,
+) => {
+  const files = new Map<string, string>();
 
-      mkdirSync(directory, { recursive: true });
+  const record: WorkspaceRecord = {
+    files,
+    forward: () => new Response("no app", { status: 502 }),
+  };
 
-      const connection = new Connection({ command: sandboxed(directory, shared) });
+  const workspace = Workspace.of({
+    tools: workspaceTools(files),
+    create: (init) =>
+      Effect.suspend(() => {
+        creates.push({ sessionId, init });
 
-      const record: WorkspaceRecord = {
-        ensures: [],
-        directory,
-        forward: () => new Response("no app", { status: 502 }),
-        restart: () => undefined,
-        stall: () => connection.close(),
-      };
+        const failed = failure();
 
-      return { record, connection };
-    }),
-    ({ connection }) => Effect.sync(() => connection.close()),
-  ).pipe(
-    Effect.map(({ record, connection }) => {
-      let isStarted = false;
-
-      record.restart = () => {
-        isStarted = false;
-      };
-
-      const clone = (repository: Repository) =>
-        Effect.promise(async () => {
-          const env = new RemoteExecutionEnv({ connection, id: "clone", cwd: "/" });
-          const depth = repository.shallow ? ["--depth", "1"] : [];
-          let output = "";
-
-          const result = await env.exec(
-            ["git", "clone", ...depth, repository.url, "/workspace"],
-            { onOutput: (text) => (output += text) },
-            BACKGROUND_CONTEXT,
-          );
-
-          return result.ok && result.value.exitCode === 0 ? null : output;
-        }).pipe(
-          Effect.flatMap((failure) =>
-            failure == null
-              ? Effect.void
-              : Effect.fail(new WorkspaceUnavailable({ message: `git clone failed: ${failure}` })),
-          ),
-        );
-
-      // pi-env's exec takes no standard input, so the archive goes in as a file.
-      const extract = (kind: ArchiveKind, directory: string, archive: Uint8Array) =>
-        Effect.promise(async () => {
-          const env = new RemoteExecutionEnv({ connection, id: kind, cwd: "/" });
-          const written = await env.writeFile(archivePath(kind), archive, BACKGROUND_CONTEXT);
-
-          if (!written.ok) {
-            return String(written.error);
-          }
-
-          let output = "";
-
-          const result = await env.exec(
-            ["sh", "-c", `mkdir -p ${directory} && tar -xzf ${archivePath(kind)} -C ${directory}`],
-            { onOutput: (text) => (output += text) },
-            BACKGROUND_CONTEXT,
-          );
-
-          return result.ok && result.value.exitCode === 0 ? null : output;
-        }).pipe(
-          Effect.flatMap((failure) =>
-            failure == null
-              ? Effect.void
-              : Effect.fail(
-                  new WorkspaceUnavailable({
-                    message: `Expanding the ${kind} failed: ${failure}`,
-                  }),
-                ),
-          ),
-        );
-
-      const workspace = Workspace.of({
-        ensure: (settings) =>
-          Effect.gen(function* () {
-            record.ensures.push(settings);
-
-            if (isStarted) {
-              return;
-            }
-
-            yield* Effect.validate(
-              [
-                settings.repository == null ? Effect.void : clone(settings.repository),
-                ...archiveExpansions.map(({ kind, directory }) =>
-                  Effect.flatMap(archiveStore.read(kind), (archive) =>
-                    archive == null ? Effect.void : extract(kind, directory, archive),
-                  ),
-                ),
-              ],
-              (step) => step,
-              { concurrency: "unbounded", discard: true },
-            ).pipe(
-              Effect.mapError(
-                (failures) =>
-                  new WorkspaceUnavailable({
-                    message: failures.map((failure) => failure.message).join("; "),
-                  }),
-              ),
-            );
-
-            isStarted = true;
-          }),
-        connection: () => Effect.succeed(connection),
-        forward: (port, request) => Effect.sync(() => record.forward(port, request)),
-        isRunning: () => Effect.sync(() => isStarted),
-      });
-
-      return { record, workspace };
-    }),
-  );
-
-const git = (cwd: string, ...args: string[]) =>
-  execFileSync("git", ["-c", "user.name=seed", "-c", "user.email=seed@tentacles.test", ...args], {
-    cwd,
-    stdio: "ignore",
+        return failed == null ? Effect.void : Effect.fail(failed);
+      }),
+    forward: (port, request) => Effect.sync(() => record.forward(port, request)),
   });
 
-/** A bare repository with one commit on main; returns the URL a session clones it from. */
-export const bareRepository = (shared: string, name: string) => {
-  const bare = join(shared, `${name}.git`);
-  const seed = join(shared, `${name}-seed`);
-
-  git(shared, "init", "--bare", "-b", "main", bare);
-  git(shared, "init", "-b", "main", seed);
-  execFileSync("sh", ["-c", "echo '# app' > README.md"], { cwd: seed });
-  git(seed, "add", ".");
-  git(seed, "commit", "-m", "initial");
-  git(seed, "push", bare, "main");
-
-  return remoteUrl(name);
+  return { record, workspace };
 };

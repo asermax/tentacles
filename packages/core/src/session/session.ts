@@ -9,7 +9,6 @@ import {
   type SubmissionDraft,
   type Wake,
 } from "@earendil-works/pi-durable";
-import { RemoteExecutionEnv } from "@earendil-works/pi-env";
 import { Browser } from "@tentacles/contracts/browser";
 import { CodeSandbox } from "@tentacles/contracts/code-sandbox";
 import { ModelProviders } from "@tentacles/contracts/model-providers";
@@ -18,10 +17,8 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
-import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
-import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
-import { archiveExpansions } from "@tentacles/worker-api/archive-kinds";
+import { repositoryDirectory, Workspace } from "@tentacles/contracts/workspace";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
@@ -42,7 +39,6 @@ import { QuestionsDoc } from "./questions";
 import { readArchives } from "./read-archives";
 import { RecordDoc, type SessionRecord } from "./record";
 import { trackStatus } from "./state";
-import { workspaceEnv } from "./workspace-env";
 import { isWorkspaceNeeded } from "./workspace-needed";
 
 // While work runs, the timer also serves as a recovery heartbeat: a process
@@ -78,9 +74,6 @@ const make = (sessionId: SessionId) =>
       Browser | CodeSandbox | ParentChannel | PreviewRouter | RegistryStore | Workspace
     >();
 
-    const archiveStore = yield* ArchiveStore;
-
-    const run = Effect.runPromiseWith(services);
     const fork = Effect.runForkWith(services);
     const wakeTimer = yield* WakeTimer;
     const workspace = yield* Workspace;
@@ -106,7 +99,6 @@ const make = (sessionId: SessionId) =>
     let status: Effect.Success<ReturnType<typeof trackStatus>> | null = null;
 
     const registry = createRegistry();
-    const envId = `pi-env:${sessionId}`;
 
     for (const extension of yield* remoteAgentExtensions(sessionId)) {
       registry.install(extension);
@@ -133,27 +125,6 @@ const make = (sessionId: SessionId) =>
             onWake: (wake) => {
               fork(arm(wake));
             },
-            // pi-durable calls this before every tool use and for section
-            // renders; the workspace opens on the env's first operation, and a
-            // failure there becomes that call's error result.
-            env: (target) =>
-              workspaceEnv(envId, workspaceDirectory, async () => {
-                const record = await target.read.snapshot(RecordDoc, sessionId, BACKGROUND_CONTEXT);
-
-                if (record == null) {
-                  throw new Error("The session has no record to start its workspace from");
-                }
-
-                const { repository, image, size, lifetime } = record.settings;
-
-                await run(workspace.ensure({ repository, image, size, lifetime }));
-
-                return new RemoteExecutionEnv({
-                  connection: await run(workspace.connection()),
-                  id: envId,
-                  cwd: workspaceDirectory,
-                });
-              }),
             onReport: (report) => {
               fork(Effect.logError("pi-durable reported a failure", report.kind, report));
             },
@@ -207,13 +178,13 @@ const make = (sessionId: SessionId) =>
           const skills = archives.skills.map(toSkillEntry);
           const { agents } = archives;
 
-          for (const { kind } of archiveExpansions) {
-            const archive = request[kind];
-
-            if (archive != null) {
-              yield* archiveStore.save(kind, archive);
-            }
-          }
+          yield* workspace.create({
+            repository: request.settings.repository,
+            image: request.settings.image,
+            size: request.settings.size,
+            skills: request.skills ?? null,
+            context: request.context ?? null,
+          });
 
           yield* status.register(request.name, request.parent, {
             settings: request.settings,
@@ -225,7 +196,7 @@ const make = (sessionId: SessionId) =>
             harness.root(BACKGROUND_CONTEXT, {
               agent: {
                 model: { provider: request.settings.provider, modelId: request.settings.model },
-                cwd: workspaceDirectory,
+                cwd: repositoryDirectory,
                 // An effort pi-ai has no thinking level for leaves the model's default.
                 thinkingLevel: Option.getOrNull(decodeThinkingLevel(request.settings.effort)),
               },

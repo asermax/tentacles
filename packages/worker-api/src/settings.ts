@@ -13,15 +13,13 @@ export const Repository = Schema.Struct({
 
 export type Repository = typeof Repository.Type;
 
-// A null repository leaves the clone to what the prompt names, and the commit
-// checks do not run.
+// A null repository leaves the clone to what the prompt names.
 export const Settings = Schema.Struct({
   provider: Schema.String,
   model: Schema.String,
   effort: Schema.String,
   image: Schema.String,
   size: Schema.String,
-  lifetime: Schema.Int,
   repository: Schema.NullOr(Repository),
 });
 

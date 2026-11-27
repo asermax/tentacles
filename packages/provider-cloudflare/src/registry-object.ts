@@ -45,6 +45,7 @@ export const registryStoreLayer = (registries: Cloudflare.DurableObject<Registry
     RegistryStore.of({
       add: (sessionId, name, parent, details) => registry().add(sessionId, name, parent, details),
       setStatus: (sessionId, status) => registry().setStatus(sessionId, status),
+      reportSetupFailed: (sessionId) => registry().reportSetupFailed(sessionId),
       list: (parent) => registry().list(parent),
       remove: (sessionId) => registry().remove(sessionId),
       openPreview: (sessionId, port) => registry().openPreview(sessionId, port),

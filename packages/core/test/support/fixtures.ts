@@ -17,7 +17,6 @@ export const settings = (repository: Repository | null = null): Settings => ({
   effort: "off",
   image: "default",
   size: "basic",
-  lifetime: 15,
   repository,
 });
 

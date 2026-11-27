@@ -1,35 +1,35 @@
-import type { Connection } from "@earendil-works/pi-env";
+import type { ToolRegistration } from "@earendil-works/pi-durable";
 import type { Settings } from "@tentacles/worker-api/settings";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
+import type { InvalidWorkspace, WorkspaceUnavailable } from "@tentacles/worker-api/errors";
 
-// One session's workspace container. `ensure` runs before every tool use with
-// the session's settings: when the container is not running it starts it from
-// their image, size and lifetime, waits until pi-env's daemon answers and
-// clones their repository into /workspace; a null repository starts the
-// container only.
-// Every tool, the clone and the git checks run through `connection`. There is
-// no lifetime member: keeping the container up is the provider's mechanism.
-/** Where the agent works; the Workspace implementation clones the repository here. */
-export const workspaceDirectory = "/workspace";
+/** Where the workspace clones the session's repository. */
+export const repositoryDirectory = "/workspace/repo";
 
-/** The session's settings a workspace starts from. */
-export type WorkspaceSettings = Pick<Settings, "repository" | "image" | "size" | "lifetime">;
+/**
+ * What a workspace is set up from: the session's repository, image and size,
+ * and the spawn's skills and context archives exactly as it sent them, null
+ * when it sent none of that kind.
+ */
+export interface WorkspaceInit extends Pick<Settings, "repository" | "image" | "size"> {
+  readonly skills: Uint8Array | null;
+  readonly context: Uint8Array | null;
+}
 
-/** The workspace could not be started or its repository cloned. */
-export class WorkspaceUnavailable extends Schema.TaggedError<WorkspaceUnavailable>()(
-  "WorkspaceUnavailable",
-  { message: Schema.String },
-) {}
-
+// One session's workspace, as a provider fills it. `tools` are the tools the
+// harness installs as they are, on every instance, before and after `create`.
+// `create` runs once, at spawn: it clones the repository into
+// repositoryDirectory and writes the archives into their kinds' directories,
+// and on failure leaves nothing behind.
 export class Workspace extends Context.Service<
   Workspace,
   {
-    readonly ensure: (settings: WorkspaceSettings) => Effect.Effect<void, WorkspaceUnavailable>;
-    readonly connection: () => Effect.Effect<Connection>;
+    readonly tools: ReadonlyArray<ToolRegistration>;
+    readonly create: (
+      init: WorkspaceInit,
+    ) => Effect.Effect<void, InvalidWorkspace | WorkspaceUnavailable>;
+    /** The app's response, or 502 when nothing listens on the port. */
     readonly forward: (port: number, request: Request) => Effect.Effect<Response>;
-    /** Whether the container is running now; never starts it. */
-    readonly isRunning: () => Effect.Effect<boolean>;
   }
 >()("tentacles/Workspace") {}

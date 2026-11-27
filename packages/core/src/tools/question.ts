@@ -1,14 +1,11 @@
 import type { Context } from "@earendil-works/chord/context";
 import { defineTool, type ToolExecutionApi } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
-import { QuestionId, type SessionId } from "@tentacles/worker-api/ids";
-import * as Effect from "effect/Effect";
+import { QuestionId } from "@tentacles/worker-api/ids";
 import * as Match from "effect/Match";
 import * as Schema from "effect/Schema";
 
 import { QuestionsDoc, type StoredQuestion } from "../session/questions";
-import { RecordDoc } from "../session/record";
-import { checkRepository, RepositoryCheckResult } from "../session/repository";
 import { AskParentResult, askParentResultSchema } from "./ask-parent-result";
 import { ToolNames } from "./tool-names";
 
@@ -69,17 +66,14 @@ const answerOf = async (api: ToolExecutionApi, id: QuestionId, context: Context)
 
 /**
  * ask_parent: stores the question under the call's task id, so a rerun after
- * an eviction finds it with the outcome of the repository check, and waits for
- * the parent's answer. While the managed repository has pending work it refuses
- * with the output of git status and the unpushed commits instead.
+ * an eviction finds it, and waits for the parent's answer.
  */
-export const askParentTool = (sessionId: SessionId, isRunning: Effect.Effect<boolean>) =>
+export const askParentTool = () =>
   defineTool({
     name: ToolNames.askParent,
     description:
       "Ask the agent that started you a question and wait for its answer. Use it when you need a " +
-      "decision you cannot make yourself. Commit and push your work first: while the repository " +
-      "has work that is not pushed, it refuses and shows the output of git status and the unpushed commits.",
+      "decision you cannot make yourself.",
     parameters: obj({
       question: str({
         description: "The question, written for someone who has not seen this conversation.",
@@ -95,23 +89,11 @@ export const askParentTool = (sessionId: SessionId, isRunning: Effect.Effect<boo
       const stored = await api.snapshot(QuestionsDoc, context);
 
       if (findQuestion(stored?.questions ?? [], id) == null) {
-        const record = await api.snapshot(RecordDoc, sessionId, context);
-
-        const repositoryCheck = await Effect.runPromise(
-          checkRepository(record?.settings.repository ?? null, api.env, isRunning),
-        );
-
-        if (RepositoryCheckResult.guards.Pending(repositoryCheck)) {
-          return toolResult(
-            AskParentResult.cases.PendingWork.make({ status: repositoryCheck.status }),
-          );
-        }
-
         await api.commit(async (tx) => {
           const draft = await tx.doc(QuestionsDoc);
 
           if (findQuestion(draft.questions, id) == null) {
-            draft.questions.push({ id, text: args.question, repositoryCheck, answer: null });
+            draft.questions.push({ id, text: args.question, answer: null });
           }
         }, context);
       }

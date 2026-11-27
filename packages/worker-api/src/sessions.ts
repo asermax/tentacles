@@ -5,7 +5,13 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 
 import { archiveKinds } from "./archive-kinds";
 import { Entry } from "./entries";
-import { InvalidArchive, QuestionNotWaiting, SessionNotFound } from "./errors";
+import {
+  InvalidArchive,
+  InvalidWorkspace,
+  QuestionNotWaiting,
+  SessionNotFound,
+  WorkspaceUnavailable,
+} from "./errors";
 import { QuestionId, SessionId } from "./ids";
 import { ApiKey } from "./middleware";
 import { Parent } from "./parent";
@@ -59,7 +65,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     HttpApiEndpoint.post("create", "/sessions", {
       payload: CreateSession,
       success: Schema.Struct({ sessionId: SessionId }),
-      error: InvalidArchive,
+      error: [InvalidArchive, InvalidWorkspace, WorkspaceUnavailable],
     }),
     HttpApiEndpoint.post("prompt", "/sessions/:sessionId/prompt", {
       params: sessionParams,

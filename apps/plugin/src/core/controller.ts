@@ -66,6 +66,8 @@ const failureText = Match.type<TentaclesError>().pipe(
       `QuestionNotWaiting: question ${error.questionId} is no longer waiting.`,
     Unauthorized: () => "Unauthorized: the Worker refused the API key in TENTACLES_API_KEY.",
     InvalidArchive: (error) => error.message,
+    InvalidWorkspace: (error) => error.message,
+    WorkspaceUnavailable: (error) => error.message,
   }),
 );
 

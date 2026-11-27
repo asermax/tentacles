@@ -103,6 +103,16 @@ export const sqlRegistryStore = (db: RegistryDatabase) =>
             }),
           ),
 
+        reportSetupFailed: (sessionId) =>
+          Effect.flatMap(Clock.currentTimeMillis, (now) =>
+            query(() => {
+              db.update(registry)
+                .set(changesFor(SessionStatuses.failed, now))
+                .where(eq(registry.sessionId, sessionId))
+                .run();
+            }),
+          ),
+
         // An entry with no status yet is left out: a parent lists only after
         // create answered, which waits for the first status.
         list: (parent) =>

@@ -26,12 +26,26 @@ export class InvalidArchive extends Schema.TaggedError<InvalidArchive>()(
   { httpApiStatus: 400 },
 ) {}
 
+export class InvalidWorkspace extends Schema.TaggedError<InvalidWorkspace>()(
+  "InvalidWorkspace",
+  { message: Schema.String },
+  { httpApiStatus: 400 },
+) {}
+
+export class WorkspaceUnavailable extends Schema.TaggedError<WorkspaceUnavailable>()(
+  "WorkspaceUnavailable",
+  { message: Schema.String },
+  { httpApiStatus: 500 },
+) {}
+
 /** Every error the API returns; the helper's command result carries it. */
 export const TentaclesError = Schema.Union([
   SessionNotFound,
   QuestionNotWaiting,
   Unauthorized,
   InvalidArchive,
+  InvalidWorkspace,
+  WorkspaceUnavailable,
 ]);
 
 export type TentaclesError = typeof TentaclesError.Type;
