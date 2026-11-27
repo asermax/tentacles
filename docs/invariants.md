@@ -13,7 +13,7 @@ The sections below are the usual kinds of rule. Keep the ones this project has r
 
 - A prompt never answers or cancels a waiting question; it reaches the agent after the answer ([question-round-trip](technical-design/question-round-trip.md)).
 - Deletion never touches a running or waiting session ([sessions](technical-design/sessions.md)).
-- A session's status changes only in reaction to its pi-durable session, except a failed workspace setup at spawn, which marks the session failed before its first run ([sessions](technical-design/sessions.md)).
+- A session's status changes only in reaction to its pi-durable session, except a failed workspace setup at spawn, which leaves only the session's registry entry, marked failed ([sessions](technical-design/sessions.md)).
 
 ## 🖥️ Interface
 
@@ -23,7 +23,7 @@ The sections below are the usual kinds of rule. Keep the ones this project has r
 
 - A session's alarm belongs to pi-durable, to resume a run after an eviction; nothing else schedules on it ([sessions](technical-design/sessions.md)).
 - tentacles' shared logic depends on the provider contracts, never on a provider directly ([runtime-components](technical-design/runtime-components.md)).
-- Every operation runs on the cheapest place that can do it: the session object, then the isolate shell, then the container ([workspace](technical-design/workspace.md), [computer-workspace](technical-design/providers/cloudflare/computer-workspace.md)).
+- Every operation runs on the cheapest place that can do it: the workspace's own storage, then the isolate shell, then the container ([workspace](technical-design/workspace.md), [computer-workspace](technical-design/providers/cloudflare/computer-workspace.md)).
 
 ## 💽 Data
 

@@ -8,31 +8,17 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-Each session has one workspace, which the session object creates at spawn through the `Workspace` contract. The provider sets it up before the session's first run: it clones the session's repository into `/workspace/repo` and writes the skills and context the parent sent into `/workspace/skills` and `/workspace/context`. It hands back the tools the agent works with, and each environment defines its own. The workspace's files live with the session: a container that stops keeps them, and deleting the session deletes them. The agent gets a browser only to validate a preview of the app it started.
+Each session has one workspace, which the session object creates at spawn through the `Workspace` contract. The provider sets it up before the session's first run: it clones the session's repository into `/workspace/repo` and writes the skills and context the parent sent into `/workspace/skills` and `/workspace/context`. It offers the tools the agent works with, and each environment defines its own. The workspace's files live with the session: a container that stops keeps them, and deleting the session deletes them. The agent gets a browser only to validate a preview of the app it started.
 
 ## 📜 The workspace contract
 
-The contract has two members that core calls, `create` and `forward`, and the tools `create` returns, whose `execute` only the harness calls. Nothing else about the environment crosses it: no execution environment, no start, stop or keepalive, no egress setting.
+The contract has three members: `tools`, the tools the harness installs, whose `execute` only the harness calls; `create`, which sets the workspace up at spawn; and `forward`, which hands a preview request to the app. Nothing else about the environment crosses it: no execution environment, no start, stop or keepalive, no egress setting.
 
-`create` · at spawn
+`tools` · whenever the session object starts
 
 ```mermaid
 flowchart LR
-  so@{ shape: rect, label: "Session object" } -->|"create, at spawn"| init@{ shape: braces, label: "WorkspaceInit
-  repository: string or null
-  (URL to clone; null clones nothing)
-  identity: GitIdentity
-  size: string
-  (container instance size)
-  image: string
-  (container image name)
-  skills: archive or null
-  context: archive or null" }
-  init --- gid@{ shape: braces, label: "GitIdentity
-  name: string
-  email: string
-  (author and committer of every commit)" }
-  init --> ws@{ shape: subproc, label: "Workspace provider" }
+  so@{ shape: rect, label: "Session object" } -->|"tools, whenever it starts"| ws@{ shape: subproc, label: "Workspace provider" }
   ws -.-> out@{ shape: braces, label: "Tool list
   (the tools the harness installs as they are)" }
   out --- tool@{ shape: braces, label: "pi-durable ToolRegistration
@@ -48,7 +34,33 @@ flowchart LR
   classDef payload stroke:#d97706
   class so worker
   class ws flow
-  class init,gid,out,tool payload
+  class out,tool payload
+```
+
+`create` · at spawn
+
+```mermaid
+flowchart LR
+  so@{ shape: rect, label: "Session object" } -->|"create, at spawn"| init@{ shape: braces, label: "WorkspaceInit
+  repository: Repository or null
+  (URL and shallow flag; null clones nothing)
+  size: string
+  (container instance size)
+  image: string
+  (container image name)
+  skills: archive or null
+  context: archive or null" }
+  init --> ws@{ shape: subproc, label: "Workspace provider" }
+  ws -.-> err@{ shape: braces, label: "Nothing, or the setup error
+  InvalidWorkspace or WorkspaceUnavailable
+  message: string" }
+  err -.->|"returns"| so
+  classDef worker fill:#dbeafe,stroke:#2563eb,color:#1f2937
+  classDef flow fill:#dcfce7,stroke:#16a34a,color:#1f2937
+  classDef payload stroke:#d97706
+  class so worker
+  class ws flow
+  class init,err payload
 ```
 
 `tool.execute` · on each call of that tool
@@ -93,11 +105,14 @@ flowchart LR
   class req,resp payload
 ```
 
-The session object creates the workspace at spawn with where to clone from, who commits, the container's size and image, and the skills and context archives the parent sent. A null repository means the session has no repository: the provider creates the folders and clones nothing. A null archive means the parent sent no skills or no context, and its folder stays empty. The repository, size and image come from the session's settings, the archives from the spawn and the identity from the deploy. The image is a name whose meaning each provider defines.
+The session object creates the workspace at spawn with where to clone from (the repository's URL and whether the clone is shallow), the container's size and image, and the skills and context archives the parent sent. A null repository means the session has no repository: the provider creates the folders and clones nothing. A null archive means the parent sent no skills or no context, and its folder stays empty. The repository, size and image come from the session's settings and the archives from the spawn. The image is a name whose meaning each provider defines. `create` returns nothing when the setup succeeds, and otherwise one of two errors, both with a message in plain words: `InvalidWorkspace` when the cause is in the spawn's request, `WorkspaceUnavailable` when the cause is outside the request.
 
-`create` returns a list of pi-durable tool registrations, each with its declaration, its replay policy and its own `execute`, and core installs them as they are. The provider sets each tool's replay: safe for tools that only read, unsafe for the rest, so after an eviction pi-durable reruns only the tools that change nothing. A tool's `execute` takes one call's arguments and returns its result. It sets the error flag when the tool fails or a command exits with a non-zero code, and carries the exit code and the output in the content.
+`tools` is a list of pi-durable tool registrations, each with its declaration, its replay policy and its own `execute`. Core installs them as they are, with the session's other extensions, every time the session object starts: at spawn, after an eviction, on its wake-up timer and for a later prompt. The provider builds them without the init, since each `execute` only reaches the session's workspace, which keeps what the setup gave it. The provider sets each tool's replay: safe for tools that only read, unsafe for the rest, so after an eviction pi-durable reruns only the tools that change nothing. A tool's `execute` takes one call's arguments and returns its result. It sets the error flag when the tool fails or a command exits with a non-zero code, and carries the exit code and the output in the content.
 
 `forward` hands a preview request to a port in the workspace and returns the app's answer, or 502 when nothing listens there.
+
+> [!NOTE] Why the tools are a member and not what `create` returns
+> The harness reads its tools from a registry that the session object fills before the harness opens. The session object starts again after every eviction, and `create` runs only once, at spawn, after the harness has opened. Tools that only `create` returned would reach no later start of the session.
 
 > [!NOTE] Why the contract returns pi-durable tools
 > The tools an environment offers depend on what it can run, so each provider writes its own and core does not translate between them. The contract depends on pi-durable's tool type the same way `SessionStorage` depends on pi-durable's storage.
@@ -128,8 +143,8 @@ flowchart LR
   so -->|"3 create with the init values"| wp
   wp -->|"4 clone, token added"| gh
   wp -->|"5 write the repository and archives"| fs
-  wp -.->|"6 tools, or the setup error"| so
-  so -.->|"7 session, or failed with the error"| api
+  wp -.->|"6 nothing, or the setup error"| so
+  so -.->|"7 session, or the error"| api
   api -.->|"8 answers"| pa
   classDef worker fill:#dbeafe,stroke:#2563eb,color:#1f2937
   classDef flow fill:#dcfce7,stroke:#16a34a,color:#1f2937
@@ -139,11 +154,11 @@ flowchart LR
   class gh,fs ext
 ```
 
-The parent spawns (1) and the Worker API creates the session (2), which creates the workspace with the init values (3). The provider clones the repository's default branch into `/workspace/repo`, shallow or full as the setting says, with the GitHub token added outside any container (4). It writes the repository and the skills and context archives into the workspace's files (5): the skills into `/workspace/skills`, one folder per skill, and the context into `/workspace/context`, each file or folder under its own name. It hands back the tools, or the error that stopped it (6). The session answers with itself, or marks itself failed and answers with the error (7), and the Worker API answers the parent (8). Only then does the first run start.
+The parent spawns (1) and the Worker API creates the session (2), which creates the workspace with the init values (3). The provider clones the repository's default branch into `/workspace/repo`, shallow or full as the setting says, with the GitHub token added outside any container (4). It writes the repository and the skills and context archives into the workspace's files (5): the skills into `/workspace/skills`, one folder per skill, and the context into `/workspace/context`, each file or folder under its own name. It reports success, or hands back the error that stopped it after clearing what it wrote (6). The session then stores its record, or keeps only a failed registry entry and answers with the error (7), and the Worker API answers the parent (8). Only then does the first run start.
 
 The setup is part of the session's initialization, so it runs once per session, and the three folders exist before the agent's first tool call. Without a repository setting, the agent clones whatever its prompt names.
 
-A failed setup's error names the known causes in plain words: a repository URL that does not exist, a token that cannot read the repository, GitHub not answering, or an archive that cannot be expanded. Any other error is returned as it was captured. The session keeps the setup error in its record and its status reads failed, with the error as the failure's detail; its first run never starts and it has no workspace to use (see [sessions](sessions.md)).
+A failed setup's error names the cause in plain words. `InvalidWorkspace` covers the causes in the spawn's request: a repository that GitHub answers 404 for, whether it does not exist or the token cannot read it, an archive that cannot be expanded, and an image or size the provider does not offer. `WorkspaceUnavailable` covers the rest: GitHub not answering and any other error, returned as it was captured. A failed setup leaves no session to use: the workspace clears what it wrote, the session stores no record, and only its registry entry stays, marked failed, until the daily job deletes it (see [sessions](sessions.md)).
 
 > [!NOTE] Why the setup runs at spawn
 > A setup that runs inside the first tool call fails in the middle of a run, where only the agent sees it. Running it before spawn answers puts the cause in front of the parent, which can fix the repository URL or the files and spawn again.
@@ -176,11 +191,11 @@ flowchart LR
 
 The agent calls a tool (1) and the harness runs that tool's `execute` (2). File tools work directly on the workspace's files (3). The command tool runs on the backend the agent names: the isolate shell (4) or the container (5). The shell hands back its output when the command ends (6); the container streams output as it is printed (7). The tool passes output to the harness's live view as it arrives, then the result with the exit code (8). The agent's instructions name `/workspace/repo`, `/workspace/skills` and `/workspace/context`.
 
-The agent chooses where each command runs, through the tools. Each operation runs on the cheapest place that can do it: the session object for files and git, then the isolate shell, and the container only when the work needs it. The provider writes the description of each backend the agent picks from, so the text matches what that backend can run.
+The agent chooses where each command runs, through the tools. Each operation runs on the cheapest place that can do it: the workspace's own storage for files and git, then the isolate shell, and the container only when the work needs it. The provider writes the description of each backend the agent picks from, so the text matches what that backend can run.
 
 | Tool | What it does |
 |---|---|
-| the workspace's tools | whatever `create` returned: file tools and a command tool that takes the backend to run on; their names are the environment's own ([computer-workspace](providers/cloudflare/computer-workspace.md) lists Cloudflare's) |
+| the workspace's tools | the contract's `tools`: file tools and a command tool that takes the backend to run on; their names are the environment's own ([computer-workspace](providers/cloudflare/computer-workspace.md) lists Cloudflare's) |
 | codemode | runs a script that calls the other tools by name except `ask_parent`; scripts keep `models.*` (the model catalog, classify and generateImages) through the session's providers |
 | subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; run and spawn take an optional agent name, and the subagent then starts with that agent definition's prompt. The root and its children have the tool, so a child can start subagents of its own; a grandchild cannot |
 | skill | given the name of one of the session's skills, returns a block pointing at its SKILL.md in `/workspace/skills`, which the agent then reads; an unknown name fails, naming the skills that exist |
@@ -198,19 +213,17 @@ agent-browser is not part of tentacles: the agent installs it and runs it in the
 ```mermaid
 flowchart LR
     O(["Operator"]) -->|"1 sets author name and email"| V[("Deploy variables, required")]
-    V -->|"2 deploy fails when either is missing"| W["Worker"]
-    W -->|"3 hands both to the session object"| S["Session object"]
-    S -->|"4 create, with the identity"| P["Workspace provider"]
-    P -->|"5 sets it on every git route"| C["Agent's git commits"]
+    V -->|"2 deploy fails when either is missing"| P["Workspace provider"]
+    P -->|"3 reads both, sets them on every git route"| C["Agent's git commits"]
     classDef ext fill:#f3f4f6,stroke:#6b7280,color:#111827
     classDef mod fill:#dcfce7,stroke:#16a34a,color:#14532d
     classDef store fill:#ffedd5,stroke:#ea580c,color:#7c2d12
     class O ext
-    class W,S,P,C mod
+    class P,C mod
     class V store
 ```
 
-The operator sets an author name and an email as two deploy variables, `TENTACLES_GIT_AUTHOR_NAME` and `TENTACLES_GIT_AUTHOR_EMAIL` (1). Both are required, and a deploy without either fails (2). The Worker hands both to each session object (3), which passes them to `create` as the git identity (4). The provider sets the identity on every git route the agent can commit through, so every commit carries the deploy's identity as author and committer, whatever the session's provider (5). The contract does not depend on the variables' names.
+The operator sets an author name and an email as two deploy variables, `TENTACLES_GIT_AUTHOR_NAME` and `TENTACLES_GIT_AUTHOR_EMAIL` (1). Both are required, and a deploy without either fails (2). The workspace provider reads both itself and sets them on every git route the agent can commit through, so every commit carries the deploy's identity as author and committer, whatever the session's model provider (3). Nothing about the identity crosses the contract.
 
 The agent cannot change the identity, and its instructions do not mention it. The name and email are not credentials, so passing them into a container keeps the rule that credentials stay out of containers (see [runtime-components](runtime-components.md)).
 
@@ -220,15 +233,15 @@ The agent cannot change the identity, and its instructions do not mention it. Th
 stateDiagram-v2
   [*] --> SettingUp: spawn creates the session
   SettingUp --> Ready: repository cloned, skills and context written
-  SettingUp --> Failed: setup error, session marked failed
+  SettingUp --> Failed: setup error, workspace cleared
   Ready --> ContainerRunning: first command sent to the container
   ContainerRunning --> Ready: platform stops the idle container
   Ready --> [*]: session deleted
   ContainerRunning --> [*]: session deleted
-  Failed --> [*]: session deleted
+  Failed --> [*]: registry entry deleted a month later
 ```
 
-The provider sets up the workspace at spawn, and its files live with the session from then on. The container starts on the first command sent to it, and the provider stops it when it has been idle; core never starts or stops it. A stop keeps `/workspace` and loses the running processes and anything outside `/workspace`, which is the container's own disk. A failed setup leaves the session failed, with no workspace to use. Deleting the session deletes the workspace, unpushed work included, and only branches the agent pushed outlive it.
+The provider sets up the workspace at spawn, and its files live with the session from then on, in a place the provider ties to the session alone: a later start of the session finds the same workspace. The container starts on the first command sent to it, and the provider stops it when it has been idle; core never starts or stops it. A stop keeps `/workspace` and loses the running processes and anything outside `/workspace`, which is the container's own disk. A failed setup clears the workspace and leaves only the session's registry entry, marked failed. Deleting the session deletes the workspace, unpushed work included, and only branches the agent pushed outlive it.
 
 > [!NOTE] Why tentacles does not check for unpushed work
 > The workspace's files live with the session, so a container stop loses no work, and work is lost only when the session is deleted a month after its last run. A provider whose workspace can lose files on a stop protects them itself.

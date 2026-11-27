@@ -8,7 +8,7 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-A session is one remote agent: a session object keyed by its session id, where pi-durable keeps its conversations and tentacles keeps a record of who started it, with which settings, and in what state it is. The registry keeps one entry per session so the list call returns a parent's sessions with their status in one call. At spawn, a session sets up its workspace and then starts running; a failed setup leaves it failed instead. It goes idle or failed when a run stops, waits while its agent asks a question, and stays readable after it is closed. A session also carries the skills and agent definitions its parent sent at spawn, which its agent finds by name, and the context files, which sit in `/workspace/context`. A daily job deletes every session whose last run stopped more than a month ago.
+A session is one remote agent: a session object keyed by its session id, where pi-durable keeps its conversations and tentacles keeps a record of who started it, with which settings, and in what state it is. The registry keeps one entry per session so the list call returns a parent's sessions with their status in one call. At spawn, a session sets up its workspace and then starts running; a failed setup leaves only its registry entry, marked failed. It goes idle or failed when a run stops, waits while its agent asks a question, and stays readable after it is closed. A session also carries the skills and agent definitions its parent sent at spawn, which its agent finds by name, and the context files, which sit in `/workspace/context`. A daily job deletes every session whose last run stopped more than a month ago.
 
 ## 🗺️ A session from spawn to deletion
 
@@ -26,10 +26,10 @@ sequenceDiagram
     H->>H: check the files, pack the archives
     H->>W: create
     W->>S: create
-    S->>S: store the record and the documents
-    S->>R: add the entry with settings, skill and agent names
     S->>Ws: create: clone the repository, expand the skills and context
-    Ws-->>S: the workspace's tools, or the setup error
+    Ws-->>S: done, or the setup error
+    S->>R: add the entry with settings, skill and agent names
+    S->>S: store the record and the documents
     S-->>P: session id once the first run starts, or the setup error
     loop every run
         S->>S: expand the prompt's named skills
@@ -53,7 +53,7 @@ sequenceDiagram
     Note over W,S: a month after the last run stopped,<br/>the daily job deletes the session and drops its entry
 ```
 
-The parent spawns with a name, a first prompt, its settings and any skill, agent and context paths (1). The plugin checks the files and packs them into up to three archives (2), and sends create through the Worker to a new session (3, 4). The session stores its record and its skills, agents and context documents (5) and adds its registry entry (6). It then creates its workspace, which clones the repository and expands the skills and context archives into `/workspace` (7), and hands back the workspace's tools or the setup error (8). The session answers with its id once the first run has started, or with the setup error, which leaves it failed (9; [workspace](workspace.md)).
+The parent spawns with a name, a first prompt, its settings and any skill, agent and context paths (1). The plugin checks the files and packs them into up to three archives (2), and sends create through the Worker to a new session (3, 4). The session creates its workspace, which clones the repository and expands the skills and context archives into `/workspace` (5) and reports success or hands back the setup error (6). The session adds its registry entry (7) and stores its record and its skills, agents and context documents (8), then answers with its id once the first run has started (9). When the setup fails, the session stores nothing, marks its registry entry failed and answers with the setup error ([workspace](workspace.md)).
 
 In every run, the session expands any skill the prompt names (10), sends the conversation to the model (11, 12) and runs the tools the model calls in the workspace (13, 14). When the agent asks the parent, the session waits, the plugin wakes the parent with the question and the answer continues the run (15 to 19; [question-round-trip](question-round-trip.md)).
 
@@ -92,7 +92,6 @@ erDiagram
         json settings
         boolean closed
         datetime last_stopped "nullable"
-        text setup_error "nullable"
     }
     QUESTION {
         string id PK
@@ -124,18 +123,18 @@ pi-durable's conversations (the root, its forks and subagent conversations) live
 
 ### 🧠 Session
 
-SESSION is the record each session object keeps next to pi-durable's history. `id` is the session id the object is keyed by. `name` is required and given by the parent at spawn; it is what the parent's status line shows. `parent_harness` (pi or claude) and `parent_session_id` identify the parent: its harness and that harness's session id. `settings` holds what the parent chose at spawn, with the plugin's defaults for anything the parent left out: provider, model, effort level, image and size, and optionally the repository tentacles clones into the workspace. close sets `closed`, and a prompt that reopens the session clears it. `last_stopped` is the time the session's last run stopped, and is empty while the first run is going. `setup_error` holds why the workspace's setup failed at spawn, and is empty for every session whose setup succeeded (see [workspace](workspace.md)).
+SESSION is the record each session object keeps next to pi-durable's history. `id` is the session id the object is keyed by. `name` is required and given by the parent at spawn; it is what the parent's status line shows. `parent_harness` (pi or claude) and `parent_session_id` identify the parent: its harness and that harness's session id. `settings` holds what the parent chose at spawn, with the plugin's defaults for anything the parent left out: provider, model, effort level, image and size, and optionally the repository tentacles clones into the workspace. close sets `closed`, and a prompt that reopens the session clears it. `last_stopped` is the time the session's last run stopped, and is empty while the first run is going.
 
 The session state it sends the parent also carries its settings and the names of its skills and agents.
 
-The session's status is not a field. The session object watches pi-durable's state and derives it: a run going is running, an unanswered question is waiting, no run with `closed` set is closed, no run with the last run's failure recorded is failed (pi-durable keeps why the run failed), and no run otherwise is idle. A `setup_error` makes the status failed, with that error as the failure's detail. Each time the derived status changes, the session reports it to the registry and sends the session state to the parent, so a status always follows something the session did.
+The session's status is not a field. The session object watches pi-durable's state and derives it: a run going is running, an unanswered question is waiting, no run with `closed` set is closed, no run with the last run's failure recorded is failed (pi-durable keeps why the run failed), and no run otherwise is idle. Each time the derived status changes, the session reports it to the registry and sends the session state to the parent, so a status always follows something the session did.
 
-> [!NOTE] Why the session records a failed setup itself
-> pi-durable records a failure only when a run ends, and the setup fails before any run exists. The session keeps the setup error in its own record, which makes a failed setup the one status that does not come from pi-durable. It happens only before the first run, since the first run starts only after a successful setup.
+> [!NOTE] Why a failed setup leaves only a registry entry
+> pi-durable records a failure only when a run ends, and the setup fails before any run exists. The session writes no record before the setup succeeds, so a failed setup leaves no session to recover: the parent gets the error, the registry entry reads failed, and every other call on it answers that the session is not found. That entry is the one status that does not come from pi-durable.
 
 ### 📒 Registry entry
 
-REGISTRY_ENTRY lives in the registry, one for the whole deploy, with one entry per session: the session id, its name, the parent's harness and session id, the session's status (the same values as the session's derived status, closed included, and empty until the session reports its first one) and `last_stopped`, the time the last run stopped. When the session adds its entry at create, it also writes three values that never change: `settings`, and `skill_names` and `agent_names`, the names of the skills and agent definitions its spawn sent, which it reads from the archives. The registry records `last_stopped` itself when a status change reports a stopped run, keeps it when one stopped status follows another, and clears it when a new run starts. The session updates its entry on every state change, so the list call and the plugin's start-up sync get each session's status without asking each session. The daily cleanup job picks its candidates from the registry's `last_stopped`, and drops the entry after it deletes the session.
+REGISTRY_ENTRY lives in the registry, one for the whole deploy, with one entry per session: the session id, its name, the parent's harness and session id, the session's status (the same values as the session's derived status, closed included, and empty until the session reports its first one) and `last_stopped`, the time the last run stopped. When the session adds its entry at create, it also writes three values that never change: `settings`, and `skill_names` and `agent_names`, the names of the skills and agent definitions its spawn sent, which it reads from the archives. The registry records `last_stopped` itself when a status change reports a stopped run, keeps it when one stopped status follows another, and clears it when a new run starts. A failed setup reports failed on a new entry, which counts as its last stop, so the daily job deletes it a month later like any other session. The session updates its entry on every state change, so the list call and the plugin's start-up sync get each session's status without asking each session. The daily cleanup job picks its candidates from the registry's `last_stopped`, and drops the entry after it deletes the session.
 
 `preview_port` and `preview_token` hold the session's preview while one is open, and are empty otherwise. A session has at most one preview, and only to validate the app in the preview's browser; the agent validates anything else, such as an API, inside the workspace with no preview. `preview_port` is the workspace port the preview exposes. `preview_token` is a random UUID that the registry generates when the preview tool opens a preview. It is the only value the registry returns for the new preview, so a preview URL carries neither the API key nor the session id. Opening a preview while one is open replaces it: the previous token stops working and its browser closes. When the run stops, the registry clears both fields. [workspace](workspace.md) covers how the agent opens and uses a preview.
 
@@ -161,7 +160,8 @@ The API key and the Claude and GitHub credentials are Worker secrets, and none o
 ```mermaid
 stateDiagram-v2
     [*] --> Running : spawn, setup succeeds (first prompt)
-    [*] --> Failed : spawn, setup fails
+    [*] --> SetupFailed : spawn, setup fails
+    SetupFailed --> Deleted : a month after the failure
     Running --> Idle : run finishes
     Running --> Waiting : ask_parent asks
     Waiting --> Running : answer
@@ -180,7 +180,8 @@ stateDiagram-v2
 
     note right of Running : working, prompts follow up or steer
     note right of Waiting : question shown to the parent,<br/>prompts queue as steers until answered
-    note right of Failed : like idle, shows the last run failed,<br/>or why the setup failed
+    note right of Failed : like idle, shows the last run failed
+    note left of SetupFailed : only the registry entry, marked failed,<br/>no record, cannot be prompted
     note left of Closed : kept and readable, a prompt reopens it
 
     classDef working fill:#dbeafe,stroke:#2563eb,color:#1e293b
@@ -191,11 +192,11 @@ stateDiagram-v2
     class Running working
     class Waiting waiting
     class Idle done
-    class Failed failed
+    class Failed,SetupFailed failed
     class Closed,Deleted ended
 ```
 
-A session starts running when the parent spawns it, since spawn carries the first prompt; the session stores the skills and agent definitions and sets up its workspace before the run starts. When the setup fails, the session starts failed: its first run never starts, it has no workspace to use, and the failure carries the setup error. While it runs, a prompt from the parent follows up or steers. An eviction is not a state: pi-durable resumes the run by the session's alarm and the session stays running.
+A session starts running when the parent spawns it, since spawn carries the first prompt; the session stores the skills and agent definitions and sets up its workspace before the run starts. When the setup fails, no session starts: the workspace clears what it wrote, the session stores no record, and the parent gets the setup error. Only the registry entry stays, marked failed, so the parent's list shows it. A prompt, answer, status or messages call on that session answers that the session is not found. The daily job deletes the entry a month after the failure. While it runs, a prompt from the parent follows up or steers. An eviction is not a state: pi-durable resumes the run by the session's alarm and the session stays running.
 
 When the agent asks a question, the session waits. The conversation cannot continue until the parent answers. A prompt sent meanwhile is a steer whatever its mode, and reaches the agent after the answer; it neither answers nor cancels the question.
 
@@ -327,18 +328,18 @@ sequenceDiagram
         H->>H: pack one archive per kind that has paths
         H->>+W: create with the archives
         W->>+S: create
-        S->>DB: skills, agents and context documents
-        S->>R: add the entry with settings, skill and agent names
         S->>Ws: create with the skills and context archives
         alt the setup succeeds
-            Ws-->>S: the workspace's tools
+            Ws-->>S: done
+            S->>R: add the entry with settings, skill and agent names
+            S->>DB: skills, agents and context documents
             S->>S: start the first run
             S-->>W: started
             W-->>H: session id
             H-->>P: session id
         else the setup fails
-            Ws-->>S: the setup error
-            S->>R: status failed
+            Ws-->>S: the setup error, the workspace cleared
+            S->>R: add the entry, status failed
             S-->>-W: the setup error
             W-->>-H: the setup error
             H-->>-P: the setup error
@@ -346,7 +347,7 @@ sequenceDiagram
     end
 ```
 
-The parent calls the spawn tool with paths (1). The plugin's helper stats every path and reads and checks each SKILL.md and agent definition file (2). On any failure, the helper returns every problem as the spawn tool's result and sends nothing (3). Otherwise it packs one archive for each kind that has paths (4) and sends create with them (5), which the Worker hands to the session (6). The session reads every archive again to build the skills and agents documents and writes the context document (7). When it cannot read one or more archives, create returns one error that names each invalid archive and its problem, and the session stores nothing (see [worker-api](worker-api.md)). It adds its registry entry with the settings and the skill and agent names it read (8), and creates its workspace with the skills and context archives (9), which the provider expands into `/workspace/skills`, one folder per skill, and `/workspace/context`. When the setup succeeds, the workspace hands back its tools (10), the session starts the first run (11), and create answers with the session id once the run has started (12 to 14). When the setup fails, the workspace hands back the setup error (15), the session records it and reports the failed status (16), and create answers with the error (17 to 19).
+The parent calls the spawn tool with paths (1). The plugin's helper stats every path and reads and checks each SKILL.md and agent definition file (2). On any failure, the helper returns every problem as the spawn tool's result and sends nothing (3). Otherwise it packs one archive for each kind that has paths (4) and sends create with them (5), which the Worker hands to the session (6). The session reads every archive again; when it cannot read one or more, create returns one error that names each invalid archive and its problem, and the session stores nothing (see [worker-api](worker-api.md)). It creates its workspace with the skills and context archives (7), which the provider expands into `/workspace/skills`, one folder per skill, and `/workspace/context`. When the setup succeeds (8), the session adds its registry entry with the settings and the skill and agent names it read (9), builds the skills and agents documents and writes the context document (10), starts the first run (11), and create answers with the session id once the run has started (12 to 14). When the setup fails, the workspace clears what it wrote and hands back the setup error (15), the session adds its registry entry with the failed status and stores nothing else (16), and create answers with the error (17 to 19).
 
 > [!NOTE] Why the archives travel in create
 > Only the workspace's setup reads the skills and context archives, and it runs once, at spawn. Handing the archives to create lets the session drop them once the files are in `/workspace`, so the session never stores them twice.
@@ -435,7 +436,7 @@ flowchart LR
     class Reg,S orange
 ```
 
-A job runs once a day through the `Scheduler` contract (see [runtime-components](runtime-components.md)). It reads the registry and picks the sessions whose last run stopped more than a month ago. A running or waiting session is never a candidate. For each candidate it deletes the session through its session object, which clears the object's storage, removing its history, its record, its skills and agent definitions and its workspace with every file in it, and then drops the registry entry. The entry goes only after the session is gone, so a deletion that stopped halfway leaves the session a candidate, and the next day's job deletes it again and drops the entry. No preview is left by then, since the preview closes when a run stops. Nothing outside tentacles is touched: branches the agent pushed stay on GitHub, and work it never pushed is gone with the workspace.
+A job runs once a day through the `Scheduler` contract (see [runtime-components](runtime-components.md)). It reads the registry and picks the sessions whose last run stopped more than a month ago. A running or waiting session is never a candidate. For each candidate it deletes the session through its session object. The session object deletes the session's workspace with every file in it, then clears its own storage, which removes its history, its record and its skills and agent definitions. The job then drops the registry entry. The entry goes only after the session is gone, so a deletion that stopped halfway leaves the session a candidate, and the next day's job deletes it again and drops the entry. No preview is left by then, since the preview closes when a run stops. Nothing outside tentacles is touched: branches the agent pushed stay on GitHub, and work it never pushed is gone with the workspace.
 
 tentacles does not tell the parent. The parent's plugin removes the session from its local list the first time it learns of the deletion (see [plugin](plugin.md)).
 

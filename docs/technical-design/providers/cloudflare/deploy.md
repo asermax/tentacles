@@ -1,6 +1,6 @@
 ---
 title: "Cloudflare deploy"
-summary: "How the Cloudflare provider fills each contract: the Worker and its routes, the session and registry Durable Objects, the Codemode Worker, the shared Claude container, the outbound handlers and the deploy stack."
+summary: "How the Cloudflare provider fills each contract: the Worker and its routes, the session and registry Durable Objects, the Workspace Worker with its workspace Durable Objects, the Codemode Worker, the shared Claude container, the outbound handlers and the deploy stack."
 created: "2026-11-23"
 ---
 
@@ -8,7 +8,7 @@ created: "2026-11-23"
 
 ## 🔭 Overview
 
-On Cloudflare, tentacles runs as one Worker that is the only entry point, one registry Durable Object for everything that spans sessions, one session Durable Object per session running pi-durable and holding the session's Computer workspace, a Codemode Worker for codemode scripts, and one Claude container shared by every session. Models other than Claude go through AI Gateway, and the preview's browser is a Browser Run browser opened through a binding. No container holds a credential: the workspace's git client and egress gateway add the GitHub token, and the Claude container's outbound handler adds the subscription token. One Alchemy stack declares every resource.
+On Cloudflare, tentacles runs as one Worker that is the only entry point, one registry Durable Object for everything that spans sessions, one session Durable Object per session running pi-durable, a Workspace Worker with one workspace Durable Object per session holding the session's Computer workspace, a Codemode Worker for codemode scripts, and one Claude container shared by every session. Models other than Claude go through AI Gateway, and the preview's browser is a Browser Run browser opened through a binding. No container holds a credential: the workspace's git client and egress gateway, in the Workspace Worker, add the GitHub token, and the Claude container's outbound handler adds the subscription token. One Alchemy stack declares every resource.
 
 ## 🏗️ Architecture
 
@@ -20,7 +20,8 @@ flowchart LR
     subgraph cf["Cloudflare"]
         Worker@{ shape: rect, label: "Worker<br/>API key, routes,<br/>preview route" }
         Registry@{ shape: rect, label: "Registry DO<br/>sessions per parent,<br/>each session's preview" }
-        Session@{ shape: rect, label: "Session DO<br/>pi-durable Harness, SQLite,<br/>socket, alarm,<br/>Computer workspace, git client,<br/>egress gateway with the CDP relay" }
+        Session@{ shape: rect, label: "Session DO<br/>pi-durable Harness, SQLite,<br/>socket, alarm, workspace tools" }
+        WsObj@{ shape: rect, label: "Workspace DO, Workspace Worker<br/>Computer workspace, git client,<br/>egress gateway with the CDP relay" }
         Shell@{ shape: rect, label: "Isolate shell<br/>Dynamic Worker" }
         Workspace@{ shape: rect, label: "Workspace container<br/>computerd, /workspace mount,<br/>agent-browser" }
         Claude@{ shape: rect, label: "Claude container, shared<br/>relay and claude CLI" }
@@ -36,11 +37,13 @@ flowchart LR
     Worker -->|"listings, preview lookups,<br/>cleanup drops the entry"| Registry
     Worker -->|"session requests by id,<br/>preview requests through fetch,<br/>cleanup deletes the session"| Session
     Session -->|"status changes,<br/>preview opened and cleared"| Registry
-    Session -->|"exec, backend shell"| Shell
-    Session -->|"exec, backend container,<br/>fetchPort"| Workspace
-    Workspace -->|"every request, intercepted"| Session
-    Session -->|"git client and gateway:<br/>GitHub token added"| GitHub
-    Session -->|"binding: preview's browser,<br/>CDP relay"| Browser
+    Session -->|"setup, tool calls, preview fetch,<br/>delete, by session id"| WsObj
+    WsObj -->|"exec, backend shell"| Shell
+    WsObj -->|"exec, backend container,<br/>fetchPort"| Workspace
+    Workspace -->|"every request, intercepted"| WsObj
+    WsObj -->|"git client and gateway:<br/>GitHub token added"| GitHub
+    WsObj -->|"CDP relay"| Browser
+    Session -->|"binding: preview's browser"| Browser
     Session -->|"Claude calls"| Claude
     Session -->|"other models"| Gateway
     Session -->|"codemode scripts"| Codemode
@@ -55,7 +58,7 @@ flowchart LR
     classDef violet fill:#ede9fe,stroke:#7c3aed,color:#1f2937
     class Plugin grey
     class Worker blue
-    class Registry,Session,Shell,Workspace,Claude,Codemode green
+    class Registry,Session,WsObj,Shell,Workspace,Claude,Codemode green
     class Egress amber
     class Anthropic,GitHub,Gateway,Browser violet
 ```
@@ -70,7 +73,17 @@ The registry is one Durable Object for the whole deploy, holding the entries [se
 
 ### 🧠 Session Durable Object
 
-Each session is one Durable Object keyed by its session id, and it fills five roles: `SessionHost`, `SessionStorage` (its SQLite), `WakeTimer` (its alarm), `ParentChannel` (its WebSockets) and `Workspace`. It runs pi-durable's Harness over its SQLite, with the question tool and the `onWake` alarm that resumes a run after an eviction. At spawn it builds the session's Computer workspace in the same SQLite storage and runs its setup; from then on the workspace's files, its git client and its container live in the object ([computer-workspace](computer-workspace.md)). The egress gateway that handles the container's outbound requests, including the CDP relay, also runs in the object. It sends each model call where the session's settings say: Claude models to the shared Claude container, other providers to AI Gateway through `env.AI`. It opens and closes the preview's Browser Run browser through its own binding. The daily cleanup job deletes a session through its Durable Object, which clears the object's storage, the workspace's files included, then removes the session's registry entry itself.
+Each session is one Durable Object keyed by its session id, and it fills four roles: `SessionHost`, `SessionStorage` (its SQLite), `WakeTimer` (its alarm) and `ParentChannel` (its WebSockets). It runs pi-durable's Harness over its SQLite, with the question tool and the `onWake` alarm that resumes a run after an eviction. The `Workspace` role lives in the session's workspace Durable Object, which the session object reaches by the same session id. At spawn, the session object calls the workspace object's setup. Every time it starts, it installs the workspace tools, which call the workspace object. It also hands the workspace object the preview requests ([computer-workspace](computer-workspace.md)). It sends each model call where the session's settings say: Claude models to the shared Claude container, other providers to AI Gateway through `env.AI`. It opens and closes the preview's Browser Run browser through its own binding. The daily cleanup job deletes a session through its Durable Object, which deletes its workspace Durable Object first and then clears its own storage; the job then removes the session's registry entry itself.
+
+### 🗂️ Workspace Worker and workspace Durable Object
+
+The Workspace Worker is a separate Worker, like the Codemode Worker. Its main module exports the workspace Durable Object class, Computer's two entrypoints and a default handler, with a Worker Loader binding for the isolate shell. Each session has one workspace Durable Object, named by the session id, which holds the session's Computer workspace: its files in the object's SQLite, its git client and its container. A later start of the session reaches the same object, and nothing else ties the two. The Workspace Worker's default handler is the container's egress gateway, including the CDP relay. Deleting the session deletes the object: it stops its container, clears its storage and resets itself ([computer-workspace](computer-workspace.md)).
+
+> [!NOTE] Why the workspace has a Durable Object of its own
+> Computer expects the class that hosts a workspace to carry its container mixin and the Worker to export its two entrypoints. The deploy stack generates the tentacles Worker's entry module and its session object class, and allows neither, so Computer inside the session object needs stand-ins that copy Computer's internals. A Worker with a hand-written main module, like the Codemode Worker, hosts Computer as Computer documents it, and costs one call between the two objects, about 8 to 12 ms.
+
+> [!TIP] Considered and not chosen: the workspace inside the session object
+> This option works. It loads Computer at run time, applies the mixin to a stand-in object, and uses stand-in entrypoints copied from Computer's private code. A Computer upgrade can change that code with nothing failing at build time.
 
 ### 🤖 Shared Claude container
 
@@ -85,7 +98,7 @@ The scripts the agent writes with its codemode tool run in pi-durable's QuickJS 
 
 ### 🔐 Credentials and outbound handlers
 
-No container holds a credential. The Claude container's outbound handler adds the Claude subscription token to every request to Anthropic. The workspace adds the GitHub token in two places outside the container: its git client's fetch, for clone, fetch and push from the session object and the isolate shell, and its egress gateway, for every request the container sends to github.com ([computer-workspace](computer-workspace.md)). Both tokens are Worker secrets, as is the API key and the secret that signs CDP tokens. The author name and email every session commits with are deploy variables; they are not credentials, and [workspace](../../workspace.md) covers how they reach every git route.
+No container holds a credential. The Claude container's outbound handler adds the Claude subscription token to every request to Anthropic. The workspace adds the GitHub token in two places outside the container, both in the Workspace Worker: its git client's fetch, for clone, fetch and push from the workspace Durable Object and the isolate shell, and its egress gateway, for every request the container sends to github.com ([computer-workspace](computer-workspace.md)). The tokens are Worker secrets, as are the API key and the secret that signs CDP tokens. The tentacles Worker holds the API key, the Claude token and the CDP secret, and the Workspace Worker holds the GitHub token, the CDP secret and the Browser Run binding its relay uses. The author name and email every session commits with are deploy variables of the Workspace Worker, which reads them itself; they are not credentials, and [workspace](../../workspace.md) covers how they reach every git route.
 
 > [!WARNING] Containers run where Cloudflare places them
 > Containers are meant to run in North America (regions ENAM and WNAM), and nothing enforces it: Cloudflare offers no region setting for containers a Durable Object owns. A session started far from North America can get a container placed elsewhere, and nothing reports it.
@@ -99,8 +112,8 @@ No container holds a credential. The Claude container's outbound handler adds th
 | `WakeTimer` | the session Durable Object's alarm |
 | `ParentChannel` | the session Durable Object's WebSockets |
 | `RegistryStore` | the registry Durable Object |
-| `Workspace` | a Computer workspace in the session Durable Object, with the isolate shell and container backends ([computer-workspace](computer-workspace.md)) |
-| `Browser` | Browser Run through the session object's binding; agent-browser reaches it through the CDP relay in the egress gateway ([preview-and-browser](preview-and-browser.md)) |
+| `Workspace` | a Computer workspace in the session's workspace Durable Object, in the Workspace Worker, with the isolate shell and container backends; the session object builds the tools and calls the object ([computer-workspace](computer-workspace.md)) |
+| `Browser` | Browser Run through the session object's binding; agent-browser reaches it through the CDP relay in the workspace's egress gateway ([preview-and-browser](preview-and-browser.md)) |
 | `PreviewRouter` | the token subdomain `https://<token>-tentacles-preview.asermax.com`, served by the Worker's preview route and the registry |
 | `ModelProviders` | the shared Claude container for Claude, AI Gateway through `env.AI` for the rest |
 | `Scheduler` | a cron trigger on the Worker |
@@ -108,7 +121,10 @@ No container holds a credential. The Claude container's outbound handler adds th
 
 ## 📦 The deploy stack
 
-The provider is the `provider-cloudflare` package. It exports an Alchemy stack, which a deploy runs on the stage `prod`. The stack declares the Worker with its routes and cron trigger, the two Durable Object classes, the workspace container's image and the Claude container, the Codemode Worker, the Browser Run and AI bindings, and the secrets and deploy variables. The code that runs in those resources builds the Layer of the contracts from the same declarations ([runtime-components](../../runtime-components.md)).
+The provider is the `provider-cloudflare` package. It exports an Alchemy stack, which a deploy runs on the stage `prod`. The stack declares the Worker with its routes and cron trigger, the session and registry Durable Object classes, the Workspace Worker with the workspace Durable Object class, the workspace container's image and the Worker Loader binding, the Claude container, the Codemode Worker, the Browser Run and AI bindings, and the secrets and deploy variables. The tentacles Worker binds the workspace and codemode classes by their Workers' script names, taken from those Workers' declarations, so the stack deploys both Workers before the tentacles Worker. The code that runs in those resources builds the Layer of the contracts from the same declarations ([runtime-components](../../runtime-components.md)).
+
+> [!WARNING] A binding by a fixed script name can deploy before its Worker
+> The stack orders resources by the values one passes to another. A binding that names its Worker with a fixed string gives the stack nothing to order by, and a first deploy can create the tentacles Worker before the Worker that exports the class, which fails with `DurableObjectClassNotFound`; a second deploy passes.
 
 ---
 

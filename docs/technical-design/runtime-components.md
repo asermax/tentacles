@@ -55,7 +55,7 @@ The **API entry** checks the API key on every plugin request and socket, then ro
 
 The **registry** is the one store that spans sessions: an entry per session with its name, its parent, its status, the time its last run stopped, its settings and skill and agent names, and the session's preview while one is open. [sessions](sessions.md) lists the fields of each entry.
 
-The **session object** is one live instance per session, keyed by its session id. It runs pi-durable's Harness over its own storage, with the question tool and the wake-up timer that resumes a run after an eviction. It creates the session's workspace at spawn and installs the tools the workspace returns, holds the parent's socket, sends each model call to the provider the settings name, and opens and closes the preview's browser. It never writes the status ahead of the run: it watches pi-durable's state and tells the registry each time the derived status changes.
+The **session object** is one live instance per session, keyed by its session id. It runs pi-durable's Harness over its own storage, with the question tool and the wake-up timer that resumes a run after an eviction. It creates the session's workspace at spawn, installs the workspace's tools every time it starts, holds the parent's socket, sends each model call to the provider the settings name, and opens and closes the preview's browser. It never writes the status ahead of the run: it watches pi-durable's state and tells the registry each time the derived status changes.
 
 The **workspace** holds the session's files under `/workspace` and runs the agent's commands on the cheapest backend that can run them, the isolate shell or the container. Its git reaches GitHub with the token added outside the container. [workspace](workspace.md) covers its contract, setup and tools.
 
@@ -72,7 +72,7 @@ Each component above plays a role that any provider has to fill. Several roles a
 | Wake-up timer | `WakeTimer` | set or clear the one timer that resumes a run after an eviction | pi-durable's `onWake`; the host writes the timer |
 | Parent socket | `ParentChannel` | send the session state to every socket the parent holds open | none |
 | Registry of sessions and their preview | `RegistryStore` | add an entry, record a status and the time a run stops, list one parent's sessions, open a preview and return its token, resolve and clear a preview, remove an entry, find the sessions stopped before a given time | none |
-| Workspace: the session's files and the backends that run its commands | `Workspace` | `create(init)`: set up the workspace at spawn from the repository URL or none, the git identity, the container's size and image, and the skills and context archives, and return the tools the harness installs, each with its replay policy and its own execute; `forward`: hand a preview request to a port and return the app's answer, 502 when nothing listens | pi-durable's tool registrations |
+| Workspace: the session's files and the backends that run its commands | `Workspace` | `tools`: the tools the harness installs, each with its replay policy and its own execute; `create(init)`: set up the workspace at spawn from the repository or none, the container's size and image, and the skills and context archives; `forward`: hand a preview request to a port and return the app's answer, 502 when nothing listens | pi-durable's tool registrations |
 | Browser | `Browser` | open a browser for the session's preview, returning the CDP URL agent-browser connects to, and close it | agent-browser speaks CDP to any URL |
 | Preview routing | `PreviewRouter` | the public URL a preview token is served on | none |
 | Models | `ModelProviders` | every model provider the session's settings can name | pi-ai providers |
@@ -110,7 +110,7 @@ flowchart LR
 The calls run both ways. The provider receives every outside event (the API requests, the preview route, the cron trigger and the alarm) and calls the common logic. Each session object hosts its session's logic. The common logic calls the provider only through the contracts. `SessionHost` goes both ways: the provider hosts each session, and the common logic reaches a session by its id through it.
 
 > [!TIP] Considered and not taken: roles from different providers in one deploy
-> On Cloudflare one session object fills five roles (`SessionHost`, `SessionStorage`, `WakeTimer`, `ParentChannel`, and `Workspace`, whose files and container live in it), so a role taken from another provider would have to split that object apart. One provider per deploy keeps each provider's parts together.
+> On Cloudflare one session object fills four roles (`SessionHost`, `SessionStorage`, `WakeTimer` and `ParentChannel`) and reaches its paired workspace object by the session id, so a role taken from another provider would have to split that pair apart. One provider per deploy keeps each provider's parts together.
 
 > [!NOTE] Why credentials are not a contract
 > Keeping credentials out of containers is how a provider implements `Workspace` and `ModelProviders`: it adds the tokens to requests outside the container, in its git client and at egress. Each provider keeps them out in its own way, so the shared logic never sees a credential and has nothing to ask a contract for.
@@ -124,7 +124,7 @@ Each contract in the table under 🔌 Provider-neutral roles is an Effect servic
 
 Shapes the API defines, such as the session state, pass through the contracts with the types the API declares, so a contract and the API cannot disagree.
 
-A member that can fail declares a tagged error with a message: `Workspace.create` fails with the setup error, `Browser.open` with `BrowserUnavailable`, and every `RegistryStore` member with `RegistryUnavailable`. The common logic handles each by its tag: a failed `create` marks the session failed and create answers the parent with the error, the preview tool closes the browser it opened when the registry fails, and the cleanup job logs a registry failure.
+A member that can fail declares a tagged error with a message: `Workspace.create` fails with `InvalidWorkspace` or `WorkspaceUnavailable`, `Browser.open` with `BrowserUnavailable`, and every `RegistryStore` member with `RegistryUnavailable`. The common logic handles each by its tag: a failed `create` leaves only a failed registry entry and create answers the parent with the error, the preview tool closes the browser it opened when the registry fails, and the cleanup job logs a registry failure.
 
 > [!NOTE] Why the roles pi already defines get contracts of their own
 > Storage, the wake-up timer, the agent's tools and the model providers already have interfaces in pi, and their contracts often hand pi's object through unchanged. Every role gets a contract anyway, so all roles are defined one way, and a reader and a new provider find every contract in the same form.
