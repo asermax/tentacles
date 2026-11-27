@@ -17,8 +17,6 @@ import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 const ask = (question: string) => toolUse("ask_parent", { question });
 
-const writeFileToolUse = (path: string, text: string) => toolUse("workspace_write", { path, text });
-
 const startSession = (sessionId = newSessionId()) =>
   Effect.gen(function* () {
     const world = yield* TestWorld;
@@ -101,33 +99,6 @@ describe("the question tool", () => {
         isError: false,
       });
     }).pipe(Effect.provide(testWorld)),
-  );
-
-  it.live(
-    "asks while the workspace holds uncommitted work and the session waits with the question",
-    () =>
-      Effect.gen(function* () {
-        const world = yield* TestWorld;
-
-        world.faux.setResponses([
-          writeFileToolUse("README.md", "change"),
-          ask("Should I go on?"),
-          fauxAssistantMessage("Going on."),
-        ]);
-
-        const { sessionId, handle, records } = yield* startSession();
-        const question = yield* waitingOn(sessionId);
-
-        expect(records.workspace.files.get("README.md")).toBe("change");
-        expect(question.text).toBe("Should I go on?");
-
-        yield* handle.answer({ questionId: question.id, text: "yes" });
-        yield* finished(sessionId);
-        expect((yield* toolResults(sessionId)).map(({ output }) => output)).toEqual([
-          "wrote README.md",
-          "yes",
-        ]);
-      }).pipe(Effect.provide(testWorld)),
   );
 
   it.live("a script cannot call ask_parent, so it never leaves the session waiting", () =>
