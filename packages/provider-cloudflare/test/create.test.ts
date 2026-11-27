@@ -68,7 +68,7 @@ const list = async (parentId: string) => {
 const listedSessions = async (parentId: string) => decodeListedSessions(await list(parentId));
 
 describe("create through the Worker", () => {
-  it("stores the skills archive it received, as the same bytes, in the session object", async () => {
+  it("expands the skills archive into /workspace/skills in the workspace object", async () => {
     const parentId = crypto.randomUUID();
     const skills = await skillsArchive("implement", withinLimit);
 
@@ -109,7 +109,7 @@ describe("create through the Worker", () => {
     expect(await list(parentId)).toEqual([]);
   });
 
-  it("stores the context archive it received, as the same bytes, next to the skills archive", async () => {
+  it("expands the skills and context archives into their folders", async () => {
     const parentId = crypto.randomUUID();
     const skills = await skillsArchive("implement");
     const context = await contextArchive("notes.md");
@@ -127,7 +127,7 @@ describe("create through the Worker", () => {
     await waitUntilIdle(sessionId);
   });
 
-  it("stores no context archive for a create without context", async () => {
+  it("leaves the workspace empty for a create without archives", async () => {
     const response = await create(crypto.randomUUID());
     const { sessionId } = decodeCreated(await response.json());
 
