@@ -1,3 +1,4 @@
+import { archiveKinds } from "@tentacles/worker-api/archive-kinds";
 import { CreateSession } from "@tentacles/worker-api/sessions";
 import { Settings } from "@tentacles/worker-api/settings";
 import * as Schema from "effect/Schema";
@@ -23,8 +24,7 @@ export const SpawnRequest = CreateSession.mapFields((fields) => ({
   ),
   context: Schema.optionalKey(
     Schema.Array(Schema.String).annotate({
-      description:
-        "Paths of files or folders on this machine; the remote agent finds them in /workspace/context, each under its own name.",
+      description: `Paths of files or folders on this machine; the remote agent finds them in ${archiveKinds.context.expandsInto}, each under its own name.`,
     }),
   ),
 }));

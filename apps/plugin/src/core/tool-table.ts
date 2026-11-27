@@ -1,4 +1,5 @@
 import { Harnesses, type Harness } from "@tentacles/worker-api/parent";
+import { archiveKinds } from "@tentacles/worker-api/archive-kinds";
 import type { SessionsGroup } from "@tentacles/worker-api/sessions";
 import * as Data from "effect/Data";
 import type * as JsonSchema from "effect/JsonSchema";
@@ -49,8 +50,7 @@ const spawnDocument = Schema.toJsonSchemaDocument(SpawnArguments);
 export const ToolTable = {
   spawn: ToolEntry.Endpoint({
     name: ToolNames.spawn,
-    description:
-      "Start a remote agent with a name, a first prompt and optional settings. The settings left out come from the plugin's defaults. Optionally takes the paths of skill folders and agent definition files, and the paths of context files or folders the remote agent finds in /workspace/context, which stay fixed for the session. Answers with the new session's id.",
+    description: `Start a remote agent with a name, a first prompt and optional settings. The settings left out come from the plugin's defaults. Optionally takes the paths of skill folders and agent definition files, and the paths of context files or folders the remote agent finds in ${archiveKinds.context.expandsInto}, which stay fixed for the session. Answers with the new session's id.`,
     endpoint: "create",
     harnesses: bothHarnesses,
     arguments: { ...spawnDocument.schema, $defs: spawnDocument.definitions },

@@ -1,13 +1,16 @@
 import * as Record from "effect/Record";
 
+/** The directory the workspace's files live under; the repository and the archives get a directory inside it. */
+export const workspaceDirectory = "/workspace";
+
 /**
  * The kinds of archive a create request carries. `expandsInto` is where the workspace
  * expands the kind's archive; a null one is read by the Worker only and never reaches the workspace.
  */
 export const archiveKinds = {
-  skills: { heading: "Skills", expandsInto: "/workspace/skills" },
+  skills: { heading: "Skills", expandsInto: `${workspaceDirectory}/skills` },
   agents: { heading: "Agents", expandsInto: null },
-  context: { heading: "Context", expandsInto: "/workspace/context" },
+  context: { heading: "Context", expandsInto: `${workspaceDirectory}/context` },
 } as const;
 
 export type ArchiveKind = keyof typeof archiveKinds;
