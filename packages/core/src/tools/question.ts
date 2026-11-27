@@ -5,18 +5,9 @@ import { QuestionId } from "@tentacles/worker-api/ids";
 import * as Schema from "effect/Schema";
 
 import { QuestionsDoc, type StoredQuestion } from "../session/questions";
-import { AskParentResult, askParentResultSchema } from "./ask-parent-result";
 import { ToolNames } from "./tool-names";
 
 const decodeQuestionId = Schema.decodeSync(QuestionId);
-
-const encodeResult = Schema.encodeSync(AskParentResult);
-
-// The model reads the text; the tagged value is kept as the call's structured output.
-const toolResult = (result: AskParentResult) => ({
-  output: [{ type: "text" as const, text: result.answer }],
-  structuredOutput: encodeResult(result),
-});
 
 const findQuestion = (questions: readonly StoredQuestion[], id: QuestionId) =>
   questions.find((question) => question.id === id);
@@ -67,7 +58,6 @@ export const askParentTool = () =>
         description: "The question, written for someone who has not seen this conversation.",
       }),
     }),
-    structuredOutputSchema: askParentResultSchema,
     // A script's call runs as a nested task, which the session's status does
     // not read: the session would never show waiting nor wake the parent.
     callers: ["model"],
@@ -86,6 +76,6 @@ export const askParentTool = () =>
         }, context);
       }
 
-      return toolResult(AskParentResult.make({ answer: await answerOf(api, id, context) }));
+      return { output: [{ type: "text" as const, text: await answerOf(api, id, context) }] };
     },
   });
