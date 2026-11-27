@@ -76,3 +76,18 @@ export const streamBody = (modelId: string, { prompt, conversation }: StreamBody
     sender,
   });
 };
+
+// The fields of pi-ai's AssistantMessageEvent the assertions read.
+const StreamedEvent = Schema.Struct({
+  type: Schema.String,
+  delta: Schema.optionalKey(Schema.String),
+  reason: Schema.optionalKey(Schema.String),
+  message: Schema.optionalKey(Schema.Struct({ content: Schema.Array(Schema.Unknown) })),
+  error: Schema.optionalKey(Schema.Struct({ errorMessage: Schema.optionalKey(Schema.String) })),
+});
+
+export const streamedEvents = (body: string) =>
+  body
+    .trim()
+    .split("\n")
+    .map((line) => Schema.decodeSync(Schema.fromJsonString(StreamedEvent))(line));
