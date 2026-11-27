@@ -74,7 +74,7 @@ The object counts every call it forwards and takes the call off its count when t
 
 A failure inside a call ends that call only: the relay kills its CLI process and closes its sockets, and every other call keeps running. When the call fails before its stream started, the relay answers with the error. When it fails after, the relay sends an error event. The relay logs any uncaught exception or rejection with its stack and keeps running.
 
-On SIGTERM, from the Claude object's idle stop or from the platform, the relay takes no new call, ends every call in flight with the lost-call error, logs the signal and exits. A call that reaches the relay while it stops gets a 503 with the same wording. The Claude object holds new calls once it decides to stop, so a call reaches a stopping relay only when the platform stopped the container.
+On SIGTERM, from the Claude object's idle stop or from the platform, the relay takes no new call, ends every call in flight with the lost-call error, logs the signal and exits. A call that reaches the relay while it stops gets a 503 with the same wording. The Claude object holds new calls once it decides to stop, so a call reaches a stopping relay only when the platform stopped the container. A deploy that publishes a new relay image does not stop a running container: it keeps serving with the image it started from, and the new image takes effect at the container's next start, after the idle stop or any other stop.
 
 ## ⚖️ Which failures are lost calls
 
