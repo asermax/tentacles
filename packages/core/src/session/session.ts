@@ -178,19 +178,25 @@ const make = (sessionId: SessionId) =>
           const skills = archives.skills.map(toSkillEntry);
           const { agents } = archives;
 
-          yield* workspace.create({
-            repository: request.settings.repository,
-            image: request.settings.image,
-            size: request.settings.size,
-            skills: request.skills ?? null,
-            context: request.context ?? null,
-          });
-
-          yield* status.register(request.name, request.parent, {
+          const register = status.register(request.name, request.parent, {
             settings: request.settings,
             skills: skills.map((skill) => skill.name),
             agents: agents.map((agent) => agent.name),
           });
+
+          // A failed setup leaves only the registry entry, as failed: no record is
+          // written, so every later call on the session answers SessionNotFound.
+          yield* workspace
+            .create({
+              repository: request.settings.repository,
+              image: request.settings.image,
+              size: request.settings.size,
+              skills: request.skills ?? null,
+              context: request.context ?? null,
+            })
+            .pipe(Effect.tapError(() => Effect.andThen(register, status.reportSetupFailed)));
+
+          yield* register;
 
           const conversation = yield* Effect.promise(() =>
             harness.root(BACKGROUND_CONTEXT, {
