@@ -8,7 +8,7 @@ Remote agents are coding-agent sessions that run in tentacles, away from your ma
 
 Send a remote agent work that is separable and long: a feature on its own branch, a migration, an investigation that needs a clean checkout. Each one costs a container and a model, so prefer a few remote agents with clear tasks over many small ones.
 
-A remote agent only keeps what it commits and pushes. Its workspace is disposable, so give it a repository it can push to, and ask for the result as a branch or a pull request, not as files.
+A remote agent's work stays in its workspace until the session is deleted, a month after its last run; only what it pushes outlives that. Give it a repository it can push to, and ask for the result as a branch or a pull request, not as files.
 
 ## Spawn
 
