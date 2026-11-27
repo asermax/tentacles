@@ -32,4 +32,4 @@ The sections below are the usual kinds of rule. Keep the ones this project has r
 
 ## 🔒 Access and security
 
-- Credentials never enter a container; they are added to outgoing requests at egress ([runtime-components](technical-design/runtime-components.md), [computer-workspace](technical-design/providers/cloudflare/computer-workspace.md)).
+- Credentials never enter a container; they are added to outgoing requests outside the container, in the git client and at egress ([runtime-components](technical-design/runtime-components.md), [computer-workspace](technical-design/providers/cloudflare/computer-workspace.md)).

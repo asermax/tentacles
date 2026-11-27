@@ -48,8 +48,9 @@ flowchart LR
   (container instance size)
   image: string
   (container image name)
-  skills: archive or null
-  context: archive or null" }
+  skills: files
+  context: files
+  (path, bytes and permission bits of each file; empty when the parent sent none)" }
   init --> ws@{ shape: subproc, label: "Workspace provider" }
   ws -.-> err@{ shape: braces, label: "Nothing, or the setup error
   InvalidWorkspace or WorkspaceUnavailable
@@ -73,10 +74,9 @@ flowchart LR
   (validated against the tool's parameters)" }
   tcall --> ws@{ shape: subproc, label: "Workspace provider" }
   ws -.-> res@{ shape: braces, label: "ToolResult
-  content: text and images
+  output: text and images
   isError: boolean
-  (true when the tool failed or a command exited non-zero)
-  details: JSON" }
+  (true when the tool failed or a command exited non-zero)" }
   res -.->|"returns"| core
   classDef worker fill:#dbeafe,stroke:#2563eb,color:#1f2937
   classDef flow fill:#dcfce7,stroke:#16a34a,color:#1f2937
@@ -105,10 +105,9 @@ flowchart LR
   class req,resp payload
 ```
 
-The session object creates the workspace at spawn with where to clone from (the repository's URL and whether the clone is shallow), the container's size and image, and the skills and context archives the parent sent. A null repository means the session has no repository: the provider creates the folders and clones nothing. A null archive means the parent sent no skills or no context, and its folder stays empty. The repository, size and image come from the session's settings and the archives from the spawn. The image is a name whose meaning each provider defines. `create` returns nothing when the setup succeeds, and otherwise one of two errors, both with a message in plain words: `InvalidWorkspace` when the cause is in the spawn's request, `WorkspaceUnavailable` when the cause is outside the request.
+The session object creates the workspace at spawn with where to clone from (the repository's URL and whether the clone is shallow), the container's size and image, and the files of the skills and context archives the parent sent. The session decompresses each archive once, when it reads the archives to build its documents, so the workspace receives files and never an archive: each file has its path inside the archive, its bytes and its permission bits. A kind the parent did not send is an empty list. A null repository means the session has no repository: the provider creates `/workspace/repo` empty and clones nothing. The provider also creates `/workspace/skills` and `/workspace/context` when no files fill them, so the three folders always exist. The repository, size and image come from the session's settings and the files from the spawn. The image is a name whose meaning each provider defines. `create` returns nothing when the setup succeeds, and otherwise one of two errors, both with a message in plain words: `InvalidWorkspace` when the cause is in the spawn's request, `WorkspaceUnavailable` when the cause is outside the request. Both are defined once, with the Worker API's errors, and a create call on the session fails with either of them or with `InvalidArchive` ([worker-api](worker-api.md)).
 
-`tools` is a list of pi-durable tool registrations, each with its declaration, its replay policy and its own `execute`. Core installs them as they are, with the session's other extensions, every time the session object starts: at spawn, after an eviction, on its wake-up timer and for a later prompt. The provider builds them without the init, since each `execute` only reaches the session's workspace, which keeps what the setup gave it. The provider sets each tool's replay: safe for tools that only read, unsafe for the rest, so after an eviction pi-durable reruns only the tools that change nothing. A tool's `execute` takes one call's arguments and returns its result. It sets the error flag when the tool fails or a command exits with a non-zero code, and carries the exit code and the output in the content.
-
+`tools` is a list of pi-durable tool registrations, each with its declaration, its replay policy and its own `execute`. Core installs them as they are, with the session's other extensions, every time the session object starts: at spawn, after an eviction, on its wake-up timer and for a later prompt. The provider builds them without the init, since each `execute` only reaches the session's workspace, which keeps what the setup gave it. The provider sets each tool's replay: safe for tools that only read, unsafe for the rest, so after an eviction pi-durable reruns only the tools that change nothing. A tool's `execute` takes one call's arguments and returns its result. It sets the error flag when the tool fails or a command exits with a non-zero code, and carries the output as text, which for a command includes its exit code.
 `forward` hands a preview request to a port in the workspace and returns the app's answer, or 502 when nothing listens there.
 
 > [!NOTE] Why the tools are a member and not what `create` returns
@@ -142,7 +141,7 @@ flowchart LR
   api -->|"2 create the session"| so
   so -->|"3 create with the init values"| wp
   wp -->|"4 clone, token added"| gh
-  wp -->|"5 write the repository and archives"| fs
+  wp -->|"5 write the skills and context files"| fs
   wp -.->|"6 nothing, or the setup error"| so
   so -.->|"7 session, or the error"| api
   api -.->|"8 answers"| pa
@@ -154,11 +153,11 @@ flowchart LR
   class gh,fs ext
 ```
 
-The parent spawns (1) and the Worker API creates the session (2), which creates the workspace with the init values (3). The provider clones the repository's default branch into `/workspace/repo`, shallow or full as the setting says, with the GitHub token added outside any container (4). It writes the repository and the skills and context archives into the workspace's files (5): the skills into `/workspace/skills`, one folder per skill, and the context into `/workspace/context`, each file or folder under its own name. It reports success, or hands back the error that stopped it after clearing what it wrote (6). The session then stores its record, or keeps only a failed registry entry and answers with the error (7), and the Worker API answers the parent (8). Only then does the first run start.
+The parent spawns (1) and the Worker API creates the session (2), which creates the workspace with the init values (3). The provider clones the repository's default branch into `/workspace/repo`, shallow or full as the setting says, with the GitHub token added to the HTTPS request outside any container (4). While the clone runs it writes the skills and context files into the workspace's files (5): the skills into `/workspace/skills`, one folder per skill, and the context into `/workspace/context`, each file or folder under its own name. It reports success once both end, or hands back the error that stopped it after clearing what it wrote (6); when both fail, the clone's error is the one it reports. The session then stores its record, or keeps only a failed registry entry and answers with the error (7), and the Worker API answers the parent (8). Only then does the first run start.
 
 The setup is part of the session's initialization, so it runs once per session, and the three folders exist before the agent's first tool call. Without a repository setting, the agent clones whatever its prompt names.
 
-A failed setup's error names the cause in plain words. `InvalidWorkspace` covers the causes in the spawn's request: a repository that GitHub answers 404 for, whether it does not exist or the token cannot read it, an archive that cannot be expanded, and an image or size the provider does not offer. `WorkspaceUnavailable` covers the rest: GitHub not answering and any other error, returned as it was captured. A failed setup leaves no session to use: the workspace clears what it wrote, the session stores no record, and only its registry entry stays, marked failed, until the daily job deletes it (see [sessions](sessions.md)).
+A failed setup's error names the cause in plain words. `InvalidWorkspace` covers the causes in the spawn's request: a repository that GitHub answers 404 for, whether it does not exist or the token cannot read it, and an image or size the provider does not offer. `WorkspaceUnavailable` covers the rest: GitHub not answering, a failure writing the skills or context files, and any other error, returned as it was captured. An archive the session cannot read never reaches the workspace: the session answers `InvalidArchive` before it creates one. A failed setup leaves no session to use: the workspace clears what it wrote, the session stores no record, and only its registry entry stays, marked failed, until the daily job deletes it (see [sessions](sessions.md)).
 
 > [!NOTE] Why the setup runs at spawn
 > A setup that runs inside the first tool call fails in the middle of a run, where only the agent sees it. Running it before spawn answers puts the cause in front of the parent, which can fix the repository URL or the files and spawn again.
@@ -241,7 +240,7 @@ stateDiagram-v2
   Failed --> [*]: registry entry deleted a month later
 ```
 
-The provider sets up the workspace at spawn, and its files live with the session from then on, in a place the provider ties to the session alone: a later start of the session finds the same workspace. The container starts on the first command sent to it, and the provider stops it when it has been idle; core never starts or stops it. A stop keeps `/workspace` and loses the running processes and anything outside `/workspace`, which is the container's own disk. A failed setup clears the workspace and leaves only the session's registry entry, marked failed. Deleting the session deletes the workspace, unpushed work included, and only branches the agent pushed outlive it.
+The provider sets up the workspace at spawn, and its files live with the session from then on, in a place the provider ties to the session alone: a later start of the session finds the same workspace. The container starts on the first command sent to it, and the provider stops it when it has been idle; core never starts or stops it. A stop keeps `/workspace` and loses the running processes and anything outside `/workspace`, which is the container's own disk. A failed setup clears the workspace and leaves only the session's registry entry, marked failed. A workspace's setup and its deletion run one at a time, so a deletion that arrives during a setup waits for it. Deleting the session deletes the workspace, unpushed work included, and only branches the agent pushed outlive it.
 
 > [!NOTE] Why tentacles does not check for unpushed work
 > The workspace's files live with the session, so a container stop loses no work, and work is lost only when the session is deleted a month after its last run. A provider whose workspace can lose files on a stop protects them itself.

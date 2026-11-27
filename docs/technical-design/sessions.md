@@ -26,7 +26,7 @@ sequenceDiagram
     H->>H: check the files, pack the archives
     H->>W: create
     W->>S: create
-    S->>Ws: create: clone the repository, expand the skills and context
+    S->>Ws: create: clone the repository, write the skills and context files
     Ws-->>S: done, or the setup error
     S->>R: add the entry with settings, skill and agent names
     S->>S: store the record and the documents
@@ -53,7 +53,7 @@ sequenceDiagram
     Note over W,S: a month after the last run stopped,<br/>the daily job deletes the session and drops its entry
 ```
 
-The parent spawns with a name, a first prompt, its settings and any skill, agent and context paths (1). The plugin checks the files and packs them into up to three archives (2), and sends create through the Worker to a new session (3, 4). The session creates its workspace, which clones the repository and expands the skills and context archives into `/workspace` (5) and reports success or hands back the setup error (6). The session adds its registry entry (7) and stores its record and its skills, agents and context documents (8), then answers with its id once the first run has started (9). When the setup fails, the session stores nothing, marks its registry entry failed and answers with the setup error ([workspace](workspace.md)).
+The parent spawns with a name, a first prompt, its settings and any skill, agent and context paths (1). The plugin checks the files and packs them into up to three archives (2), and sends create through the Worker to a new session (3, 4). The session creates its workspace with the repository and the files of the skills and context archives, which the workspace writes into `/workspace` while it clones (5), and the workspace reports success or hands back the setup error (6). The session adds its registry entry (7) and stores its record and its skills, agents and context documents (8), then answers with its id once the first run has started (9). When the setup fails, the session stores nothing, marks its registry entry failed and answers with the setup error ([workspace](workspace.md)).
 
 In every run, the session expands any skill the prompt names (10), sends the conversation to the model (11, 12) and runs the tools the model calls in the workspace (13, 14). When the agent asks the parent, the session waits, the plugin wakes the parent with the question and the answer continues the run (15 to 19; [question-round-trip](question-round-trip.md)).
 
@@ -134,7 +134,7 @@ The session's status is not a field. The session object watches pi-durable's sta
 
 ### 📒 Registry entry
 
-REGISTRY_ENTRY lives in the registry, one for the whole deploy, with one entry per session: the session id, its name, the parent's harness and session id, the session's status (the same values as the session's derived status, closed included, and empty until the session reports its first one) and `last_stopped`, the time the last run stopped. When the session adds its entry at create, it also writes three values that never change: `settings`, and `skill_names` and `agent_names`, the names of the skills and agent definitions its spawn sent, which it reads from the archives. The registry records `last_stopped` itself when a status change reports a stopped run, keeps it when one stopped status follows another, and clears it when a new run starts. A failed setup reports failed on a new entry, which counts as its last stop, so the daily job deletes it a month later like any other session. The session updates its entry on every state change, so the list call and the plugin's start-up sync get each session's status without asking each session. The daily cleanup job picks its candidates from the registry's `last_stopped`, and drops the entry after it deletes the session.
+REGISTRY_ENTRY lives in the registry, one for the whole deploy, with one entry per session: the session id, its name, the parent's harness and session id, the session's status (the same values as the session's derived status, closed included, and empty until the session reports its first one) and `last_stopped`, the time the last run stopped. When the session adds its entry at create, it also writes three values that never change: `settings`, and `skill_names` and `agent_names`, the names of the skills and agent definitions its spawn sent, which it reads from the archives. The registry records `last_stopped` itself when a status change reports a stopped run, keeps it when one stopped status follows another, and clears it when a new run starts. When the setup fails, the session adds the entry and then sets its status to failed, through the same call that records every status, so the entry counts as the session's last stop and the daily job deletes it a month later like any other session. The session updates its entry on every state change, so the list call and the plugin's start-up sync get each session's status without asking each session. The daily cleanup job picks its candidates from the registry's `last_stopped`, and drops the entry after it deletes the session.
 
 `preview_port` and `preview_token` hold the session's preview while one is open, and are empty otherwise. A session has at most one preview, and only to validate the app in the preview's browser; the agent validates anything else, such as an API, inside the workspace with no preview. `preview_port` is the workspace port the preview exposes. `preview_token` is a random UUID that the registry generates when the preview tool opens a preview. It is the only value the registry returns for the new preview, so a preview URL carries neither the API key nor the session id. Opening a preview while one is open replaces it: the previous token stops working and its browser closes. When the run stops, the registry clears both fields. [workspace](workspace.md) covers how the agent opens and uses a preview.
 
@@ -149,7 +149,7 @@ QUESTION is a question the session's agent asked with `ask_parent`: its id, its 
 
 A skill is a folder that holds a SKILL.md and whatever the skill points to. An agent definition is a file whose frontmatter names a subagent and whose body is that subagent's prompt. The skills document and the agents document are pi-durable documents of the session, written once at spawn. A skill entry holds the skill's name and description, which the prompt lists. It also holds the full path of its SKILL.md in the workspace, which the skill tool and a prompt expansion point the agent to. An agent entry holds the agent's name, description and prompt, which the subagent tool starts a subagent with. Agent definitions live only here and never enter the workspace.
 
-The session keeps no archive. It reads every archive at create to build the documents and hands the skills and context archives to the workspace's create, which expands them into `/workspace/skills` and `/workspace/context` once, at spawn. The agents archive goes no further, since agent definitions never enter the workspace. Deleting the session clears the documents, the workspace and the rest of its storage.
+The session keeps no archive. It decompresses every archive once at create, to build the documents, and hands the files of the skills and context archives to the workspace's create, which writes them into `/workspace/skills` and `/workspace/context` once, at spawn. The agents archive goes no further, since agent definitions never enter the workspace. Deleting the session clears the documents, the workspace and the rest of its storage.
 
 CONTEXT_DOCUMENT records whether the spawn sent context files, so the prompt section renders without reading the workspace. The session state, the list and the registry entry carry nothing about the context.
 
@@ -328,7 +328,7 @@ sequenceDiagram
         H->>H: pack one archive per kind that has paths
         H->>+W: create with the archives
         W->>+S: create
-        S->>Ws: create with the skills and context archives
+        S->>Ws: create with the skills and context files
         alt the setup succeeds
             Ws-->>S: done
             S->>R: add the entry with settings, skill and agent names
@@ -347,10 +347,10 @@ sequenceDiagram
     end
 ```
 
-The parent calls the spawn tool with paths (1). The plugin's helper stats every path and reads and checks each SKILL.md and agent definition file (2). On any failure, the helper returns every problem as the spawn tool's result and sends nothing (3). Otherwise it packs one archive for each kind that has paths (4) and sends create with them (5), which the Worker hands to the session (6). The session reads every archive again; when it cannot read one or more, create returns one error that names each invalid archive and its problem, and the session stores nothing (see [worker-api](worker-api.md)). It creates its workspace with the skills and context archives (7), which the provider expands into `/workspace/skills`, one folder per skill, and `/workspace/context`. When the setup succeeds (8), the session adds its registry entry with the settings and the skill and agent names it read (9), builds the skills and agents documents and writes the context document (10), starts the first run (11), and create answers with the session id once the run has started (12 to 14). When the setup fails, the workspace clears what it wrote and hands back the setup error (15), the session adds its registry entry with the failed status and stores nothing else (16), and create answers with the error (17 to 19).
+The parent calls the spawn tool with paths (1). The plugin's helper stats every path and reads and checks each SKILL.md and agent definition file (2). On any failure, the helper returns every problem as the spawn tool's result and sends nothing (3). Otherwise it packs one archive for each kind that has paths (4) and sends create with them (5), which the Worker hands to the session (6). The session reads every archive again, decompressing each once; when it cannot read one or more, create returns one error that names each invalid archive and its problem, and the session stores nothing (see [worker-api](worker-api.md)). It creates its workspace with the files of the skills and context archives (7), which the provider writes into `/workspace/skills`, one folder per skill, and `/workspace/context`. When the setup succeeds (8), the session adds its registry entry with the settings and the skill and agent names it read (9), builds the skills and agents documents and writes the context document (10), starts the first run (11), and create answers with the session id once the run has started (12 to 14). When the setup fails, the workspace clears what it wrote and hands back the setup error (15), the session adds its registry entry with the failed status and stores nothing else (16), and create answers with the error (17 to 19).
 
 > [!NOTE] Why the archives travel in create
-> Only the workspace's setup reads the skills and context archives, and it runs once, at spawn. Handing the archives to create lets the session drop them once the files are in `/workspace`, so the session never stores them twice.
+> Only the workspace's setup needs the skills and context files, and it runs once, at spawn. The session decompresses each archive once, for its own checks and documents, and hands the same files to create, so no archive is decompressed twice.
 
 #### 💬 In a prompt that names a skill
 
@@ -403,9 +403,9 @@ When a subagent's input ends unanswered, pi-durable settles it with a reason (`a
 
 ## 📎 Context files
 
-The parent can send files and folders that the repository does not hold, such as a change's scratch files. They travel the way the skills do: a spawn parameter, an archive the plugin packs, and the archive expanded into the workspace at spawn. They land in `/workspace/context`, next to `/workspace/repo` and `/workspace/skills`.
+The parent can send files and folders that the repository does not hold, such as a change's scratch files. They travel the way the skills do: a spawn parameter, an archive the plugin packs, and the archive's files written into the workspace at spawn. They land in `/workspace/context`, next to `/workspace/repo` and `/workspace/skills`.
 
-- **Where the files land.** The parent passes `context`, a list of file and folder paths on its machine. Each path lands under its basename: a file at `/workspace/context/<file name>` and a folder at `/workspace/context/<folder name>/…`. Two paths with the same basename fail the spawn. How the helper checks and packs the paths, how create reads the archive and how the setup expands it are in What a spawn sends and How the archives move.
+- **Where the files land.** The parent passes `context`, a list of file and folder paths on its machine. Each path lands under its basename: a file at `/workspace/context/<file name>` and a folder at `/workspace/context/<folder name>/…`. Two paths with the same basename fail the spawn. How the helper checks and packs the paths, how create reads the archive and how the setup writes its files are in What a spawn sends and How the archives move.
 - **What the agent sees.** When the spawn sent context, every conversation's prompt carries a context section that says the parent sent files for context and that they are in `/workspace/context`. It names the folder only, not its entries, and without context there is no section. The agent reads the files with the workspace's tools.
 - **What stays outside.** `/workspace/context` is outside the repository. What the agent changes there stays in the workspace for the session's life and never returns to the parent. A different set of files means a new session. Deleting the session deletes the files with the rest of the workspace.
 
