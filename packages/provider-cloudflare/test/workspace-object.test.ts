@@ -133,6 +133,26 @@ describe("a workspace object's setup", () => {
     expect(await workspace().files()).toEqual([]);
   });
 
+  it("runs a destroy that arrives during a setup after the setup, which then leaves nothing", async () => {
+    const workspace = workspaceOf();
+
+    const setup = workspace().setUpWorkspace(
+      workspaceInit({
+        repository: fixtureRepository(fixtureRepositories.slow),
+        context: contextEntries("notes.md"),
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const destroy = rejection(workspace().destroy());
+
+    await setup;
+    await destroy;
+
+    expect(await workspace().files()).toEqual([]);
+  });
+
   it("fails with InvalidWorkspace for an image or size the deploy does not offer", async () => {
     const workspace = workspaceOf();
 

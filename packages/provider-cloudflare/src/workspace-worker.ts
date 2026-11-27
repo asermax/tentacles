@@ -131,12 +131,27 @@ export class WorkspaceObject extends withWorkspaceContainer(
     }
   }
 
-  async setUpWorkspace(init: WorkspaceInit) {
-    try {
-      await this.#populateWorkspace(init);
-    } catch (error) {
-      await this.#resetAfterFailedSetup(error);
-    }
+  // setUpWorkspace and destroy run one at a time, so a destroy that arrives during a setup waits
+  // for it instead of interleaving with it across their awaits. blockConcurrencyWhile cannot do
+  // this: a request body the git client streams never completes inside its callback.
+  #lastOperation: Promise<unknown> = Promise.resolve();
+
+  #serialized<Result>(operation: () => Promise<Result>) {
+    const result = this.#lastOperation.then(operation, operation);
+
+    this.#lastOperation = result.catch(() => undefined);
+
+    return result;
+  }
+
+  setUpWorkspace(init: WorkspaceInit) {
+    return this.#serialized(async () => {
+      try {
+        await this.#populateWorkspace(init);
+      } catch (error) {
+        await this.#resetAfterFailedSetup(error);
+      }
+    });
   }
 
   async #populateWorkspace(init: WorkspaceInit) {
@@ -247,18 +262,20 @@ export class WorkspaceObject extends withWorkspaceContainer(
     await this.ctx.storage.sync();
   }
 
-  async destroy() {
-    const container = this.ctx.container;
+  destroy() {
+    return this.#serialized(async () => {
+      const container = this.ctx.container;
 
-    if (container?.running === true) {
-      await container.destroy();
-    }
+      if (container?.running === true) {
+        await container.destroy();
+      }
 
-    await this.#clearStorage();
+      await this.#clearStorage();
 
-    // The Workspace in memory still believes its tables exist; dropping the instance makes the
-    // next call build a fresh one over the empty storage. abort() also rejects this call.
-    this.ctx.abort(destroyedReason);
+      // The Workspace in memory still believes its tables exist; dropping the instance makes the
+      // next call build a fresh one over the empty storage. abort() also rejects this call.
+      this.ctx.abort(destroyedReason);
+    });
   }
 }
 

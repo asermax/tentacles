@@ -6,12 +6,18 @@ import { join } from "node:path";
 import { githubHost } from "../src/github-fetch";
 import { echo } from "./echo";
 
-/** The repositories the fixture answers for, by their path under github.com. */
+/**
+ * The repositories the fixture answers for, by their path under github.com. `slow` is the readable
+ * repository with every request answered half a second late.
+ */
 export const fixtureRepositories = {
   readable: "acme/app",
   missing: "acme/missing",
   unreachable: "acme/unreachable",
+  slow: "acme/slow",
 } as const;
+
+const slowRepositoryDelayMillis = 500;
 
 /** A repository of the fixture as a clone's repository setting. */
 export const fixtureRepository = (repositoryPath: string, isShallow = false) => ({
@@ -93,7 +99,9 @@ export const githubFixture = () => {
       return new Response("Not found", { status: 404 });
     }
 
-    if (repository !== fixtureRepositories.readable) {
+    if (repository === fixtureRepositories.slow) {
+      await new Promise((resolve) => setTimeout(resolve, slowRepositoryDelayMillis));
+    } else if (repository !== fixtureRepositories.readable) {
       return echo(request);
     }
 
