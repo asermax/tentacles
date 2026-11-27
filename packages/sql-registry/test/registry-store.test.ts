@@ -38,7 +38,6 @@ const settings: SessionDetails["settings"] = {
   effort: "high",
   image: "default",
   size: "standard",
-  lifetime: 3600,
   repository: { url: "https://github.com/acme/app", shallow: true },
 };
 
@@ -131,6 +130,23 @@ describe("RegistryStore over SQLite", () => {
 
       expect((yield* registry.list(parent))[0]?.status).toBe(SessionStatuses.running);
       expect(yield* registry.stoppedBefore(farFuture)).toEqual([]);
+    }).pipe(Effect.provide(freshRegistry)),
+  );
+
+  it.effect("records failed as the first status and stops the entry at that time", () =>
+    Effect.gen(function* () {
+      const registry = yield* RegistryStore;
+      const id = sessionId(1);
+
+      yield* TestClock.setTime(now);
+      yield* registry.add(id, "never set up", parent, noDetails);
+      yield* registry.setStatus(id, SessionStatuses.failed);
+
+      expect(yield* registry.list(parent)).toEqual([
+        { sessionId: id, name: "never set up", status: SessionStatuses.failed, ...noDetails },
+      ]);
+      expect(yield* registry.stoppedBefore(now)).toEqual([]);
+      expect(yield* registry.stoppedBefore(now + 1)).toEqual([id]);
     }).pipe(Effect.provide(freshRegistry)),
   );
 
@@ -246,7 +262,31 @@ describe("RegistryStore over SQLite", () => {
       expect(yield* registry.stoppedBefore(now).pipe(Effect.flip)).toBeInstanceOf(
         RegistryUnavailable,
       );
+      expect(yield* registry.has(sessionId(1)).pipe(Effect.flip)).toBeInstanceOf(
+        RegistryUnavailable,
+      );
     }).pipe(Effect.provide(closedRegistry)),
+  );
+
+  it.effect("tells whether a session has an entry, whatever its status, until it is removed", () =>
+    Effect.gen(function* () {
+      const registry = yield* RegistryStore;
+
+      expect(yield* registry.has(sessionId(1))).toBe(false);
+
+      yield* registry.add(sessionId(1), "never reported", parent, noDetails);
+
+      expect(yield* registry.has(sessionId(1))).toBe(true);
+
+      yield* registry.setStatus(sessionId(1), SessionStatuses.running);
+
+      expect(yield* registry.has(sessionId(1))).toBe(true);
+      expect(yield* registry.has(sessionId(2))).toBe(false);
+
+      yield* registry.remove(sessionId(1));
+
+      expect(yield* registry.has(sessionId(1))).toBe(false);
+    }).pipe(Effect.provide(freshRegistry)),
   );
 
   it.effect("resolves an unknown token to nothing", () =>

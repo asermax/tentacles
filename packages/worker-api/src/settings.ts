@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 
-// Git reaches GitHub over HTTPS with the credentials added at egress, so any
-// other form (a bare host, git@host:path) fails at the first clone instead.
+// Git reaches GitHub over HTTP(S), with the token added outside the container, so the schema
+// rejects any other form (a bare host, git@host:path) before a clone is tried.
 export const Repository = Schema.Struct({
   url: Schema.String.check(
     Schema.isPattern(/^https?:\/\/[^/\s]+/, {
@@ -13,15 +13,13 @@ export const Repository = Schema.Struct({
 
 export type Repository = typeof Repository.Type;
 
-// A null repository leaves the clone to what the prompt names, and the commit
-// checks do not run.
+// A null repository leaves the clone to what the prompt names.
 export const Settings = Schema.Struct({
   provider: Schema.String,
   model: Schema.String,
   effort: Schema.String,
   image: Schema.String,
   size: Schema.String,
-  lifetime: Schema.Int,
   repository: Schema.NullOr(Repository),
 });
 

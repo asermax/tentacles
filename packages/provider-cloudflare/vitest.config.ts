@@ -1,62 +1,59 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
-import { bundleDir, compatibility } from "./test/bundle-worker";
-import { lifetimeSessionId, testSecrets } from "./test/secrets";
+import { bundleDir, compatibility, workspaceBundleDir } from "./test/bundle-worker";
+import { echo } from "./test/echo";
+import { githubFixture } from "./test/github-fixture";
+import { scriptedModel } from "./test/scripted-model";
+import { testSecrets } from "./test/secrets";
+import { workspaceCompatibility } from "./src/workspace-compatibility";
+import { workspaceObjectClass, workspaceWorkerName } from "./src/workspace-names";
 
-const workerName = "tentacles";
+const tentaclesWorkerName = "tentacles";
 
-// Every outbound request the Worker makes ends here, answered with what it received, so a test
-// reads the forwarded request from the response.
-const echo = async (request: Request) =>
-  Response.json({
-    url: request.url,
-    method: request.method,
-    headers: Object.fromEntries(request.headers),
-  });
+const workspaceBinding = { className: workspaceObjectClass, scriptName: workspaceWorkerName };
 
-// Workers AI through the gateway, as the model of every test session: one streamed answer that
-// ends the run without a tool call.
-interface CompletionChunk {
-  readonly id: string;
-  readonly object: string;
-  readonly choices: ReadonlyArray<{
-    readonly index: number;
-    readonly delta: { readonly role?: string; readonly content?: string };
-    readonly finish_reason: string | null;
-  }>;
-  readonly usage?: {
-    readonly prompt_tokens: number;
-    readonly completion_tokens: number;
-    readonly total_tokens: number;
-  };
+const objectClasses = ["SessionObject", "RegistryObject", "ClaudeObject"] as const;
+
+// The Browser binding of the Workspace Worker: it records the sessions the gateway connects to and
+// refuses them, so a test reads which session a signed token reached.
+const browserStubSource = `
+import { WorkerEntrypoint } from "cloudflare:workers";
+
+const connectedSessionIds = [];
+
+export default class BrowserStub extends WorkerEntrypoint {
+  async connectSession(sessionId) {
+    connectedSessionIds.push(sessionId);
+
+    throw new Error("The test browser has no sessions");
+  }
+
+  async connectedSessions() {
+    return connectedSessionIds;
+  }
 }
+`;
 
-const chunk = (body: CompletionChunk) => `data: ${JSON.stringify(body)}\n\n`;
+const browserStubName = "browser-stub";
 
-const model = async () =>
-  new Response(
-    [
-      chunk({
-        id: "test",
-        object: "chat.completion.chunk",
-        choices: [{ index: 0, delta: { role: "assistant", content: "done" }, finish_reason: null }],
-      }),
-      chunk({
-        id: "test",
-        object: "chat.completion.chunk",
-        choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-      }),
-      "data: [DONE]\n\n",
-    ].join(""),
-    { headers: { "content-type": "text/event-stream" } },
-  );
+const tentaclesSecrets = {
+  TENTACLES_API_KEY: testSecrets.TENTACLES_API_KEY,
+  TENTACLES_CLAUDE_TOKEN: testSecrets.TENTACLES_CLAUDE_TOKEN,
+  TENTACLES_CDP_SECRET: testSecrets.TENTACLES_CDP_SECRET,
+};
 
-const objects = ["SessionObject", "RegistryObject", "ClaudeObject"] as const;
+const workspaceSecrets = {
+  TENTACLES_CDP_SECRET: testSecrets.TENTACLES_CDP_SECRET,
+  TENTACLES_GITHUB_TOKEN: testSecrets.TENTACLES_GITHUB_TOKEN,
+  TENTACLES_GIT_AUTHOR_NAME: testSecrets.TENTACLES_GIT_AUTHOR_NAME,
+  TENTACLES_GIT_AUTHOR_EMAIL: testSecrets.TENTACLES_GIT_AUTHOR_EMAIL,
+};
 
-// The Worker runs as its own Miniflare worker, from the bundle Alchemy would upload, and the tests
-// reach it through bindings. Inside the test runner the plugin wraps Durable Objects in a class
+// The tentacles Worker and the Workspace Worker run as their own Miniflare workers, from the bundles
+// Alchemy would upload, and the tests reach them through bindings. GATEWAY is the container's
+// gateway as the workspace object hands it to the container, and the Workspace Worker's LOADER is
+// the Worker Loader Computer's isolate shell runs on. Inside the test runner the plugin wraps Durable Objects in a class
 // that answers RPC only for methods their prototype declares, while Alchemy's objects answer
 // every method through a Proxy.
 export default defineConfig({
@@ -70,26 +67,55 @@ export default defineConfig({
               // The cron test calls the Worker's scheduled handler through its service binding.
               compatibilityFlags: [...compatibility.flags, "service_binding_extra_handlers"],
               serviceBindings: {
-                TENTACLES: workerName,
-                // The containers' loopback to the Worker, with a session's egress props.
-                LIFETIME: { name: workerName, props: { sessionId: lifetimeSessionId } },
+                TENTACLES: tentaclesWorkerName,
+                GATEWAY: { name: workspaceWorkerName, props: { isGateway: true } },
+                BROWSER_STUB: browserStubName,
               },
-              durableObjects: Object.fromEntries(
-                objects.map((name) => [name, { className: name, scriptName: workerName }]),
-              ),
+              durableObjects: {
+                ...Object.fromEntries(
+                  objectClasses.map((name) => [
+                    name,
+                    { className: name, scriptName: tentaclesWorkerName },
+                  ]),
+                ),
+                [workspaceObjectClass]: workspaceBinding,
+              },
               workers: [
                 {
-                  name: workerName,
+                  name: tentaclesWorkerName,
                   modules: inject("workerModules"),
                   modulesRoot: bundleDir,
                   compatibilityDate: compatibility.date,
                   compatibilityFlags: compatibility.flags,
-                  bindings: testSecrets,
-                  durableObjects: Object.fromEntries(
-                    objects.map((name) => [name, { className: name, useSQLite: true }]),
-                  ),
-                  serviceBindings: { AI: model, BROWSER: echo },
+                  bindings: tentaclesSecrets,
+                  durableObjects: {
+                    ...Object.fromEntries(
+                      objectClasses.map((name) => [name, { className: name, useSQLite: true }]),
+                    ),
+                    [workspaceObjectClass]: workspaceBinding,
+                  },
+                  serviceBindings: { AI: scriptedModel, BROWSER: echo },
                   outboundService: echo,
+                },
+                {
+                  name: workspaceWorkerName,
+                  modules: inject("workspaceModules"),
+                  modulesRoot: workspaceBundleDir,
+                  compatibilityDate: workspaceCompatibility.date,
+                  compatibilityFlags: workspaceCompatibility.flags,
+                  bindings: workspaceSecrets,
+                  durableObjects: {
+                    [workspaceObjectClass]: { className: workspaceObjectClass, useSQLite: true },
+                  },
+                  workerLoaders: { LOADER: {} },
+                  serviceBindings: { BROWSER: browserStubName },
+                  outboundService: githubFixture(),
+                },
+                {
+                  name: browserStubName,
+                  modules: true,
+                  script: browserStubSource,
+                  compatibilityDate: compatibility.date,
                 },
               ],
             },
@@ -98,19 +124,7 @@ export default defineConfig({
         test: {
           name: "worker",
           include: ["test/**/*.test.ts"],
-          exclude: ["test/**/*.node.test.ts"],
           globalSetup: ["test/global-setup.ts"],
-        },
-      },
-      // Tests that run the workspace's code in Node with a fake container: the Worker's runner cannot
-      // load Alchemy's container module, and node:child_process is the shim the bundle also aliases.
-      {
-        resolve: { alias: { "node:child_process": `${import.meta.dirname}/src/spawn-shim.ts` } },
-        test: {
-          name: "node",
-          include: ["test/**/*.node.test.ts"],
-          // Inlined so the alias reaches the node:child_process import in pi-env's client.
-          server: { deps: { inline: ["@earendil-works/pi-env"] } },
         },
       },
     ],

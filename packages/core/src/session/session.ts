@@ -9,7 +9,6 @@ import {
   type SubmissionDraft,
   type Wake,
 } from "@earendil-works/pi-durable";
-import { RemoteExecutionEnv } from "@earendil-works/pi-env";
 import { Browser } from "@tentacles/contracts/browser";
 import { CodeSandbox } from "@tentacles/contracts/code-sandbox";
 import { ModelProviders } from "@tentacles/contracts/model-providers";
@@ -18,14 +17,12 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
 import type { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
-import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
-import { Workspace, workspaceDirectory } from "@tentacles/contracts/workspace";
-import { archiveExpansions } from "@tentacles/worker-api/archive-kinds";
+import { repositoryDirectory, Workspace } from "@tentacles/contracts/workspace";
 import type { Entry } from "@tentacles/worker-api/entries";
 import { QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
-import { isActive, SessionState } from "@tentacles/worker-api/session-state";
+import { SessionState } from "@tentacles/worker-api/session-state";
 import { PromptModes } from "@tentacles/worker-api/sessions";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -42,8 +39,6 @@ import { QuestionsDoc } from "./questions";
 import { readArchives } from "./read-archives";
 import { RecordDoc, type SessionRecord } from "./record";
 import { trackStatus } from "./state";
-import { workspaceEnv } from "./workspace-env";
-import { isWorkspaceNeeded } from "./workspace-needed";
 
 // While work runs, the timer also serves as a recovery heartbeat: a process
 // that dies mid-run is woken within a minute.
@@ -68,8 +63,6 @@ export type SessionHandle = {
 } & {
   /** The host's WakeTimer fired: resume the harness. */
   readonly wake: () => Effect.Effect<void>;
-  /** Whether the workspace should stay up; the ping reports whether git shows pending work. */
-  readonly workspaceNeeded: (isWorkPending: boolean) => Effect.Effect<boolean>;
 };
 
 const make = (sessionId: SessionId) =>
@@ -78,9 +71,6 @@ const make = (sessionId: SessionId) =>
       Browser | CodeSandbox | ParentChannel | PreviewRouter | RegistryStore | Workspace
     >();
 
-    const archiveStore = yield* ArchiveStore;
-
-    const run = Effect.runPromiseWith(services);
     const fork = Effect.runForkWith(services);
     const wakeTimer = yield* WakeTimer;
     const workspace = yield* Workspace;
@@ -106,7 +96,6 @@ const make = (sessionId: SessionId) =>
     let status: Effect.Success<ReturnType<typeof trackStatus>> | null = null;
 
     const registry = createRegistry();
-    const envId = `pi-env:${sessionId}`;
 
     for (const extension of yield* remoteAgentExtensions(sessionId)) {
       registry.install(extension);
@@ -133,27 +122,6 @@ const make = (sessionId: SessionId) =>
             onWake: (wake) => {
               fork(arm(wake));
             },
-            // pi-durable calls this before every tool use and for section
-            // renders; the workspace opens on the env's first operation, and a
-            // failure there becomes that call's error result.
-            env: (target) =>
-              workspaceEnv(envId, workspaceDirectory, async () => {
-                const record = await target.read.snapshot(RecordDoc, sessionId, BACKGROUND_CONTEXT);
-
-                if (record == null) {
-                  throw new Error("The session has no record to start its workspace from");
-                }
-
-                const { repository, image, size, lifetime } = record.settings;
-
-                await run(workspace.ensure({ repository, image, size, lifetime }));
-
-                return new RemoteExecutionEnv({
-                  connection: await run(workspace.connection()),
-                  id: envId,
-                  cwd: workspaceDirectory,
-                });
-              }),
             onReport: (report) => {
               fork(Effect.logError("pi-durable reported a failure", report.kind, report));
             },
@@ -204,28 +172,34 @@ const make = (sessionId: SessionId) =>
           // The archives are read before anything is stored, so one that
           // cannot be read leaves no trace.
           const archives = yield* readArchives(request);
-          const skills = archives.skills.map(toSkillEntry);
+          const skills = archives.skills.skills.map(toSkillEntry);
           const { agents } = archives;
 
-          for (const { kind } of archiveExpansions) {
-            const archive = request[kind];
-
-            if (archive != null) {
-              yield* archiveStore.save(kind, archive);
-            }
-          }
-
-          yield* status.register(request.name, request.parent, {
+          const registerSession = status.register(request.name, request.parent, {
             settings: request.settings,
             skills: skills.map((skill) => skill.name),
             agents: agents.map((agent) => agent.name),
           });
 
+          // A failed setup leaves only the registry entry, as failed: no record is
+          // written, so every later call on the session answers SessionNotFound.
+          yield* workspace
+            .create({
+              repository: request.settings.repository,
+              image: request.settings.image,
+              size: request.settings.size,
+              skills: archives.skills.entries,
+              context: archives.context,
+            })
+            .pipe(Effect.tapError(() => Effect.andThen(registerSession, status.reportFailed)));
+
+          yield* registerSession;
+
           const conversation = yield* Effect.promise(() =>
             harness.root(BACKGROUND_CONTEXT, {
               agent: {
                 model: { provider: request.settings.provider, modelId: request.settings.model },
-                cwd: workspaceDirectory,
+                cwd: repositoryDirectory,
                 // An effort pi-ai has no thinking level for leaves the model's default.
                 thinkingLevel: Option.getOrNull(decodeThinkingLevel(request.settings.effort)),
               },
@@ -236,7 +210,6 @@ const make = (sessionId: SessionId) =>
                   settings: request.settings,
                   closed: false,
                   lastStopped: null,
-                  commitPrompts: 0,
                 });
                 await tx.doc(QuestionsDoc);
                 (await tx.doc(SkillsDoc)).skills.push(...skills);
@@ -282,15 +255,10 @@ const make = (sessionId: SessionId) =>
             whenBusy: steers ? "steer" : "followUp",
           };
 
-          // Only a prompt that starts a run starts the commit prompts over; one
-          // sent into a run already going leaves that run's count.
-          const startsRun = !isActive(state);
-
           yield* armActive;
 
-          // One commit admits the prompt, resets the commit prompts and clears
-          // the closed mark, so the status never shows the record without the
-          // run the prompt starts.
+          // One commit admits the prompt and clears the closed mark, so the
+          // status never shows the record without the run the prompt starts.
           yield* Effect.promise(() =>
             harness.commit(async (tx) => {
               await conversation.submit(tx, draft);
@@ -298,10 +266,6 @@ const make = (sessionId: SessionId) =>
               const draftRecord = await tx.doc(RecordDoc, sessionId, found);
 
               draftRecord.closed = false;
-
-              if (startsRun) {
-                draftRecord.commitPrompts = 0;
-              }
             }, BACKGROUND_CONTEXT),
           );
         }),
@@ -411,25 +375,6 @@ const make = (sessionId: SessionId) =>
           yield* armActive;
           harness.resume();
           yield* arm(harness.wake());
-        }),
-
-      workspaceNeeded: (isWorkPending) =>
-        Effect.gen(function* () {
-          const { state, record: found } = yield* status.currentWithRecord;
-          const now = yield* Clock.currentTimeMillis;
-
-          return (
-            found != null &&
-            state != null &&
-            // tentacles manages only the repository its settings name, so
-            // pending work elsewhere in /workspace keeps nothing up.
-            isWorkspaceNeeded(
-              state,
-              found.lastStopped,
-              isWorkPending && found.settings.repository != null,
-              now,
-            )
-          );
         }),
     };
 

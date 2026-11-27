@@ -1,22 +1,28 @@
 import type { TestProject } from "vitest/node";
 
-import { bundleWorker } from "./bundle-worker";
+import { bundleWorkers } from "./bundle-worker";
 
 declare module "vitest" {
   interface ProvidedContext {
-    readonly workerModules: Awaited<ReturnType<typeof bundleWorker>>;
+    readonly workerModules: Awaited<ReturnType<typeof bundleWorkers>>["workerModules"];
+    readonly workspaceModules: Awaited<ReturnType<typeof bundleWorkers>>["workspaceModules"];
   }
 }
 
+const provide = async (project: TestProject) => {
+  const { workerModules, workspaceModules } = await bundleWorkers();
+
+  project.provide("workerModules", workerModules);
+  project.provide("workspaceModules", workspaceModules);
+};
+
 /**
- * Bundles the Worker once per run. The plugin resolves its options once per test file, each with
+ * Bundles both Workers once per run. The plugin resolves its options once per test file, each with
  * its own Miniflare, so bundling there runs one build per file into the same directory, and a
  * Miniflare would load files another build is deleting or rewriting.
  */
 export const setup = async (project: TestProject) => {
-  project.provide("workerModules", await bundleWorker());
+  await provide(project);
 
-  project.onTestsRerun(async () => {
-    project.provide("workerModules", await bundleWorker());
-  });
+  project.onTestsRerun(() => provide(project));
 };

@@ -4,7 +4,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { TentaclesApi } from "@tentacles/worker-api/api";
 import type { Entry } from "@tentacles/worker-api/entries";
 import {
-  type InvalidArchive,
+  type CreateSessionError,
   QuestionNotWaiting,
   SessionNotFound,
   Unauthorized,
@@ -43,7 +43,7 @@ export interface ScriptedSession {
 /** What the stub answers; `createFailure` makes create answer with that error instead of the created id. */
 export interface StubScript {
   readonly createdId?: SessionId;
-  readonly createFailure?: InvalidArchive;
+  readonly createFailure?: CreateSessionError;
   readonly sessions?: ReadonlyMap<SessionId, ScriptedSession>;
   readonly listed?: ReadonlyArray<SessionRef>;
   readonly isQuestionWaiting?: boolean;
@@ -121,6 +121,11 @@ const stubLayer = (
       })
       .handle("close", ({ params }) => {
         requests.push({ endpoint: "close", sessionId: params.sessionId });
+
+        return answering(sessionOf(params.sessionId).pipe(Effect.asVoid));
+      })
+      .handle("delete", ({ params }) => {
+        requests.push({ endpoint: "delete", sessionId: params.sessionId });
 
         return answering(sessionOf(params.sessionId).pipe(Effect.asVoid));
       })

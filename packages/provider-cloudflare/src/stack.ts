@@ -1,14 +1,39 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 
+import packageJson from "../package.json" with { type: "json" };
+import { egressCaPath } from "./egress";
 import { codemodeSandboxClass, codemodeWorkerName } from "./codemode-sandbox";
 import { gatewayId } from "./model-providers";
 import TentaclesWorker from "./worker";
+import { WorkerScripts } from "./worker-scripts";
+import { workspaceCompatibility } from "./workspace-compatibility";
+import {
+  workspaceContainerId,
+  workspaceLoaderBinding,
+  workspaceObjectClass,
+  workspaceWorkerName,
+} from "./workspace-names";
+
+// The workspace image: Computer's daemon, FUSE and the agent's tools. The deploy publishes it under
+// the Container's id, which Computer's container backend starts by name. The daemon's release is
+// the version of the Computer package the Worker bundles, which package.json pins exactly.
+const WorkspaceContainer = Cloudflare.Container(workspaceContainerId, {
+  schedulingPolicy: "durable_object",
+  context: `${import.meta.dirname}/../images/workspace`,
+  build: {
+    args: {
+      EGRESS_CA_PATH: egressCaPath,
+      COMPUTERD_VERSION: packageJson.dependencies["@cloudflare/computer"],
+    },
+  },
+});
 
 /**
- * The whole Cloudflare setup: the AI Gateway, the codemode Worker, and the tentacles Worker, whose
- * init declares the session, registry and Claude objects, the containers, the cron, the secrets
- * and the AI and Browser bindings.
+ * The whole Cloudflare setup: the AI Gateway, the codemode Worker, the Workspace Worker, and the
+ * tentacles Worker, whose init declares the session, registry and Claude objects, the Claude
+ * container, the cron, the secrets and the AI and Browser bindings.
  */
 export const stack = Effect.gen(function* () {
   yield* Cloudflare.AI.Gateway("Gateway", { id: gatewayId });
@@ -22,9 +47,35 @@ export const stack = Effect.gen(function* () {
     env: { [codemodeSandboxClass]: Cloudflare.DurableObject(codemodeSandboxClass) },
   });
 
-  const worker = yield* TentaclesWorker;
+  // The Worker that holds every session's workspace object and its container, with the egress
+  // gateway, the Browser binding and the secrets the git client and the gateway use. Its main module is hand-written,
+  // because Computer's mixin and named exports cannot go through Alchemy's generated class.
+  const workspaceWorker = yield* Cloudflare.Worker("WorkspaceWorker", {
+    name: workspaceWorkerName,
+    main: `${import.meta.dirname}/workspace-worker.ts`,
+    compatibility: workspaceCompatibility,
+    observability: { enabled: true },
+    env: {
+      [workspaceObjectClass]: Cloudflare.DurableObject(workspaceObjectClass, {
+        containers: [WorkspaceContainer],
+      }),
+      [workspaceLoaderBinding]: Cloudflare.WorkerLoader(workspaceLoaderBinding),
+      BROWSER: Cloudflare.Browser("BROWSER"),
+      TENTACLES_GITHUB_TOKEN: Config.Redacted("TENTACLES_GITHUB_TOKEN"),
+      TENTACLES_CDP_SECRET: Config.Redacted("TENTACLES_CDP_SECRET"),
+      TENTACLES_GIT_AUTHOR_NAME: Config.String("TENTACLES_GIT_AUTHOR_NAME"),
+      TENTACLES_GIT_AUTHOR_EMAIL: Config.String("TENTACLES_GIT_AUTHOR_EMAIL"),
+    },
+  });
 
-  return { api: worker.url, codemode: codemode.workerName };
+  const worker = yield* TentaclesWorker.pipe(
+    Effect.provideService(WorkerScripts, {
+      codemodeScript: codemode.workerName,
+      workspaceScript: workspaceWorker.workerName,
+    }),
+  );
+
+  return { api: worker.url, codemode: codemode.workerName, workspace: workspaceWorker.workerName };
 });
 
 /** The Alchemy providers the stack runs with. */

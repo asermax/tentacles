@@ -1,4 +1,10 @@
-import { QuestionNotWaiting, SessionNotFound, Unauthorized } from "@tentacles/worker-api/errors";
+import {
+  InvalidWorkspace,
+  QuestionNotWaiting,
+  SessionNotFound,
+  Unauthorized,
+  WorkspaceUnavailable,
+} from "@tentacles/worker-api/errors";
 import { QuestionId } from "@tentacles/worker-api/ids";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -19,7 +25,6 @@ const settingsVariables = {
   TENTACLES_SESSION_EFFORT: "high",
   TENTACLES_WORKSPACE_IMAGE: "workspace:2",
   TENTACLES_WORKSPACE_SIZE: "standard-1",
-  TENTACLES_WORKSPACE_LIFETIME: "30",
 };
 
 const scriptedSession = { states: [], entries: [] };
@@ -64,7 +69,6 @@ describe("helper commands against the Worker", () => {
             effort: "max",
             image: "default",
             size: "standard-2",
-            lifetime: 15,
             repository: null,
           },
         },
@@ -88,7 +92,6 @@ describe("helper commands against the Worker", () => {
         effort: "high",
         image: "workspace:2",
         size: "standard-1",
-        lifetime: 30,
         repository: null,
       },
     });
@@ -104,7 +107,7 @@ describe("helper commands against the Worker", () => {
         name: "migrate",
         prompt: "go",
         parent,
-        settings: { model: "glm-5.2", lifetime: 5, repository },
+        settings: { model: "glm-5.2", repository },
       },
       variablesFor(stub.url, settingsVariables),
     );
@@ -116,10 +119,38 @@ describe("helper commands against the Worker", () => {
         effort: "high",
         image: "workspace:2",
         size: "standard-1",
-        lifetime: 5,
         repository,
       },
     });
+  });
+
+  it("answers Failure with the InvalidWorkspace the Worker returns when the setup is refused", async () => {
+    const error = new InvalidWorkspace({
+      message: "The repository https://github.com/asermax/tentacle was not found",
+    });
+
+    const stub = await startWorker({ createFailure: error });
+
+    const spawnResult = await runHelperCommand(
+      "spawn",
+      { name: "migrate", prompt: "go", parent },
+      variablesFor(stub.url),
+    );
+
+    expect(spawnResult).toEqual(Failure.make({ error }));
+  });
+
+  it("answers Failure with the WorkspaceUnavailable the Worker returns when the setup fails inside", async () => {
+    const error = new WorkspaceUnavailable({ message: "The workspace could not be set up" });
+    const stub = await startWorker({ createFailure: error });
+
+    const spawnResult = await runHelperCommand(
+      "spawn",
+      { name: "migrate", prompt: "go", parent },
+      variablesFor(stub.url, settingsVariables),
+    );
+
+    expect(spawnResult).toEqual(Failure.make({ error }));
   });
 
   it("reports a repository URL without a scheme and sends no request", async () => {

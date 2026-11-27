@@ -5,7 +5,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/http-api";
 
 import { archiveKinds } from "./archive-kinds";
 import { Entry } from "./entries";
-import { InvalidArchive, QuestionNotWaiting, SessionNotFound } from "./errors";
+import { CreateSessionError, QuestionNotWaiting, SessionNotFound } from "./errors";
 import { QuestionId, SessionId } from "./ids";
 import { ApiKey } from "./middleware";
 import { Parent } from "./parent";
@@ -59,7 +59,7 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
     HttpApiEndpoint.post("create", "/sessions", {
       payload: CreateSession,
       success: Schema.Struct({ sessionId: SessionId }),
-      error: InvalidArchive,
+      error: CreateSessionError.members,
     }),
     HttpApiEndpoint.post("prompt", "/sessions/:sessionId/prompt", {
       params: sessionParams,
@@ -74,6 +74,11 @@ export class SessionsGroup extends HttpApiGroup.make("sessions")
       error: [SessionNotFound, QuestionNotWaiting],
     }),
     HttpApiEndpoint.post("close", "/sessions/:sessionId/close", {
+      params: sessionParams,
+      success: HttpApiSchema.NoContent,
+      error: SessionNotFound,
+    }),
+    HttpApiEndpoint.delete("delete", "/sessions/:sessionId", {
       params: sessionParams,
       success: HttpApiSchema.NoContent,
       error: SessionNotFound,

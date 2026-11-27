@@ -25,9 +25,9 @@ const hmacKey = (secret: Redacted.Redacted) =>
     ["sign", "verify"],
   );
 
-// A token is the Browser Run session id and its HMAC under the Worker secret, so only the Worker
-// mints one and the relay keeps no state of its own.
-const signToken = async (secret: Redacted.Redacted, browserSessionId: string) => {
+// A token is the Browser Run session id and its HMAC under the deploy's CDP secret, so only the
+// deploy's Workers can mint one, and the relay in the Workspace Worker keeps no state of its own.
+export const signToken = async (secret: Redacted.Redacted, browserSessionId: string) => {
   const signature = await crypto.subtle.sign(
     "HMAC",
     await hmacKey(secret),
@@ -96,7 +96,7 @@ export const browserLayer = (
 
             storage.kv.put(browserSessionKey, sessionId);
 
-            return { cdpUrl: `wss://${apiHost}/cdp/${await signToken(secret, sessionId)}` };
+            return { cdpUrl: cdpUrl(await signToken(secret, sessionId)) };
           },
           catch: (cause) => new BrowserUnavailable({ message: String(cause) }),
         }),
@@ -105,16 +105,23 @@ export const browserLayer = (
   );
 };
 
+const cdpPathPattern = /^\/cdp\/([^/]+)$/;
+
+const cdpUrl = (token: string) => `ws://${apiHost}/cdp/${token}`;
+
+/** The token a CDP request's path carries, when it is the path Browser.open's URL names. */
+export const cdpTokenOf = (pathname: string) => cdpPathPattern.exec(pathname)?.[1];
+
 const forwardClose = (to: WebSocket) => (event: CloseEvent) =>
   to.close(sendableCode(event.code), event.reason);
 
 /**
- * The /cdp route: checks the token and bridges the caller's WebSocket to the Browser Run session it
- * names. agent-browser cannot trust the egress CA on its CDP connection, so the container reaches
- * the browser through the Worker's own certificate instead.
+ * The workspace gateway's /cdp route: checks the token and bridges the caller's WebSocket to the
+ * Browser Run session it names. agent-browser cannot trust the egress CA on its CDP connection, so
+ * the container asks for it over plain ws:// and the gateway answers.
  */
-export const cdpRelay = (browser: BrowserRun, secret: Redacted.Redacted) => (token: string) =>
-  Effect.promise(async () => {
+export const cdpRelay =
+  (browser: BrowserRun, secret: Redacted.Redacted) => async (token: string) => {
     const browserSessionId = await verifyToken(secret, token);
 
     if (Option.isNone(browserSessionId)) {
@@ -147,4 +154,4 @@ export const cdpRelay = (browser: BrowserRun, secret: Redacted.Redacted) => (tok
     local.addEventListener("close", forwardClose(remote));
 
     return new Response(null, { status: 101, webSocket: client });
-  });
+  };

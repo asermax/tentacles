@@ -23,17 +23,16 @@ claude plugin install tentacles@tentacles
 
 The helper reads these where it runs, on your machine. On pi, set them in pi's settings env; on Claude Code, in the environment Claude Code starts with.
 
-| Variable                       | What it sets                                | Default            |
-| ------------------------------ | ------------------------------------------- | ------------------ |
-| `TENTACLES_URL`                | the Worker's URL                            | required           |
-| `TENTACLES_API_KEY`            | the API key                                 | required           |
-| `TENTACLES_HELPER`             | the helper's path                           | the bundled helper |
-| `TENTACLES_SESSION_PROVIDER`   | the model provider                          | `cloudflare`       |
-| `TENTACLES_SESSION_MODEL`      | the model                                   | `glm-5.3`          |
-| `TENTACLES_SESSION_EFFORT`     | the effort level                            | `max`              |
-| `TENTACLES_WORKSPACE_IMAGE`    | the workspace image                         | `default`          |
-| `TENTACLES_WORKSPACE_SIZE`     | the workspace container's instance type     | `standard-2`       |
-| `TENTACLES_WORKSPACE_LIFETIME` | the workspace's inactivity time, in minutes | `15`               |
+| Variable                     | What it sets                            | Default            |
+| ---------------------------- | --------------------------------------- | ------------------ |
+| `TENTACLES_URL`              | the Worker's URL                        | required           |
+| `TENTACLES_API_KEY`          | the API key                             | required           |
+| `TENTACLES_HELPER`           | the helper's path                       | the bundled helper |
+| `TENTACLES_SESSION_PROVIDER` | the model provider                      | `cloudflare`       |
+| `TENTACLES_SESSION_MODEL`    | the model                               | `glm-5.3`          |
+| `TENTACLES_SESSION_EFFORT`   | the effort level                        | `max`              |
+| `TENTACLES_WORKSPACE_IMAGE`  | the workspace image                     | `default`          |
+| `TENTACLES_WORKSPACE_SIZE`   | the workspace container's instance type | `standard-2`       |
 
 A setting the agent passes to `spawn` wins over its variable.
 

@@ -13,8 +13,7 @@ The sections below are the usual kinds of rule. Keep the ones this project has r
 
 - A prompt never answers or cancels a waiting question; it reaches the agent after the answer ([question-round-trip](technical-design/question-round-trip.md)).
 - Deletion never touches a running or waiting session ([sessions](technical-design/sessions.md)).
-- Before an action that pauses a session, asking a question or ending a run, tentacles checks the session's repository for work that is not committed and pushed, except when the check fails with an error: the question then goes through carrying the failure, and the run ends without a commit prompt ([question-round-trip](technical-design/question-round-trip.md), [workspace](technical-design/workspace.md)).
-- A session's status changes only in reaction to its pi-durable session ([sessions](technical-design/sessions.md)).
+- A session's status changes only in reaction to its pi-durable session, except a failed workspace setup at spawn, which leaves only the session's registry entry, marked failed ([sessions](technical-design/sessions.md)).
 
 ## 🖥️ Interface
 
@@ -24,11 +23,13 @@ The sections below are the usual kinds of rule. Keep the ones this project has r
 
 - A session's alarm belongs to pi-durable, to resume a run after an eviction; nothing else schedules on it ([sessions](technical-design/sessions.md)).
 - tentacles' shared logic depends on the provider contracts, never on a provider directly ([runtime-components](technical-design/runtime-components.md)).
+- Every operation runs on the cheapest place that can do it: the workspace's own storage, then the isolate shell, then the container ([workspace](technical-design/workspace.md), [computer-workspace](technical-design/providers/cloudflare/computer-workspace.md)).
 
 ## 💽 Data
 
-- Work survives only once it is committed and pushed; a workspace's disk is disposable ([workspace](technical-design/workspace.md)).
+- A session's workspace is set up once, inside the session's initialization, before its first run ([workspace](technical-design/workspace.md)).
+- A workspace's files live with its session until the session is deleted; only a container's own disk outside `/workspace` is disposable ([workspace](technical-design/workspace.md)).
 
 ## 🔒 Access and security
 
-- Credentials never enter a container; they are added to outgoing requests at egress ([runtime-components](technical-design/runtime-components.md)).
+- Credentials never enter a container; they are added to outgoing requests outside the container, in the git client and at egress ([runtime-components](technical-design/runtime-components.md), [computer-workspace](technical-design/providers/cloudflare/computer-workspace.md)).

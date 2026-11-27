@@ -4,36 +4,33 @@ import { join } from "node:path";
 import cloudflare from "@alchemy.run/cloudflare-runtime/rolldown";
 import { build } from "rolldown";
 
+import { workspaceCompatibility } from "../src/workspace-compatibility";
+
 const path = (relative: string) => join(import.meta.dirname, relative);
 
 export const bundleDir = path("../dist/test-worker");
+
+export const workspaceBundleDir = path("../dist/test-workspace-worker");
 
 export const compatibility = {
   date: "2026-11-01",
   flags: ["nodejs_compat"],
 };
 
-/**
- * Bundles the Worker the way Alchemy does at deploy, so the tests run what ships: Alchemy's and
- * Effect's deploy-time modules are tree-shaken out, which Vite's module runner cannot do.
- */
-export const bundleWorker = async () => {
-  const dir = bundleDir;
-
-  await rm(dir, { recursive: true, force: true });
+const bundle = async (
+  entryFile: string,
+  outputDir: string,
+  { date, flags }: typeof compatibility,
+) => {
+  await rm(outputDir, { recursive: true, force: true });
 
   await build({
-    input: path("./entry.js"),
+    input: path(entryFile),
     external: ["lightningcss", "fsevents"],
-    resolve: {
-      alias: {
-        "node:child_process": path("../src/spawn-shim.ts"),
-      },
-    },
     plugins: [
       cloudflare({
-        compatibilityDate: compatibility.date,
-        compatibilityFlags: compatibility.flags,
+        compatibilityDate: date,
+        compatibilityFlags: flags,
       }),
     ],
     checks: { unresolvedImport: false, ineffectiveDynamicImport: false },
@@ -41,18 +38,32 @@ export const bundleWorker = async () => {
     transform: { define: { "globalThis.__ALCHEMY_RUNTIME__": "true" } },
     moduleTypes: { ".sql": "text" },
     experimental: { lazyBarrel: true },
-    output: { dir, entryFileNames: "worker.js", format: "esm" },
+    output: { dir: outputDir, entryFileNames: "worker.js", format: "esm" },
     logLevel: "warn",
   });
 
   // The entry first, then every chunk and asset it imports.
-  const files = (await readdir(dir, { recursive: true, withFileTypes: true }))
-    .filter((entry) => entry.isFile() && entry.name !== "worker.js")
-    .map((entry) => join(entry.parentPath, entry.name));
+  const files = (await readdir(outputDir, { recursive: true, withFileTypes: true }))
+    .filter((dirent) => dirent.isFile() && dirent.name !== "worker.js")
+    .map((dirent) => join(dirent.parentPath, dirent.name));
 
-  return [join(dir, "worker.js"), ...files].map((file) =>
+  return [join(outputDir, "worker.js"), ...files].map((file) =>
     file.endsWith(".sql")
       ? { type: "Text" as const, path: file }
       : { type: "ESModule" as const, path: file },
   );
+};
+
+/**
+ * Bundles the tentacles Worker and the Workspace Worker the way Alchemy does at deploy, so the
+ * tests run what ships: Alchemy's and Effect's deploy-time modules are tree-shaken out, which
+ * Vite's module runner cannot do.
+ */
+export const bundleWorkers = async () => {
+  const [workerModules, workspaceModules] = await Promise.all([
+    bundle("./entry.js", bundleDir, compatibility),
+    bundle("./workspace-entry.js", workspaceBundleDir, workspaceCompatibility),
+  ]);
+
+  return { workerModules, workspaceModules };
 };

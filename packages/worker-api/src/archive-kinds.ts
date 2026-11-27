@@ -1,13 +1,16 @@
 import * as Record from "effect/Record";
 
+/** The directory the workspace's files live under; the repository and the archives get a directory inside it. */
+export const workspaceDirectory = "/workspace";
+
 /**
- * The kinds of archive a create request carries. `expandsInto` is where the workspace container
- * expands the kind's archive; a null one is read by the Worker only and never reaches the container.
+ * The kinds of archive a create request carries. `expandsInto` is where the workspace
+ * expands the kind's archive; a null one is read by the Worker only and never reaches the workspace.
  */
 export const archiveKinds = {
-  skills: { heading: "Skills", expandsInto: "/skills" },
+  skills: { heading: "Skills", expandsInto: `${workspaceDirectory}/skills` },
   agents: { heading: "Agents", expandsInto: null },
-  context: { heading: "Context", expandsInto: "/context" },
+  context: { heading: "Context", expandsInto: `${workspaceDirectory}/context` },
 } as const;
 
 export type ArchiveKind = keyof typeof archiveKinds;
@@ -15,7 +18,7 @@ export type ArchiveKind = keyof typeof archiveKinds;
 /** The kinds in table order. */
 export const archiveKindNames = Record.keys(archiveKinds);
 
-/** The kinds the workspace container expands, each with its directory, in table order. */
+/** The kinds the workspace expands, each with its directory, in table order. */
 export const archiveExpansions = archiveKindNames.flatMap((kind) => {
   const { expandsInto } = archiveKinds[kind];
 

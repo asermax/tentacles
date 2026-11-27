@@ -8,13 +8,13 @@ Remote agents are coding-agent sessions that run in tentacles, away from your ma
 
 Send a remote agent work that is separable and long: a feature on its own branch, a migration, an investigation that needs a clean checkout. Each one costs a container and a model, so prefer a few remote agents with clear tasks over many small ones.
 
-A remote agent only keeps what it commits and pushes. Its workspace is disposable, so give it a repository it can push to, and ask for the result as a branch or a pull request, not as files.
+A remote agent's work stays in its workspace until the session is deleted, a month after its last run; only what it pushes outlives that. Give it a repository it can push to, and ask for the result as a branch or a pull request, not as files.
 
 ## Spawn
 
 `spawn` takes a name, the first prompt, the session's settings and, optionally, skills, agent definitions and context files (see Skills and agents, and Context files). The name shows in your status line, so name it after the agent's task. The settings you leave out come from the plugin's defaults.
 
-Write the first prompt for someone who has not seen this conversation: the goal, the repository, the branch to push, and what done looks like. Name the repository in the settings when the agent has to work in it, so tentacles clones the repository and, before the agent asks you anything, checks it for work that is not pushed.
+Write the first prompt for someone who has not seen this conversation: the goal, the repository, the branch to push, and what done looks like. Name the repository in the settings when the agent has to work in it, so tentacles clones it into the workspace.
 
 ## Skills and agents
 
@@ -28,9 +28,9 @@ A remote agent works on its own, so a skill that would stop to ask the person ha
 
 ## Context files
 
-`spawn` takes `context`, the paths of files and folders on your machine that the job needs and the repository does not hold, such as a change's scratch files. Each path lands in the remote agent's `/context` folder under its own name: a file at `/context/<file name>`, a folder at `/context/<folder name>/…`. `/context` is outside the repository, so the files never reach its commits. A folder takes everything under it, a symlink is sent as the file or folder it points to, and every file keeps its permission bits.
+`spawn` takes `context`, the paths of files and folders on your machine that the job needs and the repository does not hold, such as a change's scratch files. Each path lands in the remote agent's `/workspace/context` folder under its own name: a file at `/workspace/context/<file name>`, a folder at `/workspace/context/<folder name>/…`. `/workspace/context` is outside the repository, so the files never reach its commits. A folder takes everything under it, a symlink is sent as the file or folder it points to, and every file keeps its permission bits.
 
-The remote agent has a copy that is fixed at spawn. Its edits to the copy are lost when its workspace restarts and never come back to you, so spawn a new remote agent when the job needs different files. The remote agent is told only that you sent files and that they are in `/context`, so say in the handoff what the files are and how to use them.
+The remote agent has a copy that is fixed at spawn. Its edits to the copy stay in its workspace and never come back to you, so spawn a new remote agent when the job needs different files. The remote agent is told only that you sent files and that they are in `/workspace/context`, so say in the handoff what the files are and how to use them.
 
 The paths are checked on your machine before anything is sent. A path that does not exist or cannot be read, two paths with the same name, or files that pack over 5 MB make `spawn` create nothing and return every problem with its path in a Context group, beside the Skills and Agents groups.
 
@@ -41,15 +41,6 @@ You are woken when a remote agent stops. The wake carries the agent's last messa
 ## Questions
 
 A remote agent asks with its question tool and waits for the answer. Answer with `answer`, passing the question's id. Answer it yourself when you can; when the decision is the human's, ask them and answer once they reply. A prompt you send while a question waits does not answer the question. The agent receives the prompt after the question is answered.
-
-Every question comes with a repository check, which tells you whether the remote agent's work is known to be persisted:
-
-- `Clean`: the work is committed and pushed. The question can wait any length of time.
-- `Stopped`: the agent's workspace was not running, so it had nothing pending. The question can wait any length of time.
-- `CheckFailed`: tentacles could not check the workspace, so the agent's work may exist only on the container's disk and is lost when the container stops. The check comes with what the git commands printed, which shows why it failed and is empty when the workspace ran neither command.
-- `NoRepository`: the session's settings name no repository, so tentacles manages none and checked nothing.
-
-A remote agent that has uncommitted changes or unpushed commits cannot ask: its question tool refuses until it commits and pushes.
 
 ## Prompt
 

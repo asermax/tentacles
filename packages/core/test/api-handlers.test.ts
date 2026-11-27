@@ -1,9 +1,17 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
 import { Entry } from "@tentacles/worker-api/entries";
-import { InvalidArchive, SessionNotFound } from "@tentacles/worker-api/errors";
+import {
+  InvalidArchive,
+  InvalidWorkspace,
+  SessionNotFound,
+  type WorkspaceSetupError,
+  WorkspaceUnavailable,
+} from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
-import { SessionState } from "@tentacles/worker-api/session-state";
+import { SessionListing, SessionState } from "@tentacles/worker-api/session-state";
+import { RegistryStore } from "@tentacles/contracts/registry-store";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -13,8 +21,11 @@ import {
   agentWithoutBody,
   definitionArchives,
   definitionNames,
+  definitionSkillEntries,
+  entriesOf,
   oversizedSkillsArchive,
   skillBlockOf,
+  skillFiles,
   skillsArchive,
 } from "./support/archives";
 import { eventually } from "./support/eventually";
@@ -30,6 +41,8 @@ const decodeEntries = Schema.decodeUnknownSync(Schema.Array(Entry));
 
 const decodeNotFound = Schema.decodeUnknownSync(SessionNotFound);
 
+const decodeListing = Schema.decodeUnknownSync(Schema.NonEmptyArray(SessionListing));
+
 const json = (response: Response) => Effect.promise(() => response.json());
 
 const createOver = (api: Effect.Success<typeof serveApi>, prompt: string) =>
@@ -43,8 +56,26 @@ const createOver = (api: Effect.Success<typeof serveApi>, prompt: string) =>
 
 const decodeInvalidArchive = Schema.decodeUnknownSync(InvalidArchive);
 
-const bash = (command: string) =>
-  fauxAssistantMessage(fauxToolCall("bash", { command }), { stopReason: "toolUse" });
+const decodeInvalidWorkspace = Schema.decodeUnknownSync(InvalidWorkspace);
+
+const decodeWorkspaceUnavailable = Schema.decodeUnknownSync(WorkspaceUnavailable);
+
+const listPath = `/sessions?harness=pi&sessionId=${parent.sessionId}`;
+
+/** A create whose workspace setup fails with the given error, and the entry it leaves in the registry. */
+const failedCreate = (error: WorkspaceSetupError) =>
+  Effect.gen(function* () {
+    const world = yield* TestWorld;
+    const api = yield* serveApi;
+
+    world.failures.workspaceCreate = error;
+    world.faux.setResponses([fauxAssistantMessage("never")]);
+
+    const response = yield* api("/sessions", post(JSON.stringify(createRequest("go"))));
+    const listed = yield* json(yield* api(listPath));
+
+    return { world, api, response, listed };
+  });
 
 const finishedSession = (api: Effect.Success<typeof serveApi>, answer: string) =>
   Effect.gen(function* () {
@@ -110,7 +141,7 @@ describe("the sessions API", () => {
   );
 
   it.live(
-    "create with skills and agents lists their names and stores the skills archive as sent",
+    "create with skills and agents lists their names and hands the skills archive to the workspace as sent",
     () =>
       Effect.gen(function* () {
         const world = yield* TestWorld;
@@ -118,10 +149,7 @@ describe("the sessions API", () => {
         const archives = yield* definitionArchives();
         const request = createRequest("go", null, archives);
 
-        world.faux.setResponses([
-          bash("cat /skills/implement/SKILL.md"),
-          fauxAssistantMessage("read it"),
-        ]);
+        world.faux.setResponses([fauxAssistantMessage("read it")]);
 
         const response = yield* api("/sessions", post(createBody(request)));
 
@@ -134,20 +162,24 @@ describe("the sessions API", () => {
           Effect.sync(() => expect(world.records(sessionId).states).toHaveLength(2)),
         );
 
-        expect(world.archives("skills").get(sessionId)).toEqual(archives.skills);
+        expect(world.workspaceCreates).toEqual([
+          {
+            sessionId,
+            init: {
+              repository: null,
+              image: "default",
+              size: "basic",
+              skills: definitionSkillEntries,
+              context: [],
+            },
+          },
+        ]);
         expect(
           yield* json(yield* api(`/sessions?harness=pi&sessionId=${parent.sessionId}`)),
         ).toEqual([{ sessionId, name: "worker", status: "idle", ...named }]);
         expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toEqual(
           SessionState.cases.idle.make(named),
         );
-
-        const results = (yield* (yield* world.handle(sessionId)).messages(10)).filter(
-          Entry.guards.toolResult,
-        );
-
-        expect(results[0]?.isError).toBe(false);
-        expect(results[0]?.output).toContain("name: implement");
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -156,9 +188,8 @@ describe("the sessions API", () => {
       const world = yield* TestWorld;
       const api = yield* serveApi;
 
-      const skills = yield* Effect.promise(() =>
-        skillsArchive({ name: "implement", description: "Does a thing: with a colon" }),
-      );
+      const skill = { name: "implement", description: "Does a thing: with a colon" };
+      const skills = yield* Effect.promise(() => skillsArchive(skill));
 
       world.faux.setResponses([fauxAssistantMessage("ok")]);
 
@@ -171,7 +202,9 @@ describe("the sessions API", () => {
 
       const { sessionId } = decodeCreated(yield* json(response));
 
-      expect(world.archives("skills").get(sessionId)).toEqual(skills);
+      expect(world.workspaceCreates.map(({ init }) => init.skills)).toEqual([
+        entriesOf(skillFiles(skill)),
+      ]);
       expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toMatchObject({
         skills: ["implement"],
       });
@@ -200,7 +233,7 @@ describe("the sessions API", () => {
         expect(response.status).toBe(400);
         expect(decodeInvalidArchive(yield* json(response)).message).toContain("skills archive");
         expect(world.registryCalls).toEqual([]);
-        expect(world.archives("skills").size).toBe(0);
+        expect(world.workspaceCreates).toEqual([]);
         expect(world.faux.getPendingResponseCount()).toBe(1);
       }).pipe(Effect.provide(testWorld)),
   );
@@ -228,7 +261,7 @@ describe("the sessions API", () => {
         expect(message).toContain("skills archive");
         expect(message).toContain("name 'impl' does not match the folder 'implement'");
         expect(world.registryCalls).toEqual([]);
-        expect(world.archives("skills").size).toBe(0);
+        expect(world.workspaceCreates).toEqual([]);
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -255,7 +288,7 @@ describe("the sessions API", () => {
         expect(message).toContain("agents archive");
         expect(message).toContain("name 'inspector' does not match the file 'reviewer.md'");
         expect(world.registryCalls).toEqual([]);
-        expect(world.archives("skills").size).toBe(0);
+        expect(world.workspaceCreates).toEqual([]);
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -277,7 +310,7 @@ describe("the sessions API", () => {
       expect(message).toContain("agents archive");
       expect(message).toMatch(/reviewer\.md: .*(body|prompt)/);
       expect(world.registryCalls).toEqual([]);
-      expect(world.archives("skills").size).toBe(0);
+      expect(world.workspaceCreates).toEqual([]);
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -307,7 +340,7 @@ describe("the sessions API", () => {
         expect(message).toContain("agents archive");
         expect(message).toMatch(/reviewer\.md: .*(body|prompt)/);
         expect(world.registryCalls).toEqual([]);
-        expect(world.archives("skills").size).toBe(0);
+        expect(world.workspaceCreates).toEqual([]);
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -382,6 +415,90 @@ describe("the sessions API", () => {
     }).pipe(Effect.provide(testWorld)),
   );
 
+  it.live(
+    "a setup the request caused to fail answers InvalidWorkspace and keeps only a failed entry",
+    () =>
+      Effect.gen(function* () {
+        const registry = yield* RegistryStore;
+        const error = new InvalidWorkspace({ message: "The repository was not found" });
+        const { world, response, listed } = yield* failedCreate(error);
+
+        expect(response.status).toBe(400);
+        expect(decodeInvalidWorkspace(yield* json(response))).toEqual(error);
+        expect(listed).toEqual([
+          { sessionId: expect.any(String), name: "worker", status: "failed", ...details },
+        ]);
+
+        const [{ sessionId }] = decodeListing(listed);
+
+        expect(world.records(sessionId).states).toEqual([]);
+        expect(world.faux.getPendingResponseCount()).toBe(1);
+        expect(yield* (yield* world.handle(sessionId)).status().pipe(Effect.flip)).toEqual(
+          new SessionNotFound({ sessionId }),
+        );
+        expect(yield* registry.stoppedBefore((yield* Clock.currentTimeMillis) + 1)).toEqual([
+          sessionId,
+        ]);
+      }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("a setup that fails for an internal cause answers WorkspaceUnavailable", () =>
+    Effect.gen(function* () {
+      const registry = yield* RegistryStore;
+      const error = new WorkspaceUnavailable({ message: "GitHub did not answer" });
+      const { world, response, listed } = yield* failedCreate(error);
+
+      expect(response.status).toBe(500);
+      expect(decodeWorkspaceUnavailable(yield* json(response))).toEqual(error);
+      expect(listed).toEqual([
+        { sessionId: expect.any(String), name: "worker", status: "failed", ...details },
+      ]);
+
+      const [{ sessionId }] = decodeListing(listed);
+
+      expect(world.records(sessionId).states).toEqual([]);
+      expect(world.faux.getPendingResponseCount()).toBe(1);
+      expect(yield* registry.stoppedBefore((yield* Clock.currentTimeMillis) + 1)).toEqual([
+        sessionId,
+      ]);
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live(
+    "every call on a setup-failed session answers SessionNotFound while the list shows it failed",
+    () =>
+      Effect.gen(function* () {
+        const { api, listed } = yield* failedCreate(
+          new InvalidWorkspace({ message: "No such repository" }),
+        );
+
+        const [{ sessionId }] = decodeListing(listed);
+
+        const requestsForFailedSession = [
+          api(
+            `/sessions/${sessionId}/prompt`,
+            post(JSON.stringify({ text: "hi", mode: "followUp" })),
+          ),
+          api(
+            `/sessions/${sessionId}/answer`,
+            post(JSON.stringify({ questionId: "1", text: "yes" })),
+          ),
+          api(`/sessions/${sessionId}/close`, { method: "POST" }),
+          api(`/sessions/${sessionId}/messages`),
+          api(`/sessions/${sessionId}/status`),
+        ];
+
+        for (const request of requestsForFailedSession) {
+          const response = yield* request;
+
+          expect(response.status).toBe(404);
+          expect(decodeNotFound(yield* json(response))).toEqual(new SessionNotFound({ sessionId }));
+        }
+
+        expect(yield* json(yield* api(listPath))).toEqual(listed);
+      }).pipe(Effect.provide(testWorld)),
+  );
+
   it.live("messages without a count returns the last entry whole", () =>
     Effect.gen(function* () {
       const api = yield* serveApi;
@@ -411,7 +528,11 @@ describe("the sessions API", () => {
           switch (rootTurns) {
             case 1:
               return fauxAssistantMessage(
-                fauxToolCall("bash", { command: "echo checked" }, { id: "bash-1" }),
+                fauxToolCall(
+                  "workspace_write",
+                  { path: "notes.md", text: "checked" },
+                  { id: "write-1" },
+                ),
                 {
                   stopReason: "toolUse",
                 },
@@ -440,11 +561,15 @@ describe("the sessions API", () => {
       expect(all).toEqual([
         Entry.cases.prompt.make({ text: "go" }),
         Entry.cases.toolCall.make({
-          toolCallId: "bash-1",
-          name: "bash",
-          arguments: { command: "echo checked" },
+          toolCallId: "write-1",
+          name: "workspace_write",
+          arguments: { path: "notes.md", text: "checked" },
         }),
-        Entry.cases.toolResult.make({ toolCallId: "bash-1", output: "checked\n", isError: false }),
+        Entry.cases.toolResult.make({
+          toolCallId: "write-1",
+          output: "wrote notes.md",
+          isError: false,
+        }),
         Entry.cases.toolCall.make({
           toolCallId: "subagent-1",
           name: "subagent",

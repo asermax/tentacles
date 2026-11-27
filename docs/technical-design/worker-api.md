@@ -8,16 +8,17 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-The Worker's API is the plugin's only way to reach tentacles: seven calls (create, prompt, answer, close, messages, status, list) and one socket per session. Every request and every socket carries the API key, and the plugin reads the Worker's URL and the key from environment variables. The socket sends one construct, the session state, when it connects and again on every change, and the status call returns the same construct. Calls on an existing session succeed, closed ones included; a deleted or unknown session returns an error.
+The Worker's API is the plugin's only way to reach tentacles: eight calls (create, prompt, answer, close, delete, messages, status, list) and one socket per session. Every request and every socket carries the API key, and the plugin reads the Worker's URL and the key from environment variables. The socket sends one construct, the session state, when it connects and again on every change, and the status call returns the same construct. Calls on an existing session succeed, closed ones included; a deleted or unknown session returns an error.
 
 ## ♠️ What it exposes
 
 | Member | Takes | Answers | Who asks |
 |---|---|---|---|
-| `create` | the name, the parent, the settings, the first prompt, and optionally a skills archive, an agents archive and a context archive (see below) | starts the session, stores its skills and agent definitions, keeps the skills and context archives, waits until its first run has started and returns its session id | the spawn tool |
+| `create` | the name, the parent, the settings, the first prompt, and optionally a skills archive, an agents archive and a context archive (see below) | starts the session, stores its skills and agent definitions, sets up its workspace from the repository and the files of the skills and context archives, waits until its first run has started and returns its session id; when the setup fails, returns an error naming the cause and keeps only the session's registry entry, marked failed | the spawn tool |
 | `prompt` | the session id, the text, and a mode: follow-up or steer | sends the text to the session; on an idle, failed or closed session it starts a new run, reopening a closed one; a prompt sent while a question waits is a steer whatever its mode, and queues until the answer | the prompt tool |
 | `answer` | the session id, the question id and the answer text | resolves the waiting question, and the run continues | the answer tool |
 | `close` | the session id | aborts whatever the session is doing and closes it | the close tool |
+| `delete` | the session id | stops whatever the session is doing, deletes its workspace and its own storage, drops its registry entry, and answers with no content; works on a session in any state, a running, closed or setup-failed one included; when the registry does not know the id, returns the session-not-found error; when the deletion fails, returns an error and keeps the entry, so the same call can be sent again | no tool: a caller of the API directly |
 | `messages` | the session id and a count, 1 when absent | the last entries of the root conversation, as many as the count | the messages tool |
 | `status` | the session id | the session state at any time | the plugin, when it needs one session's state |
 | `list` | the parent | all of the parent's sessions from the registry, closed ones included, each with its id, name, status, settings and the names of its skills and agents | the list tool and the start-up sync |
@@ -27,7 +28,7 @@ A message is any entry in the root conversation's history: a user prompt, the ag
 
 The registry entry carries each session's name, status, settings and skill and agent names, so `list` answers without a call per session.
 
-A call or a socket on a deleted or unknown session, or an answer to a question that is not waiting, returns an error with a message. The plugin hands that message to the parent agent as a tool failure.
+A call or a socket on a deleted or unknown session, or an answer to a question that is not waiting, returns an error with a message. The plugin hands that message to the parent agent as a tool failure. A deleted session is gone for good: its history, its workspace and its registry entry cannot be read again.
 
 ## 🚀 What create takes
 
@@ -35,7 +36,7 @@ A call or a socket on a deleted or unknown session, or an answer to a question t
 |---|---|
 | name | required; the status line shows the session by it |
 | parent | the parent's harness (pi or claude) and that harness's session id |
-| settings | provider, model, effort, image, size and lifetime, and optionally a repository: its `https://` (or `http://`) URL and a shallow-or-full clone flag |
+| settings | provider, model, effort, image and size, and optionally a repository: its `https://` (or `http://`) URL and a shallow-or-full clone flag |
 | prompt | the first prompt; the run starts on it |
 | skills | optional; a gzip-compressed tar file of at most 5 MB with one skill folder per top-level entry |
 | agents | optional; a gzip-compressed tar file of at most 5 MB with one agent definition file per top-level entry |
@@ -43,15 +44,17 @@ A call or a socket on a deleted or unknown session, or an answer to a question t
 
 Create's body is JSON and carries each archive base64-encoded, which makes it a third larger than the file. Three archives at the 5 MB limit come to about 20 MB.
 
-The plugin fills every unset setting from its defaults, so create always carries provider, model, effort, image, size and lifetime. A repository is optional; tentacles clones it into `/workspace` (see [workspace](workspace.md)). Its URL is an `https://` (or `http://`) URL, since the clone's credentials are added at egress for HTTPS only, and a create with any other form, such as a bare `github.com/owner/name` or `git@github.com:owner/name`, fails the schema check.
+The plugin fills every unset setting from its defaults, so create always carries provider, model, effort, image and size. A repository is optional; the workspace's setup clones it into `/workspace/repo` (see [workspace](workspace.md)). Its URL is an `https://` (or `http://`) URL, since the workspace adds the GitHub token to HTTPS requests only, and a create with any other form, such as a bare `github.com/owner/name` or `git@github.com:owner/name`, fails the schema check.
 
 The plugin's helper checks the skills, agent definitions and context paths on the parent's machine and packs the archives only when every check passes, so the problems it finds reach the parent as the spawn tool's result and no create call is sent. [sessions](sessions.md) covers the checks, in its Skills and agents and Context files sections, and what the session does with each archive.
 
-The session reads each archive again and runs the same checks, reading frontmatter the same way the helper does. When it cannot read one or more archives, create returns one error that names each invalid archive and its problem. That happens when the file is not a gzip-compressed tar, a file in the skills archive sits outside a skill folder, a skill folder has no SKILL.md, a file in the agents archive is not at its top level, or a skill or agent definition breaks a rule. The session then stores nothing and starts no run. It keeps the skills archive as sent. The context archive is checked only for being readable, and an empty one is accepted; the session keeps it as sent. A create that does not come through the helper therefore puts every definition in `/skills` as written, including one the helper would have quoted.
+The session reads each archive again and runs the same checks, reading frontmatter the same way the helper does. When it cannot read one or more archives, create returns one error that names each invalid archive and its problem. That happens when the file is not a gzip-compressed tar, a file in the skills archive sits outside a skill folder, a skill folder has no SKILL.md, a file in the agents archive is not at its top level, or a skill or agent definition breaks a rule. The session then stores nothing and starts no run. It decompresses each archive once and hands the workspace the files of the skills archive as read. The context archive is checked only for being readable, and an empty one is accepted; the session hands the workspace its files as read. A create that does not come through the helper therefore puts every definition in `/workspace/skills` as written, including one the helper would have quoted.
+
+Once the archives pass, create sets up the session's workspace and answers only when the setup ends. Create fails with `InvalidArchive` (400), described above, or, when the setup fails, with one of two errors, each with a message that names the cause in plain words. `InvalidWorkspace` (400) means the cause is in the request: a repository that GitHub answers 404 for (it does not exist, or the token cannot read it), or an image or size the deploy does not offer. `WorkspaceUnavailable` (500) means the cause is outside the request: GitHub not answering, a failure writing the skills or context files into the workspace, or any other error, which comes back as it was captured. Neither returns a session id; the session stores nothing but its registry entry, marked failed, and no run starts (see [sessions](sessions.md)).
 
 ## 📡 Session state
 
-The session state carries the session's status (running, waiting, idle, failed or closed), its settings, the names of its skills and agents, the question while one waits, and the failure when the last run failed. The question holds its id, its text and its repository check: `NoRepository`, `Stopped`, `Clean` or `CheckFailed`. `CheckFailed` carries the output of the two git commands (see [question-round-trip](question-round-trip.md)). When a run just finished, the state also carries the run's last entry, so the finish wake needs no messages call. A session already idle when the socket connects sends its state without the last entry, and the helper fetches it with `messages`. The socket sends the state when it connects and again on every change; status returns it too. [sessions](sessions.md) lists the states and the events that move a session between them.
+The session state carries the session's status (running, waiting, idle, failed or closed), its settings, the names of its skills and agents, the question while one waits, and the failure when the last run failed. The question holds its id and its text (see [question-round-trip](question-round-trip.md)). When a run just finished, the state also carries the run's last entry, so the finish wake needs no messages call. A session already idle when the socket connects sends its state without the last entry, and the helper fetches it with `messages`. The socket sends the state when it connects and again on every change; status returns it too. [sessions](sessions.md) lists the states and the events that move a session between them.
 
 > [!NOTE] Why the session state is one construct
 > The finish notice, a new question, the status line, a reconnecting parent and the status call all read the same state, so each of them sees the same session, and a parent that was not connected when something changed learns it from the state sent on connect.

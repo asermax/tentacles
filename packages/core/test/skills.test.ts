@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
 import { Entry } from "@tentacles/worker-api/entries";
 import type { SessionId } from "@tentacles/worker-api/ids";
@@ -10,12 +10,10 @@ import { definitionArchives, skillBlockOf } from "./support/archives";
 import { eventually } from "./support/eventually";
 import { type Archives, createRequest } from "./support/fixtures";
 import { type ModelRequest, routedModel } from "./support/model";
+import { toolResults, toolUse } from "./support/tool-calls";
 import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 const say = (text: string) => fauxAssistantMessage(text);
-
-const toolUse = (name: string, args: Readonly<Record<string, string>>) =>
-  fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
 
 const implement = skillBlockOf("implement");
 
@@ -49,13 +47,6 @@ const settled = (sessionId: SessionId, text: string) =>
       expect(entries).toContainEqual(Entry.cases.text.make({ text }));
     }),
   );
-
-const toolResultsOf = (sessionId: SessionId) =>
-  Effect.gen(function* () {
-    const world = yield* TestWorld;
-
-    return (yield* (yield* world.handle(sessionId)).messages(100)).filter(Entry.guards.toolResult);
-  });
 
 const promptWith = (text: string, archives: Archives) =>
   Effect.gen(function* () {
@@ -99,9 +90,13 @@ describe("prompt expansion", () => {
   it.live("a trigger inside a path or with punctuation attached stays as written", () =>
     Effect.gen(function* () {
       const archives = yield* definitionArchives();
-      const text = "read /skills/implement/SKILL.md, then /implement. Also (/review) and x/review";
 
-      expect((yield* promptWith(text, archives)).at(-1)).toBe(text);
+      const punctuatedTriggerPrompt =
+        "read /workspace/skills/implement/SKILL.md, then /implement. Also (/review) and x/review";
+
+      expect((yield* promptWith(punctuatedTriggerPrompt, archives)).at(-1)).toBe(
+        punctuatedTriggerPrompt,
+      );
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -134,7 +129,7 @@ describe("the skill tool and the skills section", () => {
       );
 
       yield* settled(sessionId, "Loaded.");
-      const results = yield* toolResultsOf(sessionId);
+      const results = yield* toolResults(sessionId, 100);
 
       expect(results.map((result) => [result.output, result.isError])).toEqual([
         [implement, false],
@@ -152,7 +147,7 @@ describe("the skill tool and the skills section", () => {
 
       yield* settled(sessionId, "Failed.");
 
-      const [result] = yield* toolResultsOf(sessionId);
+      const [result] = yield* toolResults(sessionId, 100);
 
       expect(result?.isError).toBe(true);
       expect(result?.output).toContain("deploy");
@@ -213,10 +208,10 @@ describe("the skill tool and the skills section", () => {
 
       expect(skills).toContain("<name>implement</name>");
       expect(skills).toContain("<description>Implement a change from its design</description>");
-      expect(skills).toContain("<location>/skills/implement/SKILL.md</location>");
+      expect(skills).toContain("<location>/workspace/skills/implement/SKILL.md</location>");
       expect(skills).toContain("<name>review</name>");
       expect(skills).toContain("<description>Review a change before it is merged</description>");
-      expect(skills).toContain("<location>/skills/review/SKILL.md</location>");
+      expect(skills).toContain("<location>/workspace/skills/review/SKILL.md</location>");
     }).pipe(Effect.provide(testWorld)),
   );
 
@@ -236,7 +231,7 @@ describe("the skill tool and the skills section", () => {
 
         yield* settled(sessionId, "Failed.");
 
-        const [result] = yield* toolResultsOf(sessionId);
+        const [result] = yield* toolResults(sessionId, 100);
 
         expect(sections.every((section) => section == null)).toBe(true);
         expect(result?.isError).toBe(true);
@@ -249,7 +244,7 @@ describe("prompt expansion reads", () => {
   const held: SkillEntry = {
     name: "implement",
     description: "Implement a change",
-    path: "/skills/implement/SKILL.md",
+    path: "/workspace/skills/implement/SKILL.md",
   };
 
   const countingRead = () => {

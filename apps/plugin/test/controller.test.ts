@@ -1,6 +1,11 @@
-import { InvalidArchive, SessionNotFound } from "@tentacles/worker-api/errors";
+import {
+  InvalidArchive,
+  InvalidWorkspace,
+  SessionNotFound,
+  WorkspaceUnavailable,
+} from "@tentacles/worker-api/errors";
 import { Harnesses } from "@tentacles/worker-api/parent";
-import { RepositoryCheck, SessionRef, SessionStatuses } from "@tentacles/worker-api/session-state";
+import { SessionRef, SessionStatuses } from "@tentacles/worker-api/session-state";
 import { describe, expect, it } from "vitest";
 
 import { createController } from "../src/core/controller";
@@ -159,6 +164,32 @@ describe("parent controller on a tool result", () => {
     expect(glue.states).toEqual([]);
   });
 
+  it("fails the spawn tool with the message of the InvalidWorkspace the Worker returned and records no session", async () => {
+    const message = "The repository https://github.com/asermax/tentacle was not found";
+
+    const glue = await started(local(), {
+      spawn: Failure.make({ error: new InvalidWorkspace({ message }) }),
+    });
+
+    const outcome = await glue.call("spawn", { name: "docs", prompt: "write them" });
+
+    expect(outcome).toEqual({ isError: true, text: message });
+    expect(glue.states).toEqual([]);
+  });
+
+  it("fails the spawn tool with the message of the WorkspaceUnavailable the Worker returned", async () => {
+    const message = "The workspace could not be set up";
+
+    const glue = await started(local(), {
+      spawn: Failure.make({ error: new WorkspaceUnavailable({ message }) }),
+    });
+
+    const outcome = await glue.call("spawn", { name: "docs", prompt: "write them" });
+
+    expect(outcome).toEqual({ isError: true, text: message });
+    expect(glue.states).toEqual([]);
+  });
+
   it("marks a closed session closed and hides it from the status line", async () => {
     const glue = await started(local(migrate), {
       list: Success.make({ result: [migrate] }),
@@ -229,43 +260,11 @@ describe("parent controller on a watch line", () => {
     expect(glue.wakes[0]).toContain(first);
     expect(glue.wakes[0]).toContain("q-7");
     expect(glue.wakes[0]).toContain("Which branch?");
-    expect(glue.wakes[0]).toContain("Clean");
+    expect(glue.wakes[0]).toContain(
+      `Answer it with the answer tool, passing session ${first} and question q-7.`,
+    );
+    expect(glue.wakes[0]).not.toContain("Repository check");
     expect(glue.statusLines.at(-1)).toBe("migrate: waiting");
-  });
-
-  it.each([
-    {
-      name: "a Stopped question with the Stopped check",
-      check: RepositoryCheck.cases.Stopped.make({}),
-      text: "Repository check: Stopped",
-    },
-    {
-      name: "a NoRepository question with the NoRepository check",
-      check: RepositoryCheck.cases.NoRepository.make({}),
-      text: "Repository check: NoRepository",
-    },
-    {
-      name: "a CheckFailed question with the output the check printed",
-      check: RepositoryCheck.cases.CheckFailed.make({ output: "fatal: not a git repository" }),
-      text: "Repository check: CheckFailed\nfatal: not a git repository",
-    },
-    {
-      name: "a CheckFailed question with no output line when the check printed nothing",
-      check: RepositoryCheck.cases.CheckFailed.make({ output: "" }),
-      text: "Repository check: CheckFailed\n\nAnswer it",
-    },
-  ])("wakes the parent for $name", async ({ check, text }) => {
-    const glue = await watching();
-
-    glue.emit({
-      sessionId: first,
-      state: Waiting.make({
-        ...details,
-        question: questionOf("q-8", "Which branch?", check),
-      }),
-    });
-
-    expect(glue.wakes[0]).toContain(text);
   });
 
   it("wakes the parent with the last message when a run finishes", async () => {

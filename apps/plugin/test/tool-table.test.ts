@@ -61,7 +61,7 @@ describe("tool table arguments", () => {
     expect(spawn).toHaveProperty("properties.context", {
       type: "array",
       items: { type: "string" },
-      description: expect.stringContaining("/context"),
+      description: expect.stringContaining("/workspace/context"),
     });
     expect(spawn).toHaveProperty("properties.agents", {
       type: "array",
@@ -77,7 +77,6 @@ describe("tool table arguments", () => {
         effort: { type: "string" },
         image: { type: "string" },
         size: { type: "string" },
-        lifetime: expect.objectContaining({ type: "integer" }),
         repository: {
           anyOf: [
             expect.objectContaining({

@@ -1,12 +1,10 @@
 import { defineDoc } from "@earendil-works/pi-durable";
 import type { QuestionId } from "@tentacles/worker-api/ids";
-import type { RepositoryCheck } from "@tentacles/worker-api/session-state";
 
 export type StoredQuestion = {
   /** The asking tool call's task id. */
   readonly id: QuestionId;
   readonly text: string;
-  readonly repositoryCheck: RepositoryCheck;
   answer: string | null;
 };
 

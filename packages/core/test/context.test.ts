@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
 import { Entry } from "@tentacles/worker-api/entries";
 import { InvalidArchive } from "@tentacles/worker-api/errors";
@@ -9,10 +9,17 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { createBody, post, serveApi } from "./support/api";
-import { contextArchive, definitionArchives, definitionNames } from "./support/archives";
+import {
+  contextArchive,
+  definitionArchives,
+  definitionNames,
+  definitionSkillEntries,
+  entriesOf,
+} from "./support/archives";
 import { eventually } from "./support/eventually";
 import { createRequest, detailsOf, parent } from "./support/fixtures";
 import { type ModelRequest, routedModel } from "./support/model";
+import { toolUse } from "./support/tool-calls";
 import { newSessionId, TestWorld, testWorld } from "./support/world";
 
 const decodeCreated = Schema.decodeUnknownSync(Schema.Struct({ sessionId: SessionId }));
@@ -23,17 +30,16 @@ const json = (response: Response) => Effect.promise(() => response.json());
 
 const say = (text: string) => fauxAssistantMessage(text);
 
-const toolUse = (name: string, args: Readonly<Record<string, string>>) =>
-  fauxAssistantMessage(fauxToolCall(name, args), { stopReason: "toolUse" });
+const contextNotice =
+  "<context>\nThe parent sent files for context. They are in /workspace/context.\n</context>";
 
-const sentence = "<context>\nThe parent sent files for context. They are in /context.\n</context>";
+const contextFiles = [
+  { path: "notes.md", content: "# notes\n" },
+  { path: "scratch/plan.md", content: "the plan\n" },
+  { path: "scratch/run.sh", content: "#!/bin/sh\necho ran\n", mode: 0o755 },
+];
 
-const files = () =>
-  contextArchive(
-    { path: "notes.md", content: "# notes\n" },
-    { path: "scratch/plan.md", content: "the plan\n" },
-    { path: "scratch/run.sh", content: "#!/bin/sh\necho ran\n", mode: 0o755 },
-  );
+const files = () => contextArchive(...contextFiles);
 
 const startSession = (
   answer: (request: ModelRequest) => AssistantMessage | Promise<AssistantMessage>,
@@ -59,50 +65,49 @@ const finished = (sessionId: SessionId, states = 2) =>
     );
   });
 
-const resultsOf = (sessionId: SessionId) =>
-  Effect.gen(function* () {
-    const world = yield* TestWorld;
-
-    return (yield* (yield* world.handle(sessionId)).messages(100)).filter(Entry.guards.toolResult);
-  });
-
 describe("create with context", () => {
-  it.live("a valid context archive is stored as sent and the root's prompt names /context", () =>
-    Effect.gen(function* () {
-      const context = yield* Effect.promise(files);
-      const sections: Array<string | undefined> = [];
+  it.live(
+    "a valid context archive reaches the workspace as sent and the root's prompt names /workspace/context",
+    () =>
+      Effect.gen(function* () {
+        const context = yield* Effect.promise(files);
+        const sections: Array<string | undefined> = [];
 
-      const { sessionId, world } = yield* startSession(
-        (request) => {
+        const { sessionId, world } = yield* startSession(
+          (request) => {
+            sections.push(request.sections.get("context"));
+
+            return say("seen");
+          },
+          { context },
+        );
+
+        yield* finished(sessionId);
+
+        expect(world.workspaceCreates.map(({ init }) => init.context)).toEqual([
+          entriesOf(contextFiles),
+        ]);
+        expect(sections[0]).toBe(contextNotice);
+      }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live(
+    "a create without context hands the workspace no archive and renders no context section",
+    () =>
+      Effect.gen(function* () {
+        const sections: Array<string | undefined> = [];
+
+        const { sessionId, world } = yield* startSession((request) => {
           sections.push(request.sections.get("context"));
 
           return say("seen");
-        },
-        { context },
-      );
+        }, {});
 
-      yield* finished(sessionId);
+        yield* finished(sessionId);
 
-      expect(world.archives("context").get(sessionId)).toEqual(context);
-      expect(sections[0]).toBe(sentence);
-    }).pipe(Effect.provide(testWorld)),
-  );
-
-  it.live("a create without context stores no archive and renders no context section", () =>
-    Effect.gen(function* () {
-      const sections: Array<string | undefined> = [];
-
-      const { sessionId, world } = yield* startSession((request) => {
-        sections.push(request.sections.get("context"));
-
-        return say("seen");
-      }, {});
-
-      yield* finished(sessionId);
-
-      expect(world.archives("context").size).toBe(0);
-      expect(sections.every((section) => section == null)).toBe(true);
-    }).pipe(Effect.provide(testWorld)),
+        expect(world.workspaceCreates.map(({ init }) => init.context)).toEqual([[]]);
+        expect(sections.every((section) => section == null)).toBe(true);
+      }).pipe(Effect.provide(testWorld)),
   );
 
   it.live("a context archive that is not a gzip tar fails InvalidArchive and stores nothing", () =>
@@ -125,7 +130,7 @@ describe("create with context", () => {
       expect(response.status).toBe(400);
       expect(decodeInvalidArchive(yield* json(response)).message).toContain("context archive");
       expect(world.registryCalls).toEqual([]);
-      expect(world.archives("context").size).toBe(0);
+      expect(world.workspaceCreates).toEqual([]);
       expect(world.faux.getPendingResponseCount()).toBe(1);
     }).pipe(Effect.provide(testWorld)),
   );
@@ -153,39 +158,41 @@ describe("create with context", () => {
       expect(response.status).toBe(400);
       expect(message).toContain("skills archive");
       expect(message).toContain("context archive");
-      expect(world.archives("context").size).toBe(0);
-      expect(world.archives("skills").size).toBe(0);
+      expect(world.workspaceCreates).toEqual([]);
     }).pipe(Effect.provide(testWorld)),
   );
 
-  it.live("with skills and context both are stored and the registry entry names only skills", () =>
-    Effect.gen(function* () {
-      const world = yield* TestWorld;
-      const api = yield* serveApi;
-      const archives = yield* definitionArchives();
-      const context = yield* Effect.promise(files);
-      const request = createRequest("go", null, { skills: archives.skills, context });
+  it.live(
+    "with skills and context both reach the workspace and the registry entry names only skills",
+    () =>
+      Effect.gen(function* () {
+        const world = yield* TestWorld;
+        const api = yield* serveApi;
+        const archives = yield* definitionArchives();
+        const context = yield* Effect.promise(files);
+        const request = createRequest("go", null, { skills: archives.skills, context });
 
-      world.faux.setResponses([say("ok")]);
+        world.faux.setResponses([say("ok")]);
 
-      const response = yield* api("/sessions", post(createBody(request)));
+        const response = yield* api("/sessions", post(createBody(request)));
 
-      expect(response.status).toBe(200);
+        expect(response.status).toBe(200);
 
-      const { sessionId } = decodeCreated(yield* json(response));
-      const named = detailsOf(request, { skills: definitionNames.skills });
+        const { sessionId } = decodeCreated(yield* json(response));
+        const named = detailsOf(request, { skills: definitionNames.skills });
 
-      yield* finished(sessionId);
+        yield* finished(sessionId);
 
-      expect(world.archives("skills").get(sessionId)).toEqual(archives.skills);
-      expect(world.archives("context").get(sessionId)).toEqual(context);
-      expect(yield* json(yield* api(`/sessions?harness=pi&sessionId=${parent.sessionId}`))).toEqual(
-        [{ sessionId, name: "worker", status: "idle", ...named }],
-      );
-      expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toEqual(
-        SessionState.cases.idle.make(named),
-      );
-    }).pipe(Effect.provide(testWorld)),
+        expect(world.workspaceCreates.map(({ init }) => [init.skills, init.context])).toEqual([
+          [definitionSkillEntries, entriesOf(contextFiles)],
+        ]);
+        expect(
+          yield* json(yield* api(`/sessions?harness=pi&sessionId=${parent.sessionId}`)),
+        ).toEqual([{ sessionId, name: "worker", status: "idle", ...named }]);
+        expect(decodeState(yield* json(yield* api(`/sessions/${sessionId}/status`)))).toEqual(
+          SessionState.cases.idle.make(named),
+        );
+      }).pipe(Effect.provide(testWorld)),
   );
 
   it.live("a child and a grandchild see the context section", () =>
@@ -228,7 +235,7 @@ describe("create with context", () => {
         }),
       );
 
-      expect(Object.fromEntries(seen)).toEqual({ child: sentence, grandchild: sentence });
+      expect(Object.fromEntries(seen)).toEqual({ child: contextNotice, grandchild: contextNotice });
     }).pipe(Effect.provide(testWorld)),
   );
 });
@@ -236,68 +243,3 @@ describe("create with context", () => {
 const isRoot = (request: ModelRequest) => request.tools.has("ask_parent");
 
 const isGrandchild = (request: ModelRequest) => !request.tools.has("subagent");
-
-const bash = (command: string) => toolUse("bash", { command });
-
-describe("the context in the workspace", () => {
-  it.live("a cold start expands the files under /context by name with their modes", () =>
-    Effect.gen(function* () {
-      const context = yield* Effect.promise(files);
-
-      const { sessionId } = yield* startSession(
-        (request) =>
-          request.lastRole === "toolResult"
-            ? say("looked")
-            : bash(
-                "cat /context/notes.md /context/scratch/plan.md; /context/scratch/run.sh; stat -c '%a' /context/scratch/run.sh /context/notes.md",
-              ),
-        { context },
-      );
-
-      yield* finished(sessionId);
-
-      const [result] = yield* resultsOf(sessionId);
-
-      expect(result?.isError).toBe(false);
-      expect(result?.output).toBe("# notes\nthe plan\nran\n755\n644\n");
-    }).pipe(Effect.provide(testWorld)),
-  );
-
-  it.live(
-    "after the workspace restarts the context is expanded again from the stored archive",
-    () =>
-      Effect.gen(function* () {
-        const context = yield* Effect.promise(files);
-
-        const script = [
-          bash("echo edited > /context/notes.md; cat /context/notes.md"),
-          say("edited"),
-          bash("cat /context/notes.md"),
-          say("read again"),
-        ];
-
-        let calls = 0;
-
-        const { sessionId, world } = yield* startSession(
-          () => {
-            calls += 1;
-
-            return script[calls - 1] ?? say("done");
-          },
-          { context },
-        );
-
-        yield* finished(sessionId);
-        world.records(sessionId).workspace.restart();
-
-        const handle = yield* world.handle(sessionId);
-
-        yield* handle.prompt({ text: "again", mode: "followUp" });
-        yield* finished(sessionId, 4);
-
-        const results = yield* resultsOf(sessionId);
-
-        expect(results.map((result) => result.output)).toEqual(["edited\n", "# notes\n"]);
-      }).pipe(Effect.provide(testWorld)),
-  );
-});

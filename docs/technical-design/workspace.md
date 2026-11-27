@@ -1,6 +1,6 @@
 ---
 title: "Workspace"
-summary: "The container a remote agent works in: how it starts and stops, what it holds, who its commits are by, the tools the agent gets, and how a preview gives the agent a browser."
+summary: "The workspace a remote agent works in: the contract a provider fills, the setup at spawn, the folders under /workspace, the agent's tools, who its commits are by, the preview, and what survives a container stop."
 created: "2026-11-09"
 ---
 
@@ -8,7 +8,113 @@ created: "2026-11-09"
 
 ## 🔭 Overview
 
-Each session has one workspace container, started by the first file or command operation of a tool call, from the image, size and lifetime in the session's settings. The agent works in `/workspace`, where tentacles clones the session's repository when the settings name one, finds the session's skills in `/skills` and the files its parent sent in `/context`. The disk is disposable: work survives only once it is committed and pushed, so tentacles holds the container up and prompts the agent while a managed repository has pending work. The agent's tools run in the container through pi-env, and the agent gets a browser only to validate a preview of the app it started.
+Each session has one workspace, which the session object creates at spawn through the `Workspace` contract. The provider sets it up before the session's first run: it clones the session's repository into `/workspace/repo` and writes the skills and context the parent sent into `/workspace/skills` and `/workspace/context`. It offers the tools the agent works with, and each environment defines its own. The workspace's files live with the session: a container that stops keeps them, and deleting the session deletes them. The agent gets a browser only to validate a preview of the app it started.
+
+## 📜 The workspace contract
+
+The contract has three members: `tools`, the tools the harness installs, whose `execute` only the harness calls; `create`, which sets the workspace up at spawn; and `forward`, which hands a preview request to the app. Nothing else about the environment crosses it: no execution environment, no start, stop or keepalive, no egress setting.
+
+`tools` · whenever the session object starts
+
+```mermaid
+flowchart LR
+  so@{ shape: rect, label: "Session object" } -->|"tools, whenever it starts"| ws@{ shape: subproc, label: "Workspace provider" }
+  ws -.-> out@{ shape: braces, label: "Tool list
+  (the tools the harness installs as they are)" }
+  out --- tool@{ shape: braces, label: "pi-durable ToolRegistration
+  name: string
+  description: string
+  parameters: JSON schema
+  replay: safe or unsafe
+  (safe only for tools that just read)
+  execute: runs a call of this tool" }
+  out -.->|"returns"| so
+  classDef worker fill:#dbeafe,stroke:#2563eb,color:#1f2937
+  classDef flow fill:#dcfce7,stroke:#16a34a,color:#1f2937
+  classDef payload stroke:#d97706
+  class so worker
+  class ws flow
+  class out,tool payload
+```
+
+`create` · at spawn
+
+```mermaid
+flowchart LR
+  so@{ shape: rect, label: "Session object" } -->|"create, at spawn"| init@{ shape: braces, label: "WorkspaceInit
+  repository: Repository or null
+  (URL and shallow flag; null clones nothing)
+  size: string
+  (container instance size)
+  image: string
+  (container image name)
+  skills: files
+  context: files
+  (path, bytes and permission bits of each file; empty when the parent sent none)" }
+  init --> ws@{ shape: subproc, label: "Workspace provider" }
+  ws -.-> err@{ shape: braces, label: "Nothing, or the setup error
+  InvalidWorkspace or WorkspaceUnavailable
+  message: string" }
+  err -.->|"returns"| so
+  classDef worker fill:#dbeafe,stroke:#2563eb,color:#1f2937
+  classDef flow fill:#dcfce7,stroke:#16a34a,color:#1f2937
+  classDef payload stroke:#d97706
+  class so worker
+  class ws flow
+  class init,err payload
+```
+
+`tool.execute` · on each call of that tool
+
+```mermaid
+flowchart LR
+  core@{ shape: rect, label: "pi-durable harness" } -->|"tool.execute, on each call of that tool"| tcall@{ shape: braces, label: "ToolCall
+  id: string
+  arguments: object
+  (validated against the tool's parameters)" }
+  tcall --> ws@{ shape: subproc, label: "Workspace provider" }
+  ws -.-> res@{ shape: braces, label: "ToolResult
+  output: text and images
+  isError: boolean
+  (true when the tool failed or a command exited non-zero)" }
+  res -.->|"returns"| core
+  classDef worker fill:#dbeafe,stroke:#2563eb,color:#1f2937
+  classDef flow fill:#dcfce7,stroke:#16a34a,color:#1f2937
+  classDef payload stroke:#d97706
+  class core worker
+  class ws flow
+  class tcall,res payload
+```
+
+`forward` · on each preview request
+
+```mermaid
+flowchart LR
+  route@{ shape: rect, label: "Preview route" } -->|"forward, on each preview request"| req@{ shape: braces, label: "PreviewRequest
+  port: number
+  request: HTTP request" }
+  req --> ws@{ shape: subproc, label: "Workspace provider" }
+  ws -.-> resp@{ shape: braces, label: "Response
+  (the app's answer; 502 when nothing listens on the port)" }
+  resp -.->|"returns"| route
+  classDef worker fill:#dbeafe,stroke:#2563eb,color:#1f2937
+  classDef flow fill:#dcfce7,stroke:#16a34a,color:#1f2937
+  classDef payload stroke:#d97706
+  class route worker
+  class ws flow
+  class req,resp payload
+```
+
+The session object creates the workspace at spawn with where to clone from (the repository's URL and whether the clone is shallow), the container's size and image, and the files of the skills and context archives the parent sent. The session decompresses each archive once, when it reads the archives to build its documents, so the workspace receives files and never an archive: each file has its path inside the archive, its bytes and its permission bits. A kind the parent did not send is an empty list. A null repository means the session has no repository: the provider creates `/workspace/repo` empty and clones nothing. The provider also creates `/workspace/skills` and `/workspace/context` when no files fill them, so the three folders always exist. The repository, size and image come from the session's settings and the files from the spawn. The image is a name whose meaning each provider defines. `create` returns nothing when the setup succeeds, and otherwise one of two errors, both with a message in plain words: `InvalidWorkspace` when the cause is in the spawn's request, `WorkspaceUnavailable` when the cause is outside the request. Both are defined once, with the Worker API's errors, and a create call on the session fails with either of them or with `InvalidArchive` ([worker-api](worker-api.md)).
+
+`tools` is a list of pi-durable tool registrations, each with its declaration, its replay policy and its own `execute`. Core installs them as they are, with the session's other extensions, every time the session object starts: at spawn, after an eviction, on its wake-up timer and for a later prompt. The provider builds them without the init, since each `execute` only reaches the session's workspace, which keeps what the setup gave it. The provider sets each tool's replay: safe for tools that only read, unsafe for the rest, so after an eviction pi-durable reruns only the tools that change nothing. A tool's `execute` takes one call's arguments and returns its result. It sets the error flag when the tool fails or a command exits with a non-zero code, and carries the output as text, which for a command includes its exit code.
+`forward` hands a preview request to a port in the workspace and returns the app's answer, or 502 when nothing listens there.
+
+> [!NOTE] Why the tools are a member and not what `create` returns
+> The harness reads its tools from a registry that the session object fills before the harness opens. The session object starts again after every eviction, and `create` runs only once, at spawn, after the harness has opened. Tools that only `create` returned would reach no later start of the session.
+
+> [!NOTE] Why the contract returns pi-durable tools
+> The tools an environment offers depend on what it can run, so each provider writes its own and core does not translate between them. The contract depends on pi-durable's tool type the same way `SessionStorage` depends on pi-durable's storage.
 
 ## 📥 Inputs from the session's settings
 
@@ -16,92 +122,128 @@ Each session has one workspace container, started by the first file or command o
 |---|---|---|
 | image | the container image: `default`, the only image tentacles offers; create rejects any other | `default` |
 | size | the container's instance type | standard-2 |
-| lifetime | inactivity time before the container stops | 15 minutes |
 | repository | an `https://` (or `http://`) repository URL and a shallow-or-full clone flag; create rejects any other URL form | nothing is cloned |
 
 The plugin fills every absent value except the repository from its defaults, which environment variables can change, so the session always holds a full set (see [worker-api](worker-api.md)).
 
-## 📦 What the container holds
+## 🧳 Setup at spawn
 
-The default image holds what tentacles needs: pi-env's daemon, git, CA certificates, and a small process that pings the session with busybox `wget` to keep the container up while work is pending (see below). It also holds what an agent needs to install its own toolchain in any language: `curl`, `xz`, `unzip`, `bzip2`, `ps` and the `libatomic` library that prebuilt Node binaries load. It also holds mise, a runtime manager that installs Node, Python, Go and other runtimes on demand, as in `mise use node@24`. The runtimes mise installs are on the agent's `PATH` with no setup. The agent's commands run through the container's exec, which passes on only `HOME` and `PATH` from the image's environment, so the image sets nothing else there and puts mise's shims directory on `PATH`. git authenticates through the token added at egress, and commits as `tentacles <tentacles@tentacles.invalid>` when nothing else sets an identity. The image has no preinstalled language runtime, no Chrome and no Docker. The agent installs anything else it needs.
+```mermaid
+flowchart LR
+  pa@{ shape: rect, label: "Parent" }
+  api@{ shape: rect, label: "Worker API" }
+  so@{ shape: subproc, label: "Session object" }
+  wp@{ shape: subproc, label: "Workspace provider" }
+  gh@{ shape: rect, label: "github.com" }
+  fs@{ shape: cyl, label: "Workspace files
+  /workspace/repo, skills, context" }
+  pa -->|"1 spawn"| api
+  api -->|"2 create the session"| so
+  so -->|"3 create with the init values"| wp
+  wp -->|"4 clone, token added"| gh
+  wp -->|"5 write the skills and context files"| fs
+  wp -.->|"6 nothing, or the setup error"| so
+  so -.->|"7 session, or the error"| api
+  api -.->|"8 answers"| pa
+  classDef worker fill:#dbeafe,stroke:#2563eb,color:#1f2937
+  classDef flow fill:#dcfce7,stroke:#16a34a,color:#1f2937
+  classDef ext fill:#f3f4f6,stroke:#6b7280,color:#1f2937
+  class pa worker
+  class api,so,wp flow
+  class gh,fs ext
+```
 
-The agent always works in `/workspace`. The first file or command operation of each tool call makes sure the workspace is up. pi-durable also asks for the execution environment to render prompt sections, and that request alone does not start the container. When the container is not running, tentacles starts it and waits until it is ready. When the settings name a repository, tentacles then clones the repository's default branch there, shallow or full as the setting says. tentacles pipes each archive the session holds into the image's `tar` in the container: the skills into `/skills`, one folder per skill, and the context into `/context`, each file or folder under its own name. The clone and the expansions run together. When the clone or an expansion fails, the tool call that needed the workspace fails with "workspace unavailable". The container stays running, and later tool calls use it as it is. Nothing clones or expands again until the container next starts cold (see [sessions](sessions.md)). When the clone and the expansions succeed, the first tool call and the first one after a restart, even in the middle of a run, find the repository, the skills and the context in place. What the agent changes in `/context` is lost at the next cold start, which expands the archive again. Without a repository setting, the agent clones whatever its prompt names. git reaches GitHub with the GitHub token added at egress; the container never holds it (see [runtime-components](runtime-components.md)).
+The parent spawns (1) and the Worker API creates the session (2), which creates the workspace with the init values (3). The provider clones the repository's default branch into `/workspace/repo`, shallow or full as the setting says, with the GitHub token added to the HTTPS request outside any container (4). While the clone runs it writes the skills and context files into the workspace's files (5): the skills into `/workspace/skills`, one folder per skill, and the context into `/workspace/context`, each file or folder under its own name. It reports success once both end, or hands back the error that stopped it after clearing what it wrote (6); when both fail, the clone's error is the one it reports. The session then stores its record, or keeps only a failed registry entry and answers with the error (7), and the Worker API answers the parent (8). Only then does the first run start.
+
+The setup is part of the session's initialization, so it runs once per session, and the three folders exist before the agent's first tool call. Without a repository setting, the agent clones whatever its prompt names.
+
+A failed setup's error names the cause in plain words. `InvalidWorkspace` covers the causes in the spawn's request: a repository that GitHub answers 404 for, whether it does not exist or the token cannot read it, and an image or size the provider does not offer. `WorkspaceUnavailable` covers the rest: GitHub not answering, a failure writing the skills or context files, and any other error, returned as it was captured. An archive the session cannot read never reaches the workspace: the session answers `InvalidArchive` before it creates one. A failed setup leaves no session to use: the workspace clears what it wrote, the session stores no record, and only its registry entry stays, marked failed, until the daily job deletes it (see [sessions](sessions.md)).
+
+> [!NOTE] Why the setup runs at spawn
+> A setup that runs inside the first tool call fails in the middle of a run, where only the agent sees it. Running it before spawn answers puts the cause in front of the parent, which can fix the repository URL or the files and spawn again.
+
+## 🧰 The agent's tools
+
+```mermaid
+flowchart LR
+  ag@{ shape: rect, label: "Agent" }
+  h@{ shape: subproc, label: "pi-durable harness" }
+  t@{ shape: rect, label: "Workspace tool" }
+  fs@{ shape: cyl, label: "Workspace files" }
+  sh@{ shape: rect, label: "Isolate shell" }
+  ct@{ shape: rect, label: "Container" }
+  ag -->|"1 tool call"| h
+  h -->|"2 execute"| t
+  t -->|"3 read, write, edit, find, grep"| fs
+  t -->|"4 exec, backend shell"| sh
+  t -->|"5 exec, backend container"| ct
+  sh -.->|"6 output when the command ends"| t
+  ct -.->|"7 output as it is printed"| t
+  t -.->|"8 live output, then the result"| h
+  classDef worker fill:#dbeafe,stroke:#2563eb,color:#1f2937
+  classDef flow fill:#dcfce7,stroke:#16a34a,color:#1f2937
+  classDef ext fill:#f3f4f6,stroke:#6b7280,color:#1f2937
+  class ag worker
+  class h,t,sh,ct flow
+  class fs ext
+```
+
+The agent calls a tool (1) and the harness runs that tool's `execute` (2). File tools work directly on the workspace's files (3). The command tool runs on the backend the agent names: the isolate shell (4) or the container (5). The shell hands back its output when the command ends (6); the container streams output as it is printed (7). The tool passes output to the harness's live view as it arrives, then the result with the exit code (8). The agent's instructions name `/workspace/repo`, `/workspace/skills` and `/workspace/context`.
+
+The agent chooses where each command runs, through the tools. Each operation runs on the cheapest place that can do it: the workspace's own storage for files and git, then the isolate shell, and the container only when the work needs it. The provider writes the description of each backend the agent picks from, so the text matches what that backend can run.
+
+| Tool | What it does |
+|---|---|
+| the workspace's tools | the contract's `tools`: file tools and a command tool that takes the backend to run on; their names are the environment's own ([computer-workspace](providers/cloudflare/computer-workspace.md) lists Cloudflare's) |
+| codemode | runs a script that calls the other tools by name except `ask_parent`; scripts keep `models.*` (the model catalog, classify and generateImages) through the session's providers |
+| subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; run and spawn take an optional agent name, and the subagent then starts with that agent definition's prompt. The root and its children have the tool, so a child can start subagents of its own; a grandchild cannot |
+| skill | given the name of one of the session's skills, returns a block pointing at its SKILL.md in `/workspace/skills`, which the agent then reads; an unknown name fails, naming the skills that exist |
+| ask_parent | asks the parent; root conversation only, and only the model calls it (see [question-round-trip](question-round-trip.md)) |
+| preview | opens a preview, returning a preview URL to a workspace port and a CDP URL to a browser and replacing the open preview if there is one; or closes the open preview |
+
+Core installs the workspace's tools as one harness extension, in place of pi-durable's coding tools. codemode is pi-durable's own tool and runs in the `CodeSandbox`. pi-durable ships no subagent tool, so tentacles writes one following pi-durable's examples. The subagent tool and the skill tool each belong to an extension of their own, described in [sessions](sessions.md); a subagent never gets `ask_parent`.
+
+The model reads each tool's result as text. Only the model calls `ask_parent`: a script's tool call runs as a nested task, which the session does not watch when it derives its status, so a question asked from a script would never show the session as waiting. preview also returns a tagged structured result to a program that calls it, such as a codemode script: `open` with the preview URL and the CDP URL, or `close`.
+
+agent-browser is not part of tentacles: the agent installs it and runs it in the container through the command tool.
 
 ## 🪪 Who the agent's commits are by
 
 ```mermaid
 flowchart LR
     O(["Operator"]) -->|"1 sets author name and email"| V[("Deploy variables, required")]
-    V -->|"2 deploy fails when either is missing"| W["Worker"]
-    W -->|"3 hands both to the session object when it starts"| S["Session object"]
-    S -->|"4 starts the command daemon with GIT_AUTHOR_* and GIT_COMMITTER_*"| D["Command daemon in the workspace"]
-    D -->|"5 every command inherits them"| C["Agent's git commits"]
+    V -->|"2 deploy fails when either is missing"| P["Workspace provider"]
+    P -->|"3 reads both, sets them on every git route"| C["Agent's git commits"]
     classDef ext fill:#f3f4f6,stroke:#6b7280,color:#111827
     classDef mod fill:#dcfce7,stroke:#16a34a,color:#14532d
     classDef store fill:#ffedd5,stroke:#ea580c,color:#7c2d12
     class O ext
-    class W,S,D,C mod
+    class P,C mod
     class V store
 ```
 
-The operator sets an author name and an email as two deploy variables, `TENTACLES_GIT_AUTHOR_NAME` and `TENTACLES_GIT_AUTHOR_EMAIL` (1). Both are required, and a deploy without either fails (2). When a session object starts, it reads both (3). The session then starts the workspace's command daemon with `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` set to them (4). It passes them on that start only, and passes no other variable. Every command the agent runs inherits them, so every commit carries the deploy's identity, whatever the session's provider (5).
+The operator sets an author name and an email as two deploy variables, `TENTACLES_GIT_AUTHOR_NAME` and `TENTACLES_GIT_AUTHOR_EMAIL` (1). Both are required, and a deploy without either fails (2). The workspace provider reads both itself and sets them on every git route the agent can commit through, so every commit carries the deploy's identity as author and committer, whatever the session's model provider (3). Nothing about the identity crosses the contract.
 
-The variables override every git config setting, so the agent cannot change the identity, and its instructions do not mention it. The image's identity stays in git config and applies only when the variables are not set. A running daemon keeps the identity it started with; the variables apply from its next start. The name and email are not credentials, so passing them into the container keeps the rule that credentials stay out of containers (see [runtime-components](runtime-components.md)).
+The agent cannot change the identity, and its instructions do not mention it. The name and email are not credentials, so passing them into a container keeps the rule that credentials stay out of containers (see [runtime-components](runtime-components.md)).
 
-## ⏱️ Lifetime and pending work
-
-The container starts on the first operation of a tool call and stays up while the session is working. Its lifetime is an inactivity time, 15 minutes by default, and every command run in the workspace resets it.
-
-The workspace keeps itself up while it has pending work. A small process in the image checks `git status` in `/workspace` and, while work is pending, pings the session once a minute with `GET http://tentacles.internal/lifetime?pendingWork=true`, which the container's outbound handler routes to its own session. The session answers `yes` or `no` by the rule in the flowchart below, and answers `no` when the settings name no repository. Each ping that reaches the session renews the container. After a `no`, the process stops pinging, and the inactivity time stops the container. The session schedules no check of its own, so pi-durable keeps sole use of the session's alarm.
-
-Pending work is anything in the session's repository that is not committed and pushed. tentacles checks for it only when the settings name a repository, since that is the only repository it manages. The check runs at three points: when the question tool asks while the container is running (see [question-round-trip](question-round-trip.md)), when a run finishes, and whenever the workspace pings while it has pending work. The question tool and the end-of-run check run git status and the log of unpushed commits in the workspace, and reach one of these outcomes:
-
-- `Clean`, when both ran and found nothing;
-- `Pending`, when both ran and found uncommitted changes or unpushed commits;
-- `CheckFailed`, when either one failed unexpectedly: the workspace did not run it, or it exited with an error.
-
-When the check fails, the question tool sends the question with `CheckFailed` and what the commands printed. The end-of-run check does not prompt when the check failed, so a run on a stalled workspace finishes without telling the agent to commit. Neither starts a stopped container, and nothing retries the check. The lifetime ping runs its own `git status` inside the container.
+## 🟢 The workspace's lifecycle
 
 ```mermaid
-flowchart TD
-    A["The workspace pings: work pending"] --> B{"Repository set and work pending?"}
-    B -->|No| S(("No: the pings stop,<br/>the container stops"))
-    B -->|Yes| C{"Run still going?"}
-    C -->|Yes| K["Yes: the ping renews the container"]
-    K --> A
-    C -->|"No: it finished, or close stopped it"| D{"15 minutes since the run stopped?"}
-    D -->|No| K
-    D -->|Yes| L((Container stops, pending work lost))
+stateDiagram-v2
+  [*] --> SettingUp: spawn creates the session
+  SettingUp --> Ready: repository cloned, skills and context written
+  SettingUp --> Failed: setup error, workspace cleared
+  Ready --> ContainerRunning: first command sent to the container
+  ContainerRunning --> Ready: platform stops the idle container
+  Ready --> [*]: session deleted
+  ContainerRunning --> [*]: session deleted
+  Failed --> [*]: registry entry deleted a month later
 ```
 
-When a run finishes with pending work, tentacles prompts the agent to commit before the run ends, and the run goes on. It does so up to three times; after the third, the run finishes with the work still pending. When the container is not running as a run finishes, tentacles skips the check and does not start the container: a stopped container's disk holds no work.
+The provider sets up the workspace at spawn, and its files live with the session from then on, in a place the provider ties to the session alone: a later start of the session finds the same workspace. The container starts on the first command sent to it, and the provider stops it when it has been idle; core never starts or stops it. A stop keeps `/workspace` and loses the running processes and anything outside `/workspace`, which is the container's own disk. A failed setup clears the workspace and leaves only the session's registry entry, marked failed. A workspace's setup and its deletion run one at a time, so a deletion that arrives during a setup waits for it. Deleting the session deletes the workspace, unpushed work included, and only branches the agent pushed outlive it.
 
-When the lifetime runs out with pending work during a run, tentacles keeps the container up and checks again. Once the run has finished, pending work keeps the container up for 15 more minutes only; then the container stops.
-
-> [!WARNING] Pending work is lost 15 minutes after the run finishes
-> If the agent ignores all three commit prompts, its uncommitted or unpushed work stays only on the container's disk. Fifteen minutes after the run finishes the container stops and the work is gone. The run finishes as any other run does, so a parent that expects a pushed branch should check for it.
-
-tentacles sends the commit prompts when a run finishes and closes the preview when a run stops, however much lifetime is left.
-
-Closing a session stops its run. Without pending work, the container then stops once its lifetime passes. With pending work, the container stays up for 15 more minutes after the close, then stops and the work is lost, as after a finished run.
-
-## 🧰 The agent's tools
-
-| Tool | What it does |
-|---|---|
-| read, write, edit | work on files in `/workspace`, through pi-env |
-| bash | runs commands in the workspace; agent-browser runs through it |
-| codemode | runs a script that calls the other tools except `ask_parent`; scripts keep `models.*` (the model catalog, classify and generateImages) through the session's providers |
-| subagent | starts a subagent in the foreground, returning its answer, or in the background, to spawn, steer, stop and list; run and spawn take an optional agent name, and the subagent then starts with that agent definition's prompt. The root and its children have the tool, so a child can start subagents of its own; a grandchild cannot |
-| skill | given the name of one of the session's skills, returns a block pointing at its SKILL.md in `/skills`, which the agent then reads; an unknown name fails, naming the skills that exist |
-| ask_parent | asks the parent; root conversation only, and only the model calls it; the question carries a repository check, `NoRepository`, `Stopped`, `Clean` or `CheckFailed` (see [question-round-trip](question-round-trip.md)); while the repository has pending work, returns a refusal with the output of git status and the unpushed commits |
-| preview | opens a preview, returning a preview URL to a workspace port and a CDP URL to a browser and replacing the open preview if there is one; or closes the open preview |
-
-The coding tools run in the container through pi-env: the session object reaches pi-env's daemon over the container's exec stdio. codemode is pi-durable's own tool; on Cloudflare it runs in a RemoteCodemodeSandbox. pi-durable ships no subagent tool, so tentacles writes one following pi-durable's examples. The subagent tool and the skill tool each belong to an extension of their own, described in [sessions](sessions.md); a subagent never gets `ask_parent`.
-
-The model reads each tool's result as text. Only the model calls `ask_parent`: a script's tool call runs as a nested task, which the session does not watch when it derives its status, so a question asked from a script would never show the session as waiting. preview also returns a tagged structured result to a program that calls it, such as a codemode script: `open` with the preview URL and the CDP URL, or `close`.
-
-agent-browser is not part of tentacles: the agent installs it and runs it through bash.
+> [!NOTE] Why tentacles does not check for unpushed work
+> The workspace's files live with the session, so a container stop loses no work, and work is lost only when the session is deleted: by the daily job a month after its last run, or by a delete call. A provider whose workspace can lose files on a stop protects them itself.
 
 ## 🖼️ The preview and the browser
 
@@ -113,9 +255,9 @@ flowchart LR
   inp --> session@{ shape: subproc, label: "Session object" }
   session -.-> out@{ shape: braces, label: "Preview
   url: string
-  (token subdomain on the wildcard domain)
+  (the public URL the preview routing serves the token on)
   cdpUrl: string
-  (a Browser Run browser for agent-browser)" }
+  (a managed browser for agent-browser)" }
   out -.->|"returns"| agent
   classDef session fill:#dbeafe,stroke:#2563eb,color:#1f2937
   classDef flow fill:#dcfce7,stroke:#16a34a,color:#1f2937
@@ -125,19 +267,16 @@ flowchart LR
   class inp,out payload
 ```
 
-A session has at most one preview, and only to validate the app in a browser. When the agent wants to check the app it started in the workspace, it calls the preview tool with the app's port. The tool runs in the session object, which opens a Browser Run browser through its own binding. The registry then generates a token, records it and the port on the session's entry and returns the token. The tool returns two URLs: the preview URL, `https://<token>-tentacles-preview.asermax.com`, which carries only the token, and the browser's CDP URL, which carries a token signed with the secret the Worker's CDP relay checks. The agent points agent-browser at the CDP URL, opens the preview URL, validates what it built and closes the preview. Closing the preview clears its token, so the preview URL stops working. It also closes the preview's browser.
+A session has at most one preview, and only to validate the app in a browser. When the agent wants to check the app it started in the workspace, it calls the preview tool with the app's port. The tool runs in the session object, which opens a browser through the `Browser` contract. The registry then generates a token, records it and the port on the session's entry and returns the token. The tool returns two URLs: the preview URL, which `PreviewRouter` builds from the token alone, and the browser's CDP URL, which carries a token signed with a deploy secret. The agent points agent-browser at the CDP URL, opens the preview URL, validates what it built and closes the preview. Closing the preview clears its token, so the preview URL stops working. It also closes the preview's browser.
 
 When the agent calls the preview tool while a preview is open, the new preview replaces it: the previous token stops working and its browser closes.
 
-Anything that is not the app the browser opens, such as an API or a backend, the agent validates inside the workspace with bash, with no preview.
+Anything that is not the app the browser opens, such as an API or a backend, the agent validates inside the workspace with the command tool, with no preview.
 
-Requests to the preview URL reach the Worker's preview route, which looks up the token and forwards to that port in the workspace. agent-browser's CDP traffic reaches Browser Run through the Worker's relay.
+Requests to the preview URL reach the preview route, which looks up the token in the registry and hands the request to the session's object, which passes it to the workspace's `forward` with the token's port. [preview-and-browser](providers/cloudflare/preview-and-browser.md) covers how Cloudflare routes the preview and the browser's CDP traffic.
 
 A preview lives only within a run. The browser closes with its preview, when the agent closes the preview or when the run stops by finishing, failing or close. The registry then clears the preview from the session's entry. A later run opens a preview again if it needs one.
 
-> [!TIP] Rejected: a browser inside the workspace container
-> Running Chrome in each workspace would put a browser in the image every session starts from. Browser Run gives every session the same managed browser, opened by the session object through its binding with no API token, and the default image stays small.
-
 ---
 
-Related: [runtime-components](runtime-components.md), [sessions](sessions.md), [question-round-trip](question-round-trip.md), [worker-api](worker-api.md)
+Related: [runtime-components](runtime-components.md), [sessions](sessions.md), [question-round-trip](question-round-trip.md), [worker-api](worker-api.md), [computer-workspace](providers/cloudflare/computer-workspace.md), [preview-and-browser](providers/cloudflare/preview-and-browser.md)

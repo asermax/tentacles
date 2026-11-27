@@ -10,6 +10,8 @@ summary: "The docs: what each folder holds, how files are named, and how to writ
 | Folder | Holds | Index |
 |---|---|---|
 | `technical-design/` | the shape of the system and how each part works | [Technical design](technical-design/README.md) |
+| `technical-design/providers/` | how each provider fills the contracts, one folder per provider | [Providers](technical-design/providers/README.md) |
+| `technical-design/providers/cloudflare/` | how the Cloudflare provider fills each contract: its deploy, its workspace and its preview | [Cloudflare](technical-design/providers/cloudflare/README.md) |
 | `product-design/` | what tentacles is and what it is like to use | [Product design](product-design/README.md) |
 
 The seam between the two is who the note is for. `technical-design/` explains how a part works inside: its components, what it stores, what crosses between them. `product-design/` explains what tentacles does for the agent that dispatches remote sessions and the person behind it, and how they use it. For example, how a question travels from a remote agent's question tool to the parent and how the answer resolves the waiting tool call is technical design; what the parent agent sees when a remote agent asks, and how it answers, is product design.

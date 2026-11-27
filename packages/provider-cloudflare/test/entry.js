@@ -2,11 +2,8 @@
 // writes: the Worker bridge as the default export and one bridge class per Durable Object the
 // Worker hosts.
 import { makeDurableObjectBridge, makeWorkerBridge } from "@alchemy.run/cloudflare";
-import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import * as Effect from "effect/Effect";
 
-import { archiveStoreLayer } from "../src/archive-store.ts";
 import TentaclesWorker from "../src/worker.ts";
 
 const meta = {
@@ -18,17 +15,25 @@ export default makeWorkerBridge(WorkerEntrypoint, meta);
 
 const DurableObjectBridge = makeDurableObjectBridge(DurableObject, meta);
 
-// The archives the provider stores, which no operation of the object returns, read through the
-// provider's own layer the way a test reaches it over RPC.
 export class SessionObject extends DurableObjectBridge("SessionObject") {
-  storedArchive(kind) {
-    return Effect.runPromise(
-      Effect.gen(function* () {
-        const store = yield* ArchiveStore;
+  // Aborts the object, as an eviction or a crash does: the next call runs on a new instance.
+  restart() {
+    this.ctx.abort("restart");
+  }
 
-        return yield* store.read(kind);
-      }).pipe(Effect.provide(archiveStoreLayer(this.ctx.storage))),
-    );
+  // The tables of the object's storage that hold rows beyond pi-durable's schema bookkeeping, which
+  // every new instance writes. A delete empties them, and the instance that follows it writes
+  // only the bookkeeping.
+  storedTables() {
+    const { sql } = this.ctx.storage;
+
+    return sql
+      .exec(
+        "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '_cf_%' and name not in ('durable_schema', 'durable_metadata')",
+      )
+      .toArray()
+      .map(({ name }) => name)
+      .filter((name) => sql.exec(`select count(*) as total from "${name}"`).one().total > 0);
   }
 }
 

@@ -6,15 +6,21 @@ import { SessionStorage } from "@tentacles/contracts/session-storage";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Session } from "@tentacles/core";
 import type { Entry } from "@tentacles/worker-api/entries";
-import { InvalidArchive, QuestionNotWaiting, SessionNotFound } from "@tentacles/worker-api/errors";
+import {
+  CreateSessionError,
+  QuestionNotWaiting,
+  SessionNotFound,
+} from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
 import { SessionState } from "@tentacles/worker-api/session-state";
 import type { Answer, CreateSession, Prompt } from "@tentacles/worker-api/sessions";
+import * as Cause from "effect/Cause";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
@@ -23,40 +29,36 @@ import { claudeObjectName, ClaudeObject } from "./claude-object";
 import { codemodeSandboxClass, codeSandboxLayer } from "./codemode-sandbox";
 import type { CodemodeSandbox } from "./codemode-worker";
 import { sendableCode } from "./close-code";
-import { loopback } from "./egress";
 import { modelProvidersLayer } from "./model-providers";
 import { CloudflarePreviewRouter } from "./preview-router";
 import { RegistryObject, registryStoreLayer } from "./registry-object";
-import { archiveStoreLayer } from "./archive-store";
-import {
-  ContainerSettings,
-  unsupportedSettings,
-  WorkspaceContainer,
-  workspaceLayer,
-} from "./workspace";
+import { sessionDeletedReason } from "./session-deleted";
+import { destroyWorkspace, workspaceLayer } from "./workspace";
+import { previewPortHeader, workspaceObjectClass } from "./workspace-names";
+import type { WorkspaceObject } from "./workspace-worker";
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
 export interface SessionOperations {
-  readonly create: (request: CreateSession) => Effect.Effect<void, InvalidArchive>;
+  readonly create: (request: CreateSession) => Effect.Effect<void, CreateSessionError>;
   readonly prompt: (request: Prompt) => Effect.Effect<void, SessionNotFound>;
   readonly answer: (request: Answer) => Effect.Effect<void, SessionNotFound | QuestionNotWaiting>;
   readonly close: () => Effect.Effect<void, SessionNotFound>;
   readonly messages: (count: number) => Effect.Effect<ReadonlyArray<Entry>, SessionNotFound>;
   readonly status: () => Effect.Effect<SessionState, SessionNotFound>;
   readonly delete: () => Effect.Effect<void>;
-  readonly workspaceNeeded: (isWorkPending: boolean) => Effect.Effect<boolean>;
 }
 
 /** One object per session, named by its id. */
 export class SessionObject extends Cloudflare.DurableObject<SessionObject, SessionOperations>()(
   "SessionObject",
-  { errors: [SessionNotFound, QuestionNotWaiting, InvalidArchive] },
+  {
+    errors: [SessionNotFound, QuestionNotWaiting, ...CreateSessionError.members],
+  },
 ) {}
 
 // A request the Worker passes to the object through fetch carries what it is for in a header,
 // and keeps its own URL, which the preview forwards to the workspace as it came.
 const routeHeader = "x-tentacles-session-route";
-const portHeader = "x-tentacles-preview-port";
 const notFoundHeader = "x-tentacles-session-not-found";
 
 const FetchRoutes = {
@@ -67,14 +69,10 @@ const FetchRoutes = {
 const encodeState = (state: SessionState) =>
   Schema.encodeEffect(SessionState)(state).pipe(Effect.map(JSON.stringify), Effect.orDie);
 
-const decodeContainerSettings = Schema.decodeUnknownEffect(ContainerSettings);
-
 const notFound = () =>
   HttpServerResponse.text("Session not found", { status: 404, headers: { [notFoundHeader]: "1" } });
 
 const objectDependencies = Effect.gen(function* () {
-  yield* WorkspaceContainer;
-
   return {
     state: yield* Cloudflare.DurableObjectState,
     registries: yield* RegistryObject,
@@ -82,10 +80,6 @@ const objectDependencies = Effect.gen(function* () {
     ai: yield* Cloudflare.Workers.AI(),
     browser: yield* Cloudflare.Browser("BROWSER"),
     cdpSecret: yield* Config.Redacted("TENTACLES_CDP_SECRET").pipe(Effect.orDie),
-    identity: {
-      name: yield* Config.String("TENTACLES_GIT_AUTHOR_NAME").pipe(Effect.orDie),
-      email: yield* Config.String("TENTACLES_GIT_AUTHOR_EMAIL").pipe(Effect.orDie),
-    },
     env: yield* Cloudflare.WorkerEnvironment,
   };
 }).pipe(
@@ -93,132 +87,128 @@ const objectDependencies = Effect.gen(function* () {
 );
 
 export const SessionObjectLive = SessionObject.make(
-  Effect.map(
-    objectDependencies,
-    ({ state, registries, claude, ai, browser, cdpSecret, identity, env }) =>
-      Effect.gen(function* () {
-        const raw = state.raw;
+  Effect.map(objectDependencies, ({ state, registries, claude, ai, browser, cdpSecret, env }) =>
+    Effect.gen(function* () {
+      const raw = state.raw;
 
-        const sessionId = yield* Schema.decodeUnknownEffect(SessionId)(raw.id.name).pipe(
-          Effect.orDie,
-        );
+      const sessionId = yield* Schema.decodeUnknownEffect(SessionId)(raw.id.name).pipe(
+        Effect.orDie,
+      );
 
-        const storage = yield* Effect.promise(() => openDurableObjectSqliteStorage(raw.storage));
-        const egress = yield* loopback(state, { sessionId });
+      const storage = yield* Effect.promise(() => openDurableObjectSqliteStorage(raw.storage));
 
-        // Raw bindings for the Promise-based clients that pi-ai and pi-codemode bring.
-        const claudeObjects: DurableObjectNamespace = env[claude.name];
+      // Raw bindings for the Promise-based clients that pi-ai and pi-codemode bring.
+      const claudeObjects: DurableObjectNamespace = env[claude.name];
 
-        const codemodeSandboxes: DurableObjectNamespace<CodemodeSandbox> =
-          env[codemodeSandboxClass];
+      const codemodeSandboxes: DurableObjectNamespace<CodemodeSandbox> = env[codemodeSandboxClass];
 
-        const archiveStore = archiveStoreLayer(raw.storage);
+      const workspaces: DurableObjectNamespace<WorkspaceObject> = env[workspaceObjectClass];
 
-        const contracts = Layer.mergeAll(
-          Layer.succeed(
-            SessionStorage,
-            SessionStorage.of({ storage: () => Effect.succeed(storage) }),
-          ),
-          Layer.succeed(
-            WakeTimer,
-            WakeTimer.of({
-              set: (at) => Effect.promise(() => raw.storage.setAlarm(at)),
-              clear: () => Effect.promise(() => raw.storage.deleteAlarm()),
-            }),
-          ),
-          Layer.succeed(
-            ParentChannel,
-            ParentChannel.of({
-              send: (sessionState) =>
-                Effect.gen(function* () {
-                  const text = yield* encodeState(sessionState);
+      const contracts = Layer.mergeAll(
+        Layer.succeed(
+          SessionStorage,
+          SessionStorage.of({ storage: () => Effect.succeed(storage) }),
+        ),
+        Layer.succeed(
+          WakeTimer,
+          WakeTimer.of({
+            set: (at) => Effect.promise(() => raw.storage.setAlarm(at)),
+            clear: () => Effect.promise(() => raw.storage.deleteAlarm()),
+          }),
+        ),
+        Layer.succeed(
+          ParentChannel,
+          ParentChannel.of({
+            send: (sessionState) =>
+              Effect.gen(function* () {
+                const text = yield* encodeState(sessionState);
 
-                  // A socket that is closing throws on send; the others still get the state.
-                  yield* Effect.forEach(raw.getWebSockets(), (socket) =>
-                    Effect.try(() => socket.send(text)).pipe(Effect.ignore),
-                  );
-                }),
-            }),
-          ),
-          archiveStore,
-          workspaceLayer({ sessionId, container: () => raw.container, egress, identity }).pipe(
-            Layer.provide(archiveStore),
-          ),
-          browserLayer(yield* browser.raw, cdpSecret, raw.storage),
-          CloudflarePreviewRouter,
-          registryStoreLayer(registries),
-          modelProvidersLayer(yield* ai.raw, () => claudeObjects.getByName(claudeObjectName)),
-          codeSandboxLayer(codemodeSandboxes, sessionId),
-        );
+                // A socket that is closing throws on send; the others still get the state.
+                yield* Effect.forEach(raw.getWebSockets(), (socket) =>
+                  Effect.try(() => socket.send(text)).pipe(Effect.ignore),
+                );
+              }),
+          }),
+        ),
+        workspaceLayer(workspaces, sessionId),
+        browserLayer(yield* browser.raw, cdpSecret, raw.storage),
+        CloudflarePreviewRouter,
+        registryStoreLayer(registries),
+        modelProvidersLayer(yield* ai.raw, () => claudeObjects.getByName(claudeObjectName)),
+        codeSandboxLayer(codemodeSandboxes, sessionId),
+      );
 
-        // The harness lives as long as the object's instance, so its scope is never closed.
-        const handle = yield* Session.make(sessionId).pipe(
-          Effect.provide(contracts),
-          Scope.provide(Scope.makeUnsafe()),
-        );
+      // The harness lives as long as the object's instance, so its scope is never closed.
+      const handle = yield* Session.make(sessionId).pipe(
+        Effect.provide(contracts),
+        Scope.provide(Scope.makeUnsafe()),
+      );
 
-        return {
-          create: (request: CreateSession) =>
-            Effect.gen(function* () {
-              yield* decodeContainerSettings(request.settings).pipe(
-                Effect.mapError(() => new Error(unsupportedSettings(request.settings))),
-                Effect.orDie,
-              );
-              yield* handle.create(request);
-            }),
+      // delete has core stop the session, then destroys its workspace object, and last removes what
+      // this object stored: a destroy that fails leaves the session whole for the next try. The
+      // abort at the end drops this instance, and rejects the call with sessionDeletedReason.
+      return {
+        create: (request: CreateSession) => handle.create(request),
 
-          prompt: (request: Prompt) => handle.prompt(request),
-          answer: (request: Answer) => handle.answer(request),
-          close: () => handle.close(),
-          messages: (count: number) => handle.messages(count),
-          status: () => handle.status(),
-          // core stops the session; what the object stored is the provider's to remove.
-          delete: () =>
+        prompt: (request: Prompt) => handle.prompt(request),
+        answer: (request: Answer) => handle.answer(request),
+        close: () => handle.close(),
+        messages: (count: number) => handle.messages(count),
+        status: () => handle.status(),
+        delete: () =>
+          handle.delete().pipe(
+            Effect.andThen(destroyWorkspace(workspaces, sessionId)),
             Effect.andThen(
-              handle.delete(),
-              Effect.promise(() => raw.storage.deleteAll()),
+              Effect.promise(async () => {
+                await raw.storage.deleteAll();
+
+                // abort() discards writes not yet committed, so the deletion is flushed first.
+                await raw.storage.sync();
+
+                raw.abort(sessionDeletedReason);
+              }),
             ),
-          workspaceNeeded: (isWorkPending: boolean) => handle.workspaceNeeded(isWorkPending),
+          ),
 
-          fetch: Effect.gen(function* () {
-            const request = yield* HttpServerRequest.HttpServerRequest.pipe(
-              Effect.flatMap(HttpServerRequest.toWeb),
-              Effect.orDie,
-            );
+        fetch: Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest.pipe(
+            Effect.flatMap(HttpServerRequest.toWeb),
+            Effect.orDie,
+          );
 
-            switch (request.headers.get(routeHeader)) {
-              case FetchRoutes.connect: {
-                const sessionState = yield* handle.status();
-                const [response, socket] = yield* Cloudflare.upgrade();
+          switch (request.headers.get(routeHeader)) {
+            case FetchRoutes.connect: {
+              const sessionState = yield* handle.status();
+              const [response, socket] = yield* Cloudflare.upgrade();
 
-                yield* socket.send(yield* encodeState(sessionState));
+              yield* socket.send(yield* encodeState(sessionState));
 
-                return response;
-              }
-
-              case FetchRoutes.preview: {
-                const headers = new Headers(request.headers);
-                const port = Number(headers.get(portHeader));
-
-                headers.delete(routeHeader);
-                headers.delete(portHeader);
-
-                const response = yield* handle.preview(port, new Request(request, { headers }));
-
-                return HttpServerResponse.raw(response, { status: response.status });
-              }
-
-              default:
-                return HttpServerResponse.text("Not found", { status: 404 });
+              return response;
             }
-          }).pipe(Effect.catchTag("SessionNotFound", () => Effect.succeed(notFound()))),
 
-          alarm: () => handle.wake(),
+            case FetchRoutes.preview: {
+              const headers = new Headers(request.headers);
+              const port = Number(headers.get(previewPortHeader));
 
-          webSocketClose: (socket: Cloudflare.WebSocket, code: number, reason: string) =>
-            socket.close(sendableCode(code), reason),
-        };
-      }),
+              headers.delete(routeHeader);
+              headers.delete(previewPortHeader);
+
+              const response = yield* handle.preview(port, new Request(request, { headers }));
+
+              return HttpServerResponse.raw(response, { status: response.status });
+            }
+
+            default:
+              return HttpServerResponse.text("Not found", { status: 404 });
+          }
+        }).pipe(Effect.catchTag("SessionNotFound", () => Effect.succeed(notFound()))),
+
+        alarm: () => handle.wake(),
+
+        webSocketClose: (socket: Cloudflare.WebSocket, code: number, reason: string) =>
+          socket.close(sendableCode(code), reason),
+      };
+    }),
   ),
 );
 
@@ -254,13 +244,25 @@ export const sessionHostLayer = (sessions: Cloudflare.DurableObject<SessionObjec
       close: (sessionId) => session(sessionId).close(),
       messages: (sessionId, count) => session(sessionId).messages(count),
       status: (sessionId) => session(sessionId).status(),
-      delete: (sessionId) => session(sessionId).delete(),
+      delete: (sessionId) =>
+        session(sessionId)
+          .delete()
+          .pipe(
+            // The stub wraps the rejection, whose message ends with the abort's reason.
+            Effect.catchCause((cause) => {
+              const failure = Cause.squash(cause);
+
+              return Predicate.isError(failure) && failure.message.endsWith(sessionDeletedReason)
+                ? Effect.void
+                : Effect.failCause(cause);
+            }),
+          ),
       connect: (sessionId, request) =>
         throughFetch(sessionId, request, { [routeHeader]: FetchRoutes.connect }),
       preview: (sessionId, port, request) =>
         throughFetch(sessionId, request, {
           [routeHeader]: FetchRoutes.preview,
-          [portHeader]: String(port),
+          [previewPortHeader]: String(port),
         }),
     }),
   );

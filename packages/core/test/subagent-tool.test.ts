@@ -390,7 +390,7 @@ describe("the subagent tool", () => {
   );
 
   it.live(
-    "a child runs with the subagent and skill tools, without the question tool or instructions",
+    "a child runs with the workspace, subagent and skill tools, without the question tool or instructions",
     () =>
       Effect.gen(function* () {
         const children: Array<Pick<ModelRequest, "tools" | "instructions">> = [];
@@ -411,7 +411,8 @@ describe("the subagent tool", () => {
 
         const [child] = children;
 
-        expect(child?.tools).toContain("bash");
+        expect(child?.tools).toContain("workspace_write");
+        expect(child?.tools).toContain("workspace_read");
         expect(child?.tools).toContain("preview");
         expect(child?.tools).toContain("subagent");
         expect(child?.tools).toContain("skill");

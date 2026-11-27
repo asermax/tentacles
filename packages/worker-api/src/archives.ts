@@ -11,7 +11,7 @@ class ArchiveUnreadable extends Schema.TaggedError<ArchiveUnreadable>()("Archive
 }) {}
 
 /** A regular file of an archive; `mode` holds its permission bits, as in `stat`'s mode & 0o777. */
-interface ArchiveEntry {
+export interface ArchiveEntry {
   readonly path: string;
   readonly bytes: Uint8Array;
   readonly mode: number;
@@ -56,14 +56,17 @@ const succeedUnlessInvalid = <Item>(
   kind: ArchiveKind,
   items: ReadonlyArray<Item>,
   problems: ReadonlyArray<Problem>,
-) =>
+): Effect.Effect<ReadonlyArray<Item>, InvalidArchive> =>
   problems.length === 0
     ? Effect.succeed(items)
     : Effect.fail(
         invalid(kind, problems.map((problem) => `${problem.path}: ${problem.message}`).join("; ")),
       );
 
-/** The skills of a skills archive: one folder per skill at its top level, each with a SKILL.md. */
+/**
+ * The skills of a skills archive, one folder per skill at its top level, each with a SKILL.md, and
+ * every file of the archive for the workspace to write.
+ */
 export const readSkillsArchive = (bytes: Uint8Array) =>
   readArchive(bytes).pipe(
     Effect.mapError(unreadable("skills")),
@@ -96,7 +99,10 @@ export const readSkillsArchive = (bytes: Uint8Array) =>
 
       const checked = checkSkills(sources);
 
-      return succeedUnlessInvalid("skills", checked.skills, [...problems, ...checked.problems]);
+      return succeedUnlessInvalid("skills", checked.skills, [
+        ...problems,
+        ...checked.problems,
+      ]).pipe(Effect.map((skills) => ({ skills, entries })));
     }),
   );
 

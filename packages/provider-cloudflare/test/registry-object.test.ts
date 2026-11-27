@@ -12,7 +12,6 @@ const details = {
     effort: "high",
     image: "default",
     size: "standard",
-    lifetime: 3600,
     repository: null,
   },
   skills: ["implement"],

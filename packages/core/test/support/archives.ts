@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 
+import type { ArchiveEntry } from "@tentacles/worker-api/archives";
 import { packArchive as packEntries } from "@tentacles/worker-api/test/pack-archive";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
@@ -29,8 +30,8 @@ export interface AgentFixture {
 
 /** The block a held skill expands to: where its SKILL.md is and what its relative paths resolve against. */
 export const skillBlockOf = (name: string) =>
-  `<skill name="${name}" location="/skills/${name}/SKILL.md">\n` +
-  `Read /skills/${name}/SKILL.md before acting on this skill. Paths it names, such as references/ or scripts/, are relative to /skills/${name}/.\n` +
+  `<skill name="${name}" location="/workspace/skills/${name}/SKILL.md">\n` +
+  `Read /workspace/skills/${name}/SKILL.md before acting on this skill. Paths it names, such as references/ or scripts/, are relative to /workspace/skills/${name}/.\n` +
   "</skill>";
 
 const definition = (name: string, description: string, body: string) =>
@@ -38,15 +39,16 @@ const definition = (name: string, description: string, body: string) =>
 
 const encoder = new TextEncoder();
 
+/** The entries an archive of the files holds once it is read. */
+export const entriesOf = (files: readonly ArchiveFile[]): ArchiveEntry[] =>
+  files.map((file) => ({
+    path: file.path,
+    bytes: Predicate.isString(file.content) ? encoder.encode(file.content) : file.content,
+    mode: file.mode ?? 0o644,
+  }));
+
 /** A tar.gz of the files. */
-export const packArchive = (files: readonly ArchiveFile[]) =>
-  packEntries(
-    files.map((file) => ({
-      path: file.path,
-      bytes: Predicate.isString(file.content) ? encoder.encode(file.content) : file.content,
-      mode: file.mode ?? 0o644,
-    })),
-  );
+export const packArchive = (files: readonly ArchiveFile[]) => packEntries(entriesOf(files));
 
 export const skillFiles = (skill: SkillFixture): ArchiveFile[] => {
   const {
@@ -92,6 +94,9 @@ const heldAgents: readonly AgentFixture[] = [
   { name: "reviewer", description: "Reviews a change", prompt: "You review changes." },
   { name: "planner", description: "Plans a change", prompt: "You plan changes." },
 ];
+
+/** The entries the skills of `definitionArchives` hold once read. */
+export const definitionSkillEntries = entriesOf(heldSkills.flatMap(skillFiles));
 
 /** The names of the skills and agents `definitionArchives` packs. */
 export const definitionNames = {

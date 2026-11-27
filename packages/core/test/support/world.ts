@@ -1,7 +1,3 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { BACKGROUND_CONTEXT, type Context as ChordContext } from "@earendil-works/chord/context";
 import { CodemodeSandbox } from "@earendil-works/pi-codemode";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -21,17 +17,15 @@ import { PreviewRouter } from "@tentacles/contracts/preview-router";
 import { RegistryStore, RegistryUnavailable } from "@tentacles/contracts/registry-store";
 import { SessionHost } from "@tentacles/contracts/session-host";
 import { SessionStorage } from "@tentacles/contracts/session-storage";
-import { ArchiveStore } from "@tentacles/contracts/archive-store";
 import { WakeTimer } from "@tentacles/contracts/wake-timer";
 import { Workspace } from "@tentacles/contracts/workspace";
-import { type ArchiveKind, archiveKinds } from "@tentacles/worker-api/archive-kinds";
+import type { WorkspaceSetupError } from "@tentacles/worker-api/errors";
 import { SessionId } from "@tentacles/worker-api/ids";
 import type { SessionState } from "@tentacles/worker-api/session-state";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
-import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -39,7 +33,7 @@ import * as Semaphore from "effect/Semaphore";
 import { Session, type SessionHandle } from "../../src";
 import { eventually } from "./eventually";
 import { testRegistry } from "./registry";
-import { testWorkspace, type WorkspaceRecord } from "./workspace";
+import { testWorkspace, type WorkspaceCreate, type WorkspaceRecord } from "./workspace";
 
 /** A WakeTimer call: the time it was set to, or null for a clear. */
 export type WakeCall = number | null;
@@ -62,12 +56,14 @@ export interface SessionRecords {
 
 /**
  * Contract calls a test makes fail, each with the contract's own error;
- * SessionHost.delete has none and fails as a defect.
+ * SessionHost.delete has none and fails as a defect. `workspaceCreate` fails every
+ * Workspace.create with it while it is set.
  */
 export interface Failures {
   browserOpen: boolean;
   openPreview: boolean;
   stoppedBefore: boolean;
+  workspaceCreate: WorkspaceSetupError | null;
   /** Session ids whose next delete fails. */
   readonly deleteOnce: Set<SessionId>;
 }
@@ -181,14 +177,11 @@ export class TestWorld extends Context.Service<
   {
     /** pi-ai's faux provider: every session's model. */
     readonly faux: FauxProviderHandle;
-    /** A directory the sandboxed workspaces also see, for bare remotes. */
-    readonly shared: string;
     readonly failures: Failures;
     /** RegistryStore's add, setStatus and openPreview calls, as "add <id>", "<status> <id>" and "openPreview <id>". */
     readonly registryCalls: string[];
+    readonly workspaceCreates: WorkspaceCreate[];
     readonly records: (sessionId: SessionId) => SessionRecords;
-    /** The archives of one kind that the sessions saved, by session. */
-    readonly archives: (kind: ArchiveKind) => ReadonlyMap<SessionId, Uint8Array>;
     /** The running instance's handle, made on first use as a host makes one on a request. */
     readonly handle: (sessionId: SessionId) => Effect.Effect<SessionHandle>;
     /** Drops the instance, its harness closed mid-work, and keeps its storage. */
@@ -210,15 +203,6 @@ const unavailable = (what: string) =>
   Effect.fail(new RegistryUnavailable({ message: `${what} failed` }));
 
 const makeWorld = Effect.gen(function* () {
-  const root = yield* Effect.acquireRelease(
-    Effect.sync(() => mkdtempSync(join(tmpdir(), "tentacles-core-"))),
-    (directory) => Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
-  );
-
-  const shared = join(root, "shared");
-
-  mkdirSync(shared);
-
   const faux = fauxProvider();
   const models = createModels();
 
@@ -228,11 +212,13 @@ const makeWorld = Effect.gen(function* () {
     browserOpen: false,
     openPreview: false,
     stoppedBefore: false,
+    workspaceCreate: null,
     deleteOnce: new Set(),
   };
 
   const registry = yield* RegistryStore;
   const registryCalls: string[] = [];
+  const workspaceCreates: WorkspaceCreate[] = [];
 
   const failing = RegistryStore.of({
     ...registry,
@@ -275,44 +261,34 @@ const makeWorld = Effect.gen(function* () {
   >();
 
   const making = yield* Semaphore.make(1);
-  const worldScope = yield* Scope.Scope;
 
   const workspaces = new Map<SessionId, Workspace["Service"]>();
-  const archives = Record.map(archiveKinds, () => new Map<SessionId, Uint8Array>());
 
-  // The archives live beside the storage, so an eviction keeps them.
-  const archiveStoreOf = (sessionId: SessionId) =>
-    ArchiveStore.of({
-      save: (kind, archive) => Effect.sync(() => void archives[kind].set(sessionId, archive)),
-      read: (kind) => Effect.sync(() => archives[kind].get(sessionId) ?? null),
-    });
+  const recordsOf = (sessionId: SessionId) => {
+    const existingRecords = records.get(sessionId);
 
-  const recordsOf = (sessionId: SessionId) =>
-    Effect.gen(function* () {
-      const found = records.get(sessionId);
+    if (existingRecords != null) {
+      return existingRecords;
+    }
 
-      if (found != null) {
-        return found;
-      }
+    const createdWorkspace = testWorkspace(
+      sessionId,
+      workspaceCreates,
+      () => failures.workspaceCreate,
+    );
 
-      const created = yield* testWorkspace(
-        join(root, sessionId),
-        shared,
-        archiveStoreOf(sessionId),
-      ).pipe(Scope.provide(worldScope));
+    const record: SessionRecords = {
+      states: [],
+      wakes: [],
+      browser: [],
+      workspace: createdWorkspace.record,
+    };
 
-      const record: SessionRecords = {
-        states: [],
-        wakes: [],
-        browser: [],
-        workspace: created.record,
-      };
+    records.set(sessionId, record);
+    workspaces.set(sessionId, createdWorkspace.workspace);
 
-      records.set(sessionId, record);
-      workspaces.set(sessionId, created.workspace);
-
-      return record;
-    });
+    return record;
+  };
 
   const workspaceOf = (sessionId: SessionId) => {
     const found = workspaces.get(sessionId);
@@ -368,7 +344,6 @@ const makeWorld = Effect.gen(function* () {
         }),
       ),
       Context.add(Workspace, workspaceOf(sessionId)),
-      Context.add(ArchiveStore, archiveStoreOf(sessionId)),
       Context.merge(shareds),
     );
 
@@ -380,7 +355,7 @@ const makeWorld = Effect.gen(function* () {
         return running.handle;
       }
 
-      const record = yield* recordsOf(sessionId);
+      const record = recordsOf(sessionId);
       const scope = yield* Scope.make();
       const storage = new ProcessStorage(storageOf(sessionId));
 
@@ -451,18 +426,14 @@ const makeWorld = Effect.gen(function* () {
             yield* notFoundGuard(sessionId, (made) => made.delete());
             yield* drop(sessionId);
             storages.delete(sessionId);
-
-            for (const byKind of Object.values(archives)) {
-              byKind.delete(sessionId);
-            }
           }),
   });
 
   const world = TestWorld.of({
     faux,
-    shared,
     failures,
     registryCalls,
+    workspaceCreates,
     records: (sessionId) => {
       const found = records.get(sessionId);
 
@@ -472,7 +443,6 @@ const makeWorld = Effect.gen(function* () {
 
       return found;
     },
-    archives: (kind) => archives[kind],
     handle,
     evict: drop,
     crash: crashOne,

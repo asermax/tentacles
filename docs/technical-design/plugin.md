@@ -59,7 +59,7 @@ The **helper CLI** runs as one process per command, and as a long-running watch 
 
 The **local state** is the parent's list of remote sessions, per harness session: a custom session entry on pi, a file under `CLAUDE_PLUGIN_DATA` on Claude Code. The glue reads it when the harness starts and writes it whenever the parent's sessions change.
 
-The **skill** teaches the parent agent the tools and adds that its children are remote: nothing of theirs runs locally, and their state and output are reachable only through the tools. It says that a session's skills and agent definitions are fixed at spawn, so the parent includes everything the job needs in the spawn, and spawns a new session when the job needs a different set. It also explains `context`: each path lands at `/context/<basename>`, outside the repository, as a copy fixed at spawn whose edits are lost and never come back, so the parent tells the remote agent in the handoff what the files are and how to use them. It tells the parent to write the handoff so the remote agent decides wherever a skill would stop for the user, ignores any instruction to ask the user, and lists those decisions in its final report. It also tells the parent to say in the handoff what to do at the stop points the agent cannot decide, such as a credential it lacks. It explains the repository check that comes with every question. `Clean` means the work is committed and pushed. `Stopped` means the workspace container was not running, so it had nothing pending. `CheckFailed` means tentacles could not check the workspace, so work may exist only on the container's disk and is lost when the container stops. `CheckFailed` carries the output of the git commands, which shows why the check failed and is empty when the workspace ran neither. `NoRepository` means tentacles manages no repository for the session and checked nothing.
+The **skill** teaches the parent agent the tools and adds that its children are remote: nothing of theirs runs locally, and their state and output are reachable only through the tools. It says that a session's skills and agent definitions are fixed at spawn, so the parent includes everything the job needs in the spawn, and spawns a new session when the job needs a different set. It also explains `context`: each path lands at `/workspace/context/<basename>`, outside the repository, as a copy fixed at spawn whose edits stay in the remote session and never come back, so the parent tells the remote agent in the handoff what the files are and how to use them. It tells the parent to write the handoff so the remote agent decides wherever a skill would stop for the user, ignores any instruction to ask the user, and lists those decisions in its final report. It also tells the parent to say in the handoff what to do at the stop points the agent cannot decide, such as a credential it lacks.
 
 ## ♠️ What it exposes
 
@@ -73,7 +73,7 @@ The **skill** teaches the parent agent the tools and adds that its children are 
 | close | `mcp__tentacles__close` | `tentacles_close` | close |
 | answer | `mcp__tentacles__answer` | `tentacles_answer` | answer |
 
-Each tool takes the arguments of its Worker API call and returns its result, except where the plugin fills in the parent itself. spawn takes the name, the first prompt, any settings the agent sets, and optionally skill folder paths, agent definition paths and context file or folder paths; the plugin fills every other setting from its defaults (see Implementation details). When a skill, an agent definition or a context path fails a check, spawn returns every problem with its path, in a Skills, an Agents and a Context group, and creates nothing. list takes no arguments. A Worker error, such as a deleted or unknown session or an answer to a question that is not waiting, reaches the agent as a tool failure carrying the Worker's message. When the plugin gets no usable answer from the Worker, the tool fails with an error naming the cause: the Worker did not answer at its URL, it answered with an unexpected status, or a required variable is unset. On Claude Code the plugin registers the tools by their bare names and the model sees them under the plugin's MCP prefix; on pi they carry the `tentacles_` prefix themselves.
+Each tool takes the arguments of its Worker API call and returns its result, except where the plugin fills in the parent itself. spawn takes the name, the first prompt, any settings the agent sets, and optionally skill folder paths, agent definition paths and context file or folder paths; the plugin fills every other setting from its defaults (see Implementation details). When a skill, an agent definition or a context path fails a check, spawn returns every problem with its path, in a Skills, an Agents and a Context group, and creates nothing. list takes no arguments. A Worker error, such as a deleted or unknown session, an answer to a question that is not waiting or a workspace setup that failed, reaches the agent as a tool failure carrying the Worker's message. When the plugin gets no usable answer from the Worker, the tool fails with an error naming the cause: the Worker did not answer at its URL, it answered with an unexpected status, or a required variable is unset. On Claude Code the plugin registers the tools by their bare names and the model sees them under the plugin's MCP prefix; on pi they carry the `tentacles_` prefix themselves.
 
 > [!NOTE] Why Claude Code has no wait tool
 > The Claude mod runs every helper process with `$.process.run`, which Claude Code caps at ten minutes, so a wait could not block until a remote agent stops. The mod has no need for one either: it wakes the parent itself by submitting the wake as a prompt, which starts a turn once the session is idle.
@@ -84,7 +84,7 @@ The watch wakes the parent with what it needs to act without another call:
 
 | When | What the parent receives |
 |---|---|
-| a remote agent asks a question | the session, the question id, the question text and its repository check |
+| a remote agent asks a question | the session, the question id and the question text |
 | a run finishes | the session and its last message |
 | a run fails | the session and its failure |
 
@@ -139,7 +139,7 @@ A deleted session leaves the list the first time the plugin learns of it: the st
 > The local list lets a harness that has never spawned a remote session start without calling the Worker. The Worker's copy lets a harness that does have sessions recover their current status, including changes it missed while it was closed.
 
 > [!WARNING] A deleted session lingers until the plugin learns of it
-> The daily cleanup deletes a session without telling its parent. The local list still names the session, and so does the status line if the session was open. This lasts until the next start-up sync, the next call on the session, or, for an open session, the watch's next connection to it.
+> The daily cleanup, or a delete call on the Worker's API, deletes a session without telling its parent. The local list still names the session, and so does the status line if the session was open. This lasts until the next start-up sync, the next call on the session, or, for an open session, the watch's next connection to it.
 
 ## 📦 Publishing and installing
 
@@ -182,7 +182,7 @@ The Claude plugin tree is a marketplace. Its `.claude-plugin/marketplace.json` n
 
 Either install works only against a deployed Worker, with its URL and API key set in `TENTACLES_URL` and `TENTACLES_API_KEY` (see Implementation details).
 
-Pull requests to `master` run the checks workflow: its job installs bubblewrap and lifts Ubuntu's AppArmor restriction on unprivileged user namespaces, because the core tests' sandbox needs those namespaces, then installs the dependencies from the frozen lockfile and runs `pnpm check` and `pnpm test`. A push to `master` runs the same workflow and a paths filter, then a release job, which runs only when the filter finds a change to the plugin's files, with write access to the repository's contents, issues and pull requests. The release job checks out the full history, builds the plugin once, because the npm plugin reads the pi package's manifest before semantic-release's own build, and runs semantic-release. npm authenticates with trusted publishing, which exchanges the job's GitHub OIDC token for a publish token. When the package has no trusted publisher, npm uses the `NPM_TOKEN` repository secret instead. The package is published with a provenance attestation.
+Pull requests to `master` run the checks workflow: its job installs the dependencies from the frozen lockfile and runs `pnpm check` and `pnpm test`. A push to `master` runs the same workflow and a paths filter, then a release job, which runs only when the filter finds a change to the plugin's files, with write access to the repository's contents, issues and pull requests. The release job checks out the full history, builds the plugin once, because the npm plugin reads the pi package's manifest before semantic-release's own build, and runs semantic-release. npm authenticates with trusted publishing, which exchanges the job's GitHub OIDC token for a publish token. When the package has no trusted publisher, npm uses the `NPM_TOKEN` repository secret instead. The package is published with a provenance attestation.
 
 semantic-release takes the next version from the commits since the last `v*` tag. The release step writes that version to `VERSION`, which semantic-release itself never reads.
 
@@ -201,7 +201,6 @@ semantic-release takes the next version from the commits since the last `v*` tag
 | `TENTACLES_SESSION_EFFORT` | the effort level | max |
 | `TENTACLES_WORKSPACE_IMAGE` | the workspace image; `default` is the only one tentacles offers | `default` |
 | `TENTACLES_WORKSPACE_SIZE` | the workspace container's instance type | standard-2 |
-| `TENTACLES_WORKSPACE_LIFETIME` | the workspace's inactivity time, in minutes | 15 |
 
 The helper reads them where it runs, on the developer's machine, except `TENTACLES_HELPER`, which the glue reads to find the helper. The deploy reads its own variables, apart from these.
 

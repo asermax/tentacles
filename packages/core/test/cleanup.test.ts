@@ -1,7 +1,7 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { describe, expect, it } from "@effect/vitest";
 import { RegistryStore } from "@tentacles/contracts/registry-store";
-import { SessionNotFound } from "@tentacles/worker-api/errors";
+import { InvalidWorkspace, SessionNotFound } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import { SessionState } from "@tentacles/worker-api/session-state";
 import * as Effect from "effect/Effect";
@@ -40,6 +40,19 @@ const isIdle = (state: SessionState | undefined) =>
 
 const isFailed = (state: SessionState | undefined) =>
   state != null && SessionState.guards.failed(state);
+
+/** A session whose create failed in the workspace's setup, which leaves only its registry entry. */
+const setupFailedSessionId = Effect.gen(function* () {
+  const world = yield* TestWorld;
+  const sessionId = newSessionId();
+  const handle = yield* world.handle(sessionId);
+
+  world.failures.workspaceCreate = new InvalidWorkspace({ message: "No such repository" });
+  yield* handle.create(createRequest("work")).pipe(Effect.flip);
+  world.failures.workspaceCreate = null;
+
+  return sessionId;
+});
 
 const listed = Effect.flatMap(RegistryStore, (registry) => registry.list(parent)).pipe(
   Effect.map((refs) => refs.map((ref) => ref.sessionId)),
@@ -112,6 +125,31 @@ describe("the daily cleanup", () => {
       expect(yield* statusOf(running)).toEqual(SessionState.cases.running.make(details));
       expect(SessionState.guards.waiting(yield* statusOf(waiting))).toBe(true);
       held.release();
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("deletes a setup-failed entry a month after the failure", () =>
+    Effect.gen(function* () {
+      const sessionId = yield* setupFailedSessionId;
+
+      expect(yield* listed).toEqual([sessionId]);
+
+      yield* afterAMonth(cleanup);
+
+      expect(yield* listed).toEqual([]);
+      expect(yield* statusOf(sessionId).pipe(Effect.flip)).toEqual(
+        new SessionNotFound({ sessionId }),
+      );
+    }).pipe(Effect.provide(testWorld)),
+  );
+
+  it.live("keeps a recently failed entry", () =>
+    Effect.gen(function* () {
+      const sessionId = yield* setupFailedSessionId;
+
+      yield* later("1 day")(cleanup);
+
+      expect(yield* listed).toEqual([sessionId]);
     }).pipe(Effect.provide(testWorld)),
   );
 
