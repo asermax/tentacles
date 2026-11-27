@@ -16,10 +16,10 @@ interface SessionRpc extends Rpc.DurableObjectBranded {
   storedTables(): ReadonlyArray<string>;
 }
 
-// A workspace object as a test calls it: the deployed object's setup and destroy, and the files the
+// A workspace object as a test calls it: the deployed object's setUpWorkspace and destroy, and the files the
 // test entry's subclass reads back.
 interface WorkspaceRpc extends Rpc.DurableObjectBranded {
-  setup(init: WorkspaceInit): void;
+  setUpWorkspace(init: WorkspaceInit): void;
   destroy(): void;
   failNextDestroy(): void;
   requestedInstances(): Promise<ReadonlyArray<string | undefined>>;

@@ -474,7 +474,7 @@ describe("the sessions API", () => {
 
         const [{ sessionId }] = decodeListing(listed);
 
-        const calls = [
+        const requestsForFailedSession = [
           api(
             `/sessions/${sessionId}/prompt`,
             post(JSON.stringify({ text: "hi", mode: "followUp" })),
@@ -488,8 +488,8 @@ describe("the sessions API", () => {
           api(`/sessions/${sessionId}/status`),
         ];
 
-        for (const call of calls) {
-          const response = yield* call;
+        for (const request of requestsForFailedSession) {
+          const response = yield* request;
 
           expect(response.status).toBe(404);
           expect(decodeNotFound(yield* json(response))).toEqual(new SessionNotFound({ sessionId }));

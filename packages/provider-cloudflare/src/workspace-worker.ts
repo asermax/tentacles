@@ -131,7 +131,7 @@ export class WorkspaceObject extends withWorkspaceContainer(
     }
   }
 
-  async setup(init: WorkspaceInit) {
+  async setUpWorkspace(init: WorkspaceInit) {
     try {
       await this.#populateWorkspace(init);
     } catch (error) {

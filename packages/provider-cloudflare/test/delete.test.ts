@@ -3,13 +3,13 @@ import { env } from "cloudflare:workers";
 
 import { contextEntries } from "./archives";
 import { rejection } from "./rejection";
-import { idleSession, parent, scripted, testSettings, writeNotes } from "./sessions";
+import { idleSession, parent, scriptedPrompt, testSettings, writeNotes } from "./sessions";
 import { workspaceInit } from "./workspace-init";
 
 const idleSessionIdWithNotes = async () => {
   const sessionId = crypto.randomUUID();
 
-  await idleSession(sessionId, null, scripted([writeNotes("kept")]));
+  await idleSession(sessionId, null, scriptedPrompt([writeNotes("kept")]));
 
   return sessionId;
 };
@@ -26,7 +26,7 @@ describe("deleting a session", () => {
     expect(await env.WorkspaceObject.getByName(sessionId).files()).toEqual([]);
     expect(await env.SessionObject.getByName(sessionId).storedTables()).toEqual([]);
 
-    await env.WorkspaceObject.getByName(sessionId).setup(
+    await env.WorkspaceObject.getByName(sessionId).setUpWorkspace(
       workspaceInit({ context: contextEntries("fresh.md") }),
     );
 

@@ -5,7 +5,14 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { workspaceTools } from "../src/workspace-tools";
-import { followUp, idleSession, notesPath, scripted, toolResults, writeNotes } from "./sessions";
+import {
+  sendFollowUp,
+  idleSession,
+  notesPath,
+  scriptedPrompt,
+  toolResults,
+  writeNotes,
+} from "./sessions";
 
 const notesCall = writeNotes("alpha\nbeta needle\ngamma\n");
 
@@ -46,7 +53,7 @@ describe("the workspace's tools", () => {
     await idleSession(
       sessionId,
       null,
-      scripted([
+      scriptedPrompt([
         notesCall,
         { name: "read", arguments: { path: notesPath } },
         { name: "ls", arguments: { path: "/workspace/repo" } },
@@ -72,7 +79,7 @@ describe("the workspace's tools", () => {
     await idleSession(
       sessionId,
       null,
-      scripted([{ name: "exec", arguments: { command: "echo hi", backend: "shell" } }]),
+      scriptedPrompt([{ name: "exec", arguments: { command: "echo hi", backend: "shell" } }]),
     );
 
     const [execToolResult] = await toolResults(sessionId);
@@ -93,7 +100,7 @@ describe("the workspace's tools", () => {
     await idleSession(
       sessionId,
       null,
-      scripted([
+      scriptedPrompt([
         {
           name: "exec",
           arguments: { command: "echo out; echo err >&2; exit 3", backend: "shell" },
@@ -114,11 +121,14 @@ describe("the workspace's tools", () => {
   it("reach the same workspace after the session object restarts", async () => {
     const sessionId = crypto.randomUUID();
 
-    await idleSession(sessionId, null, scripted([notesCall]));
+    await idleSession(sessionId, null, scriptedPrompt([notesCall]));
     await env.SessionObject.getByName(sessionId)
       .restart()
       .catch(() => undefined);
-    await followUp(sessionId, scripted([{ name: "read", arguments: { path: notesPath } }]));
+    await sendFollowUp(
+      sessionId,
+      scriptedPrompt([{ name: "read", arguments: { path: notesPath } }]),
+    );
 
     const afterRestartResults = await toolResults(sessionId);
 

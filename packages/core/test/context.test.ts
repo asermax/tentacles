@@ -30,7 +30,7 @@ const json = (response: Response) => Effect.promise(() => response.json());
 
 const say = (text: string) => fauxAssistantMessage(text);
 
-const sentence =
+const contextNotice =
   "<context>\nThe parent sent files for context. They are in /workspace/context.\n</context>";
 
 const contextFiles = [
@@ -87,7 +87,7 @@ describe("create with context", () => {
         expect(world.workspaceCreates.map(({ init }) => init.context)).toEqual([
           entriesOf(contextFiles),
         ]);
-        expect(sections[0]).toBe(sentence);
+        expect(sections[0]).toBe(contextNotice);
       }).pipe(Effect.provide(testWorld)),
   );
 
@@ -235,7 +235,7 @@ describe("create with context", () => {
         }),
       );
 
-      expect(Object.fromEntries(seen)).toEqual({ child: sentence, grandchild: sentence });
+      expect(Object.fromEntries(seen)).toEqual({ child: contextNotice, grandchild: contextNotice });
     }).pipe(Effect.provide(testWorld)),
   );
 });

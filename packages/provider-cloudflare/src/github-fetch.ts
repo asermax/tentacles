@@ -28,11 +28,11 @@ export const githubFetch =
       return fetch(request);
     }
 
-    const response = await fetchWithAuthorization(request, githubAuthorization(token));
+    const githubResponse = await fetchWithAuthorization(request, githubAuthorization(token));
 
-    if (response.status === 404) {
+    if (githubResponse.status === 404) {
       onNotFound?.();
     }
 
-    return response;
+    return githubResponse;
   };

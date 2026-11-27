@@ -90,7 +90,7 @@ interface ToolCall {
 }
 
 /** The prompt that makes the test model make these tool calls in order, then answer. */
-export const scripted = (calls: ReadonlyArray<ToolCall>) =>
+export const scriptedPrompt = (calls: ReadonlyArray<ToolCall>) =>
   `SCRIPT ${JSON.stringify(calls.map((call) => ({ ...call, arguments: JSON.stringify(call.arguments) })))}`;
 
 const decodeEntries = Schema.decodeUnknownSync(Schema.Array(Entry));
@@ -106,7 +106,7 @@ export const toolResults = async (sessionId: string, count = 30) =>
   (await entriesOf(sessionId, count)).filter(Entry.guards.toolResult);
 
 /** Sends a follow-up prompt and waits until the run it starts has answered. */
-export const followUp = async (sessionId: string, text: string) => {
+export const sendFollowUp = async (sessionId: string, text: string) => {
   const answerCountBefore = await answerCount(sessionId);
 
   await apiFetch(`/sessions/${sessionId}/prompt`, {

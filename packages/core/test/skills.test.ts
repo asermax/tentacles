@@ -91,10 +91,12 @@ describe("prompt expansion", () => {
     Effect.gen(function* () {
       const archives = yield* definitionArchives();
 
-      const text =
+      const punctuatedTriggerPrompt =
         "read /workspace/skills/implement/SKILL.md, then /implement. Also (/review) and x/review";
 
-      expect((yield* promptWith(text, archives)).at(-1)).toBe(text);
+      expect((yield* promptWith(punctuatedTriggerPrompt, archives)).at(-1)).toBe(
+        punctuatedTriggerPrompt,
+      );
     }).pipe(Effect.provide(testWorld)),
   );
 

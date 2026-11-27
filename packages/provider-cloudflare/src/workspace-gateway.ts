@@ -26,7 +26,7 @@ export interface GatewayEnvironment {
 export const gateway = {
   async fetch(
     request: Request,
-    environment: GatewayEnvironment,
+    gatewayEnvironment: GatewayEnvironment,
     context: ExecutionContext<GatewayProps | undefined>,
   ): Promise<Response> {
     if (context.props?.isGateway !== true) {
@@ -43,20 +43,20 @@ export const gateway = {
       }
 
       return cdpRelay(
-        environment.BROWSER,
-        Redacted.make(environment.TENTACLES_CDP_SECRET),
+        gatewayEnvironment.BROWSER,
+        Redacted.make(gatewayEnvironment.TENTACLES_CDP_SECRET),
       )(cdpToken).catch(() => new Response("The browser is unavailable", { status: 502 }));
     }
 
-    return githubFetch(environment.TENTACLES_GITHUB_TOKEN)(request);
+    return githubFetch(gatewayEnvironment.TENTACLES_GITHUB_TOKEN)(request);
   },
 };
 
 type GatewayLoopback = (options: { props: GatewayProps }) => Fetcher;
 
 /** The stub of this Worker's own gateway, carrying the props that mark its requests as the container's. */
-export const gatewayStub = (exports: Cloudflare.Exports): Fetcher => {
-  const entrypoint: unknown = "default" in exports ? exports.default : undefined;
+export const gatewayStub = (workerExports: Cloudflare.Exports): Fetcher => {
+  const entrypoint: unknown = "default" in workerExports ? workerExports.default : undefined;
 
   if (!Predicate.isFunction(entrypoint)) {
     throw new Error("The Worker exports no default entrypoint");

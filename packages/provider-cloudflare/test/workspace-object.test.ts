@@ -24,7 +24,7 @@ const workspaceOf = () => {
 };
 
 const failureOfSetup = async (workspace: ReturnType<typeof workspaceOf>, init: WorkspaceInit) => {
-  const error = await rejection(workspace().setup(init));
+  const error = await rejection(workspace().setUpWorkspace(init));
 
   expect(error).not.toBeNull();
 
@@ -35,7 +35,7 @@ describe("a workspace object's setup", () => {
   it("writes the skills and context archives into their directories with their modes", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setup(
+    await workspace().setUpWorkspace(
       workspaceInit({
         skills: skillEntries("implement"),
         context: contextEntriesWithScript("notes.md"),
@@ -62,7 +62,7 @@ describe("a workspace object's setup", () => {
   it("clones a readable repository into /workspace/repo", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setup(
+    await workspace().setUpWorkspace(
       workspaceInit({ repository: fixtureRepository(fixtureRepositories.readable) }),
     );
 
@@ -76,7 +76,7 @@ describe("a workspace object's setup", () => {
   it("clones only the latest commit when the repository is shallow", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setup(
+    await workspace().setUpWorkspace(
       workspaceInit({ repository: fixtureRepository(fixtureRepositories.readable, true) }),
     );
 
@@ -164,7 +164,7 @@ describe("a workspace object's container", () => {
   it("is requested at the instance size the setup stored", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setup(workspaceInit({ size: "standard-2" }));
+    await workspace().setUpWorkspace(workspaceInit({ size: "standard-2" }));
 
     expect(await workspace().requestedInstances()).toEqual(["standard-2"]);
   });
@@ -178,14 +178,14 @@ describe("a workspace object's destroy", () => {
   it("clears its files, so a later setup under the same name starts empty", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setup(workspaceInit({ context: contextEntries("old.md") }));
+    await workspace().setUpWorkspace(workspaceInit({ context: contextEntries("old.md") }));
     await workspace()
       .destroy()
       .catch(() => undefined);
 
     expect(await workspace().files()).toEqual([]);
 
-    await workspace().setup(workspaceInit({ context: contextEntries("new.md") }));
+    await workspace().setUpWorkspace(workspaceInit({ context: contextEntries("new.md") }));
 
     expect((await workspace().files()).map(({ path }) => path)).toEqual([
       "/workspace/context/new.md",

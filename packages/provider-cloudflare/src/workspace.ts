@@ -20,31 +20,35 @@ export const workspaceLayer = (
   workspaces: DurableObjectNamespace<WorkspaceObject>,
   sessionId: SessionId,
 ) => {
-  const stub = () => workspaces.getByName(sessionId);
+  const getWorkspaceStub = () => workspaces.getByName(sessionId);
 
   return Layer.effect(
     Workspace,
     Effect.gen(function* () {
-      const client = yield* Effect.promise(async () => {
+      const workspaceClient = yield* Effect.promise(async () => {
         const { getWorkspace } = await import("@cloudflare/computer");
 
-        return getWorkspace(stub());
+        return getWorkspace(getWorkspaceStub());
       });
 
-      const tools = yield* workspaceTools(client);
+      const tools = yield* workspaceTools(workspaceClient);
 
       return Workspace.of({
         tools,
 
-        create: (init) => Effect.tryPromise({ try: () => stub().setup(init), catch: failureOf }),
+        create: (init) =>
+          Effect.tryPromise({
+            try: () => getWorkspaceStub().setUpWorkspace(init),
+            catch: failureOf,
+          }),
 
         forward: (port, request) =>
           Effect.tryPromise(() => {
-            const forwarded = new Request(request);
+            const forwardedRequest = new Request(request);
 
-            forwarded.headers.set(previewPortHeader, String(port));
+            forwardedRequest.headers.set(previewPortHeader, String(port));
 
-            return stub().fetch(forwarded);
+            return getWorkspaceStub().fetch(forwardedRequest);
           }).pipe(
             Effect.orElseSucceed(
               () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
