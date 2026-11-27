@@ -13,7 +13,6 @@
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.85",
     "@cloudflare/computer": "0.11.4",
-    "@earendil-works/chord": "1.5.1",
     "@earendil-works/pi-ai": "1.5.1",
     "@earendil-works/pi-codemode": "1.5.1",
     "@earendil-works/pi-durable": "1.5.1",
