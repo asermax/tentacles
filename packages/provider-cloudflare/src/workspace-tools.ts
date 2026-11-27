@@ -113,12 +113,9 @@ const execTool = (client: WorkspaceClient, declaration: PiTool) =>
         );
       }
 
-      const execDetails = { command, backend, exitCode, stdout, stderr };
-
       return {
-        output: textOutput(JSON.stringify(execDetails)),
+        output: textOutput(JSON.stringify({ command, backend, exitCode, stdout, stderr })),
         isError: exitCode !== 0,
-        details: execDetails,
       };
     } catch (error) {
       return { output: textOutput(String(error)), isError: true };
