@@ -7,6 +7,7 @@ import { codemodeSandboxClass, codemodeWorkerName } from "./codemode-sandbox";
 import { gatewayId } from "./model-providers";
 import TentaclesWorker from "./worker";
 import { WorkerScripts } from "./worker-scripts";
+import { workspaceCompatibility } from "./workspace-compatibility";
 import {
   workspaceContainerId,
   workspaceLoaderBinding,
@@ -45,7 +46,7 @@ export const stack = Effect.gen(function* () {
   const workspaceWorker = yield* Cloudflare.Worker("WorkspaceWorker", {
     name: workspaceWorkerName,
     main: `${import.meta.dirname}/workspace-worker.ts`,
-    compatibility: { date: "2026-08-11", flags: ["nodejs_compat"] },
+    compatibility: workspaceCompatibility,
     observability: { enabled: true },
     env: {
       [workspaceObjectClass]: Cloudflare.DurableObject(workspaceObjectClass, {

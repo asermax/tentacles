@@ -4,6 +4,8 @@ import { join } from "node:path";
 import cloudflare from "@alchemy.run/cloudflare-runtime/rolldown";
 import { build } from "rolldown";
 
+import { workspaceCompatibility } from "../src/workspace-compatibility";
+
 const path = (relative: string) => join(import.meta.dirname, relative);
 
 export const bundleDir = path("../dist/test-worker");
@@ -15,7 +17,11 @@ export const compatibility = {
   flags: ["nodejs_compat"],
 };
 
-const bundle = async (entryFile: string, outputDir: string) => {
+const bundle = async (
+  entryFile: string,
+  outputDir: string,
+  { date, flags }: typeof compatibility,
+) => {
   await rm(outputDir, { recursive: true, force: true });
 
   await build({
@@ -23,8 +29,8 @@ const bundle = async (entryFile: string, outputDir: string) => {
     external: ["lightningcss", "fsevents"],
     plugins: [
       cloudflare({
-        compatibilityDate: compatibility.date,
-        compatibilityFlags: compatibility.flags,
+        compatibilityDate: date,
+        compatibilityFlags: flags,
       }),
     ],
     checks: { unresolvedImport: false, ineffectiveDynamicImport: false },
@@ -55,8 +61,8 @@ const bundle = async (entryFile: string, outputDir: string) => {
  */
 export const bundleWorkers = async () => {
   const [workerModules, workspaceModules] = await Promise.all([
-    bundle("./entry.js", bundleDir),
-    bundle("./workspace-entry.js", workspaceBundleDir),
+    bundle("./entry.js", bundleDir, compatibility),
+    bundle("./workspace-entry.js", workspaceBundleDir, workspaceCompatibility),
   ]);
 
   return { workerModules, workspaceModules };

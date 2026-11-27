@@ -6,6 +6,7 @@ import { echo } from "./test/echo";
 import { githubFixture } from "./test/github-fixture";
 import { scriptedModel } from "./test/scripted-model";
 import { testSecrets } from "./test/secrets";
+import { workspaceCompatibility } from "./src/workspace-compatibility";
 import { workspaceObjectClass, workspaceWorkerName } from "./src/workspace-names";
 
 const tentaclesWorkerName = "tentacles";
@@ -35,6 +36,12 @@ export default class BrowserStub extends WorkerEntrypoint {
 `;
 
 const browserStubName = "browser-stub";
+
+const tentaclesSecrets = {
+  TENTACLES_API_KEY: testSecrets.TENTACLES_API_KEY,
+  TENTACLES_CLAUDE_TOKEN: testSecrets.TENTACLES_CLAUDE_TOKEN,
+  TENTACLES_CDP_SECRET: testSecrets.TENTACLES_CDP_SECRET,
+};
 
 const workspaceSecrets = {
   TENTACLES_CDP_SECRET: testSecrets.TENTACLES_CDP_SECRET,
@@ -80,7 +87,7 @@ export default defineConfig({
                   modulesRoot: bundleDir,
                   compatibilityDate: compatibility.date,
                   compatibilityFlags: compatibility.flags,
-                  bindings: testSecrets,
+                  bindings: tentaclesSecrets,
                   durableObjects: {
                     ...Object.fromEntries(
                       objectClasses.map((name) => [name, { className: name, useSQLite: true }]),
@@ -94,8 +101,8 @@ export default defineConfig({
                   name: workspaceWorkerName,
                   modules: inject("workspaceModules"),
                   modulesRoot: workspaceBundleDir,
-                  compatibilityDate: compatibility.date,
-                  compatibilityFlags: compatibility.flags,
+                  compatibilityDate: workspaceCompatibility.date,
+                  compatibilityFlags: workspaceCompatibility.flags,
                   bindings: workspaceSecrets,
                   durableObjects: {
                     [workspaceObjectClass]: { className: workspaceObjectClass, useSQLite: true },
