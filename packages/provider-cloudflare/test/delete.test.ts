@@ -5,7 +5,6 @@ import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
 import { sessionDeletedReason } from "../src/session-deleted";
-import { contextEntries } from "./archives";
 import { rejection } from "./rejection";
 import {
   apiFetch,
@@ -16,7 +15,6 @@ import {
   waitUntilIdle,
   writeNotes,
 } from "./sessions";
-import { workspaceInit } from "./workspace-init";
 
 const decodeCreated = Schema.decodeUnknownSync(Schema.Struct({ sessionId: SessionId }));
 
@@ -110,7 +108,7 @@ describe("deleting a session over the API", () => {
 });
 
 describe("deleting a session", () => {
-  it("clears its workspace object and then its own storage, and a later setup under the same name starts empty", async () => {
+  it("clears its workspace object and then its own storage", async () => {
     const sessionId = await idleSessionIdWithNotes();
 
     expect(await env.WorkspaceObject.getByName(sessionId).files()).not.toEqual([]);
@@ -120,14 +118,6 @@ describe("deleting a session", () => {
 
     expect(await env.WorkspaceObject.getByName(sessionId).files()).toEqual([]);
     expect(await env.SessionObject.getByName(sessionId).storedTables()).toEqual([]);
-
-    await env.WorkspaceObject.getByName(sessionId).setUpWorkspace(
-      workspaceInit({ context: contextEntries("fresh.md") }),
-    );
-
-    expect(
-      (await env.WorkspaceObject.getByName(sessionId).files()).map(({ path }) => path),
-    ).toEqual(["/workspace/context/fresh.md"]);
   });
 
   it("succeeds on a session whose setup failed, which has no record", async () => {

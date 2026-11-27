@@ -19,7 +19,7 @@ import { sizedContainerHolder } from "./computer/sized-container-host";
 import { WorkspaceContainerBackend } from "./computer/workspace-container-backend";
 import { githubFetch } from "./github-fetch";
 import { gateway, gatewayStub, type GatewayEnvironment } from "./workspace-gateway";
-import { destroyedReason, failureReason, isWorkspaceFailure } from "./workspace-failure";
+import { encodeSetupResult, isWorkspaceFailure } from "./workspace-failure";
 import {
   previewPortHeader,
   workspaceBackends,
@@ -144,12 +144,16 @@ export class WorkspaceObject extends withWorkspaceContainer(
     return result;
   }
 
+  // Answers the failure instead of throwing it: a rejected call reaches the session object as an
+  // untyped error.
   setUpWorkspace(init: WorkspaceInit) {
     return this.#serialized(async () => {
       try {
         await this.#populateWorkspace(init);
+
+        return encodeSetupResult(null);
       } catch (error) {
-        await this.#resetAfterFailedSetup(error);
+        return this.#clearAfterFailedSetup(error);
       }
     });
   }
@@ -237,28 +241,22 @@ export class WorkspaceObject extends withWorkspaceContainer(
     }
   }
 
-  // A failed setup leaves nothing behind: the storage is cleared and written, and the object
-  // resets, so the next call builds a new Workspace over empty storage. The reset aborts the call
-  // that failed, so the abort's reason carries the failure.
-  async #resetAfterFailedSetup(cause: unknown): Promise<never> {
+  // A failed setup leaves nothing behind: the storage is cleared. Nothing sets the same workspace
+  // up again, since a session id is never reused, so the Workspace in memory is left as it is.
+  async #clearAfterFailedSetup(cause: unknown) {
     const failure = isWorkspaceFailure(cause)
       ? cause
       : new WorkspaceUnavailable({ message: `Setting up the workspace failed: ${String(cause)}` });
 
     await this.#clearStorage();
 
-    const abortReason = failureReason(failure);
-
-    this.ctx.abort(abortReason);
-
-    throw new Error(abortReason);
+    return encodeSetupResult(failure);
   }
 
   async #clearStorage() {
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
 
-    // abort() discards writes not yet committed, so the deletion is flushed first.
     await this.ctx.storage.sync();
   }
 
@@ -271,10 +269,6 @@ export class WorkspaceObject extends withWorkspaceContainer(
       }
 
       await this.#clearStorage();
-
-      // The Workspace in memory still believes its tables exist; dropping the instance makes the
-      // next call build a fresh one over the empty storage. abort() also rejects this call.
-      this.ctx.abort(destroyedReason);
     });
   }
 }

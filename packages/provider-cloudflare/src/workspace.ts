@@ -1,34 +1,33 @@
 import { Workspace } from "@tentacles/contracts/workspace";
+import { WorkspaceUnavailable } from "@tentacles/worker-api/errors";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Predicate from "effect/Predicate";
 
 import { workspaceTools } from "./computer";
-import { destroyedReason, failureOf } from "./workspace-failure";
+import { decodeSetupResult } from "./workspace-failure";
 import { previewPortHeader } from "./workspace-names";
 import type { WorkspaceObject } from "./workspace-worker";
 
 /**
- * One session's Workspace, which is its workspace object, reached by the session id. Computer's
- * client for that object is awaited once, before the tools are built; every other call reaches the
- * object through a stub of its own, since an object that resets itself breaks the stub that called
- * it. Forwarding a preview request hands it to the object, which makes the port's request over
- * plain HTTP from the path it receives.
+ * One session's Workspace, which is its workspace object, reached by the session id through one
+ * stub. Computer's client for that object is awaited once, before the tools are built. The setup
+ * answers its failure as data, which this decodes into the typed error. Forwarding a preview request
+ * hands it to the object, which makes the port's request over plain HTTP from the path it receives.
  */
 export const workspaceLayer = (
   workspaces: DurableObjectNamespace<WorkspaceObject>,
   sessionId: SessionId,
-) => {
-  const getWorkspaceStub = () => workspaces.getByName(sessionId);
-
-  return Layer.effect(
+) =>
+  Layer.effect(
     Workspace,
     Effect.gen(function* () {
+      const workspaceStub = workspaces.getByName(sessionId);
+
       const workspaceClient = yield* Effect.promise(async () => {
         const { getWorkspace } = await import("@cloudflare/computer");
 
-        return getWorkspace(getWorkspaceStub());
+        return getWorkspace(workspaceStub);
       });
 
       const tools = yield* workspaceTools(workspaceClient);
@@ -38,9 +37,15 @@ export const workspaceLayer = (
 
         create: (init) =>
           Effect.tryPromise({
-            try: () => getWorkspaceStub().setUpWorkspace(init),
-            catch: failureOf,
-          }),
+            try: async () => await workspaceStub.setUpWorkspace(init),
+            catch: (cause) =>
+              new WorkspaceUnavailable({
+                message: `Setting up the workspace failed: ${String(cause)}`,
+              }),
+          }).pipe(
+            Effect.flatMap((result) => decodeSetupResult(result).pipe(Effect.orDie)),
+            Effect.flatMap((failure) => (failure == null ? Effect.void : Effect.fail(failure))),
+          ),
 
         forward: (port, request) =>
           Effect.tryPromise(() => {
@@ -48,7 +53,7 @@ export const workspaceLayer = (
 
             forwardedRequest.headers.set(previewPortHeader, String(port));
 
-            return getWorkspaceStub().fetch(forwardedRequest);
+            return workspaceStub.fetch(forwardedRequest);
           }).pipe(
             Effect.orElseSucceed(
               () => new Response(`Nothing answers on port ${port}`, { status: 502 }),
@@ -57,17 +62,9 @@ export const workspaceLayer = (
       });
     }),
   );
-};
 
-/** Destroys the session's workspace object, which rejects the call with its abort reason when it succeeds. */
+/** Destroys the session's workspace object: its container, its alarm and its storage. */
 export const destroyWorkspace = (
   workspaces: DurableObjectNamespace<WorkspaceObject>,
   sessionId: SessionId,
-) =>
-  Effect.tryPromise(() => workspaces.getByName(sessionId).destroy()).pipe(
-    Effect.catchIf(
-      (error) => Predicate.isError(error.cause) && error.cause.message === destroyedReason,
-      () => Effect.void,
-    ),
-    Effect.orDie,
-  );
+) => Effect.tryPromise(() => workspaces.getByName(sessionId).destroy()).pipe(Effect.orDie);

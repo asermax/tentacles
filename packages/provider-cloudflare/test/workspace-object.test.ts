@@ -1,10 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { WorkspaceInit } from "@tentacles/contracts/workspace";
-import { InvalidWorkspace, WorkspaceUnavailable } from "@tentacles/worker-api/errors";
+import {
+  InvalidWorkspace,
+  WorkspaceSetupError,
+  WorkspaceUnavailable,
+} from "@tentacles/worker-api/errors";
 import { env } from "cloudflare:workers";
 import * as Schema from "effect/Schema";
 
-import { failureOf } from "../src/workspace-failure";
 import {
   conflictingContextEntries,
   contextEntries,
@@ -12,38 +15,31 @@ import {
   skillEntries,
 } from "./archives";
 import { fixtureRepositories, fixtureRepository } from "./github-fixture";
-import { rejection } from "./rejection";
 import { testSecrets } from "./secrets";
 import { workspaceInit } from "./workspace-init";
 
-// A workspace object that resets itself breaks the stub that called it, so a test reaches the
-// object again by its name.
-const workspaceOf = () => {
-  const name = crypto.randomUUID();
-
-  return () => env.WorkspaceObject.getByName(name);
-};
+const workspaceOf = () => env.WorkspaceObject.getByName(crypto.randomUUID());
 
 const failureOfSetup = async (workspace: ReturnType<typeof workspaceOf>, init: WorkspaceInit) => {
-  const error = await rejection(workspace().setUpWorkspace(init));
+  const result = await workspace.setUpWorkspace(init);
 
-  expect(error).not.toBeNull();
+  expect(result).not.toBeNull();
 
-  return failureOf(error);
+  return Schema.decodeUnknownSync(WorkspaceSetupError)(result);
 };
 
 describe("a workspace object's setup", () => {
   it("writes the skills and context archives into their directories with their modes", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setUpWorkspace(
+    await workspace.setUpWorkspace(
       workspaceInit({
         skills: skillEntries("implement"),
         context: contextEntriesWithScript("notes.md"),
       }),
     );
 
-    const files = await workspace().files();
+    const files = await workspace.files();
 
     expect(files.map(({ path }) => path).toSorted()).toEqual([
       "/workspace/context/notes.md",
@@ -63,11 +59,11 @@ describe("a workspace object's setup", () => {
   it("clones a readable repository into /workspace/repo", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setUpWorkspace(
+    await workspace.setUpWorkspace(
       workspaceInit({ repository: fixtureRepository(fixtureRepositories.readable) }),
     );
 
-    const files = await workspace().files();
+    const files = await workspace.files();
 
     expect(files.find(({ path }) => path === "/workspace/repo/README.md")?.text).toBe("# app\n");
     expect(files.find(({ path }) => path === "/workspace/repo/src/index.ts")?.text).toBe("two\n");
@@ -77,11 +73,11 @@ describe("a workspace object's setup", () => {
   it("clones only the latest commit when the repository is shallow", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setUpWorkspace(
+    await workspace.setUpWorkspace(
       workspaceInit({ repository: fixtureRepository(fixtureRepositories.readable, true) }),
     );
 
-    const files = await workspace().files();
+    const files = await workspace.files();
 
     expect(files.find(({ path }) => path === "/workspace/repo/src/index.ts")?.text).toBe("two\n");
     expect(files.some(({ path }) => path === "/workspace/repo/.git/shallow")).toBe(true);
@@ -100,7 +96,7 @@ describe("a workspace object's setup", () => {
 
     expect(Schema.is(InvalidWorkspace)(failure)).toBe(true);
     expect(failure.message).toContain(fixtureRepository(fixtureRepositories.missing).url);
-    expect(await workspace().files()).toEqual([]);
+    expect(await workspace.files()).toEqual([]);
   });
 
   it("fails with WorkspaceUnavailable when an archive's files cannot be written, and clears what it already wrote", async () => {
@@ -116,7 +112,7 @@ describe("a workspace object's setup", () => {
 
     expect(Schema.is(WorkspaceUnavailable)(failure)).toBe(true);
     expect(failure.message).toContain("Writing the context archive into /workspace/context failed");
-    expect(await workspace().files()).toEqual([]);
+    expect(await workspace.files()).toEqual([]);
   });
 
   it("reports the clone's failure when an archive's files cannot be written either", async () => {
@@ -131,13 +127,13 @@ describe("a workspace object's setup", () => {
     );
 
     expect(Schema.is(InvalidWorkspace)(failure)).toBe(true);
-    expect(await workspace().files()).toEqual([]);
+    expect(await workspace.files()).toEqual([]);
   });
 
   it("runs a destroy that arrives during a setup after the setup, which then leaves nothing", async () => {
     const workspace = workspaceOf();
 
-    const setup = workspace().setUpWorkspace(
+    const setup = workspace.setUpWorkspace(
       workspaceInit({
         repository: fixtureRepository(fixtureRepositories.slow),
         context: contextEntries("notes.md"),
@@ -146,12 +142,12 @@ describe("a workspace object's setup", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const destroy = rejection(workspace().destroy());
+    const destroy = workspace.destroy();
 
     await setup;
     await destroy;
 
-    expect(await workspace().files()).toEqual([]);
+    expect(await workspace.files()).toEqual([]);
   });
 
   it("fails with InvalidWorkspace for an image or size the deploy does not offer", async () => {
@@ -177,7 +173,7 @@ describe("a workspace object's setup", () => {
 
     expect(Schema.is(WorkspaceUnavailable)(failure)).toBe(true);
     expect(failure.message).toContain(fixtureRepository(fixtureRepositories.unreachable).url);
-    expect(await workspace().files()).toEqual([]);
+    expect(await workspace.files()).toEqual([]);
   });
 });
 
@@ -185,19 +181,19 @@ describe("a workspace object's container", () => {
   it("is requested at the instance size the setup stored", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setUpWorkspace(workspaceInit({ size: "standard-2" }));
+    await workspace.setUpWorkspace(workspaceInit({ size: "standard-2" }));
 
-    expect(await workspace().requestedInstances()).toEqual(["standard-2"]);
+    expect(await workspace.requestedInstances()).toEqual(["standard-2"]);
   });
 
   it("is requested at the default instance size before any setup stored one", async () => {
-    expect(await workspaceOf()().requestedInstances()).toEqual(["basic"]);
+    expect(await workspaceOf().requestedInstances()).toEqual(["basic"]);
   });
 });
 
 describe("a workspace object's container commands", () => {
   it("run with the deploy's git identity and the interception CA for Node, after the caller's variables", async () => {
-    const environment = await workspaceOf()().containerExecEnvironment({
+    const environment = await workspaceOf().containerExecEnvironment({
       CALLER_VARIABLE: "kept",
       GIT_AUTHOR_NAME: "Someone Else",
       NODE_EXTRA_CA_CERTS: "/tmp/other.crt",
@@ -215,20 +211,15 @@ describe("a workspace object's container commands", () => {
 });
 
 describe("a workspace object's destroy", () => {
-  it("clears its files, so a later setup under the same name starts empty", async () => {
+  it("clears its files", async () => {
     const workspace = workspaceOf();
 
-    await workspace().setUpWorkspace(workspaceInit({ context: contextEntries("old.md") }));
-    await workspace()
-      .destroy()
-      .catch(() => undefined);
+    await workspace.setUpWorkspace(workspaceInit({ context: contextEntries("old.md") }));
 
-    expect(await workspace().files()).toEqual([]);
+    expect(await workspace.files()).not.toEqual([]);
 
-    await workspace().setUpWorkspace(workspaceInit({ context: contextEntries("new.md") }));
+    await workspace.destroy();
 
-    expect((await workspace().files()).map(({ path }) => path)).toEqual([
-      "/workspace/context/new.md",
-    ]);
+    expect(await workspace.files()).toEqual([]);
   });
 });
