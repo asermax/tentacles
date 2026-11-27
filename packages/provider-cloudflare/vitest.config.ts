@@ -22,7 +22,30 @@ const objects = ["SessionObject", "RegistryObject", "ClaudeObject"] as const;
 
 const workspaceObject = "WorkspaceObject";
 
+// The Browser binding of the Workspace Worker: it records the sessions the gateway connects to and
+// refuses them, so a test reads which session a signed token reached.
+const browserStub = `
+import { WorkerEntrypoint } from "cloudflare:workers";
+
+const connected = [];
+
+export default class BrowserStub extends WorkerEntrypoint {
+  async connectSession(sessionId) {
+    connected.push(sessionId);
+
+    throw new Error("The test browser has no sessions");
+  }
+
+  async connectedSessions() {
+    return connected;
+  }
+}
+`;
+
+const browserStubName = "browser-stub";
+
 const workspaceSecrets = {
+  TENTACLES_CDP_SECRET: testSecrets.TENTACLES_CDP_SECRET,
   TENTACLES_GITHUB_TOKEN: testSecrets.TENTACLES_GITHUB_TOKEN,
   TENTACLES_GIT_AUTHOR_NAME: testSecrets.TENTACLES_GIT_AUTHOR_NAME,
   TENTACLES_GIT_AUTHOR_EMAIL: testSecrets.TENTACLES_GIT_AUTHOR_EMAIL,
@@ -42,7 +65,12 @@ export default defineConfig({
               compatibilityDate: compatibility.date,
               // The cron test calls the Worker's scheduled handler through its service binding.
               compatibilityFlags: [...compatibility.flags, "service_binding_extra_handlers"],
-              serviceBindings: { TENTACLES: workerName },
+              serviceBindings: {
+                TENTACLES: workerName,
+                // The container's gateway, as the workspace object hands it to the container.
+                GATEWAY: { name: workspaceWorkerName, props: { gateway: "test-workspace" } },
+                BROWSER_STUB: browserStubName,
+              },
               durableObjects: {
                 ...Object.fromEntries(
                   objects.map((name) => [name, { className: name, scriptName: workerName }]),
@@ -81,7 +109,14 @@ export default defineConfig({
                   },
                   // Computer's isolate shell runs on a Worker Loader.
                   workerLoaders: { LOADER: {} },
+                  serviceBindings: { BROWSER: browserStubName },
                   outboundService: githubFixture(),
+                },
+                {
+                  name: browserStubName,
+                  modules: true,
+                  script: browserStub,
+                  compatibilityDate: compatibility.date,
                 },
               ],
             },

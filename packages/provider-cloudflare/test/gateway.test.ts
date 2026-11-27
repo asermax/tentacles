@@ -1,0 +1,76 @@
+import { describe, expect, it } from "@effect/vitest";
+import { env } from "cloudflare:workers";
+import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
+
+import { signToken } from "../src/browser";
+import { testSecrets } from "./secrets";
+
+// What the images send in place of a credential; the gateway replaces whatever arrives.
+const placeholder = "tentacles-egress-credential";
+
+const Forwarded = Schema.Struct({
+  url: Schema.String,
+  headers: Schema.Record(Schema.String, Schema.String),
+});
+
+const decodeForwarded = Schema.decodeUnknownSync(Forwarded);
+
+const cdp = (token: string) =>
+  env.GATEWAY.fetch(`http://tentacles.asermax.com/cdp/${token}`, {
+    headers: { upgrade: "websocket" },
+  });
+
+describe("the workspace container's gateway", () => {
+  it("forwards a request to github.com with the GitHub token in place of the placeholder", async () => {
+    const response = await env.GATEWAY.fetch(
+      "https://github.com/owner/repository.git/info/refs?service=git-upload-pack",
+      { headers: { authorization: `Basic ${btoa(`x-access-token:${placeholder}`)}` } },
+    );
+
+    const forwarded = decodeForwarded(await response.json());
+
+    expect(forwarded.url).toBe(
+      "https://github.com/owner/repository.git/info/refs?service=git-upload-pack",
+    );
+    expect(forwarded.headers.authorization).toBe(
+      `Basic ${btoa(`x-access-token:${testSecrets.TENTACLES_GITHUB_TOKEN}`)}`,
+    );
+  });
+
+  it("passes a request to any other host through unchanged", async () => {
+    const response = await env.GATEWAY.fetch("https://example.com/somewhere?q=1", {
+      headers: { "x-probe": "kept" },
+    });
+
+    const forwarded = decodeForwarded(await response.json());
+
+    expect(forwarded.url).toBe("https://example.com/somewhere?q=1");
+    expect(forwarded.headers["x-probe"]).toBe("kept");
+    expect(forwarded.headers.authorization).toBeUndefined();
+  });
+
+  it("connects a signed CDP token to the browser session it names", async () => {
+    const token = await signToken(Redacted.make(testSecrets.TENTACLES_CDP_SECRET), "browser-7");
+
+    await cdp(token);
+
+    expect(await env.BROWSER_STUB.connectedSessions()).toContain("browser-7");
+  });
+
+  it("refuses a token whose signature the Worker did not make", async () => {
+    const forged = `browser-forged.${btoa("not the signature").replaceAll("=", "")}`;
+
+    const response = await cdp(forged);
+
+    expect(response.status).toBe(404);
+    expect(response.webSocket).toBeNull();
+    expect(await env.BROWSER_STUB.connectedSessions()).not.toContain("browser-forged");
+  });
+
+  it("refuses a token with no signature", async () => {
+    const response = await cdp("browser-session");
+
+    expect(response.status).toBe(404);
+  });
+});

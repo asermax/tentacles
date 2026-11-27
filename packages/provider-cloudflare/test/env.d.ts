@@ -32,6 +32,7 @@ interface RegistryRpc extends Rpc.DurableObjectBranded {
   add(sessionId: string, name: string, parent: Parent, details: SessionDetails): void;
   setStatus(sessionId: string, status: SessionStatus): void;
   list(parent: Parent): ReadonlyArray<SessionListing>;
+  openPreview(sessionId: string, port: number): { token: string };
 }
 
 declare global {
@@ -42,6 +43,11 @@ declare global {
       readonly TENTACLES: Fetcher & {
         scheduled(options: { cron: string; scheduledTime: Date }): Promise<{ outcome: string }>;
       };
+      // The Workspace Worker's default entrypoint with a workspace's gateway props, as the
+      // container's outbound requests reach it.
+      readonly GATEWAY: Fetcher;
+      // The Workspace Worker's Browser binding stub, which records the sessions it is asked for.
+      readonly BROWSER_STUB: Fetcher & { connectedSessions(): Promise<ReadonlyArray<string>> };
       readonly SessionObject: DurableObjectNamespace<SessionRpc>;
       readonly RegistryObject: DurableObjectNamespace<RegistryRpc>;
       readonly WorkspaceObject: DurableObjectNamespace<WorkspaceRpc>;
