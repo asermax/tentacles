@@ -15,13 +15,15 @@ import * as Option from "effect/Option";
 import { apiKeyLayer } from "./api-key";
 import { cdpRelay } from "./browser";
 import { ClaudeObject } from "./claude-object";
-import { codemodeSandboxClass, codemodeWorkerName } from "./codemode-sandbox";
+import { codemodeSandboxClass } from "./codemode-sandbox";
 import { egress } from "./egress";
 import { apiHost, zone } from "./hosts";
 import { isPreviewHost, previewRoute, previewTokenOf } from "./preview-router";
 import { RegistryObject, RegistryObjectLive, registryStoreLayer } from "./registry-object";
 import { cloudflareScheduler } from "./scheduler";
 import { SessionObject, SessionObjectLive, sessionHostLayer } from "./session-object";
+import { WorkerScripts } from "./worker-scripts";
+import { workspaceObjectClass } from "./workspace-names";
 
 const cdpPath = /^\/cdp\/([^/]+)$/;
 
@@ -38,29 +40,37 @@ const notFound = () => HttpServerResponse.text("Not found", { status: 404 });
  */
 export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>()(
   "TentaclesWorker",
-  {
-    name: "tentacles",
-    main: import.meta.url,
-    observability: { enabled: true },
-    domain: apiHost,
-    routes: [{ pattern: previewRoute, zoneName: zone }],
-    // The codemode Worker hosts the class, so scripts run off the session objects' threads.
-    env: {
-      [codemodeSandboxClass]: Cloudflare.DurableObject(codemodeSandboxClass, {
-        scriptName: codemodeWorkerName,
-      }),
-    },
-    build: {
-      input: {
-        // pi-env's client spawns its daemon with node:child_process, which workerd stubs.
-        resolve: {
-          alias: {
-            "node:child_process": `${import.meta.dirname}/spawn-shim.ts`,
+  Effect.gen(function* () {
+    const scripts = yield* WorkerScripts;
+
+    return {
+      name: "tentacles",
+      main: import.meta.url,
+      observability: { enabled: true },
+      domain: apiHost,
+      routes: [{ pattern: previewRoute, zoneName: zone }],
+      // The codemode and Workspace Workers host these classes, so scripts and workspaces run off
+      // the session objects' threads.
+      env: {
+        [codemodeSandboxClass]: Cloudflare.DurableObject(codemodeSandboxClass, {
+          scriptName: scripts.codemode,
+        }),
+        [workspaceObjectClass]: Cloudflare.DurableObject(workspaceObjectClass, {
+          scriptName: scripts.workspace,
+        }),
+      },
+      build: {
+        input: {
+          // pi-env's client spawns its daemon with node:child_process, which workerd stubs.
+          resolve: {
+            alias: {
+              "node:child_process": `${import.meta.dirname}/spawn-shim.ts`,
+            },
           },
         },
       },
-    },
-  },
+    };
+  }),
   Effect.gen(function* () {
     const sessions = yield* SessionObject;
     const registries = yield* RegistryObject;

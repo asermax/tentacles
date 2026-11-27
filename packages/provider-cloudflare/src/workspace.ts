@@ -1,34 +1,10 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { Workspace } from "@tentacles/contracts/workspace";
 import { WorkspaceUnavailable } from "@tentacles/worker-api/errors";
-import type { Settings } from "@tentacles/worker-api/settings";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
 
 import { credentialPlaceholder, egressCaPath } from "./egress";
-
-const InstanceTypes = {
-  lite: "lite",
-  basic: "basic",
-  standard1: "standard-1",
-  standard2: "standard-2",
-  standard3: "standard-3",
-  standard4: "standard-4",
-} as const;
-
-/** The one workspace image; custom images are not offered. */
-export const defaultImage = "default";
-
-/** The container the session's settings ask for: the one image and a Cloudflare instance type. */
-export const ContainerSettings = Schema.Struct({
-  image: Schema.Literal(defaultImage),
-  size: Schema.Enum(InstanceTypes),
-});
-
-/** Why a session's settings name no container this setup can start. */
-export const unsupportedSettings = (settings: Pick<Settings, "image" | "size">) =>
-  `The workspace takes the image "${defaultImage}" and a Cloudflare instance type as its size; got image "${settings.image}" and size "${settings.size}"`;
 
 // The deploy publishes each class's images under their Container's id.
 const workspaceContainerId = "WorkspaceContainer";

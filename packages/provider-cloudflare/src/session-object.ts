@@ -32,12 +32,8 @@ import { sendableCode } from "./close-code";
 import { modelProvidersLayer } from "./model-providers";
 import { CloudflarePreviewRouter } from "./preview-router";
 import { RegistryObject, registryStoreLayer } from "./registry-object";
-import {
-  ContainerSettings,
-  unsupportedSettings,
-  WorkspaceContainer,
-  workspaceLayer,
-} from "./workspace";
+import { WorkspaceContainer, workspaceLayer } from "./workspace";
+import { ContainerSettings, unsupportedSettings } from "./workspace-settings";
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
 export interface SessionOperations {
