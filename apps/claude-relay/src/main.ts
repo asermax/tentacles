@@ -26,11 +26,11 @@ process.on("uncaughtException", (error) => writeLog(errorRecord(error)));
 process.on("unhandledRejection", (reason) => writeLog(errorRecord(reason)));
 
 const shutDown = async (signal: NodeJS.Signals) => {
+  writeLog(LogRecord.cases.RelaySignal.make({ signal }));
+
   if (relay.isStopping()) {
     return;
   }
-
-  writeLog(LogRecord.cases.RelaySignal.make({ signal }));
 
   await Promise.race([relay.stop(), sleep(stopTimeoutMs)]);
 
