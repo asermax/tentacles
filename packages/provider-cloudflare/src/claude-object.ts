@@ -1,5 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { callIdHeader, newCallId, type CallId } from "@tentacles/relay-protocol/call-id";
+import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
@@ -98,11 +99,12 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
             ),
           );
 
-          claudeCalls.recordFirstActivity(Date.now());
+          const now = yield* Clock.currentTimeMillis;
+          claudeCalls.recordFirstActivity(now);
 
           yield* Effect.promise(async () => {
             if ((await state.raw.storage.getAlarm()) == null) {
-              await state.raw.storage.setAlarm(Date.now() + alarmDelay);
+              await state.raw.storage.setAlarm(now + alarmDelay);
             }
           });
         });
@@ -141,14 +143,15 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
           // the stopping mark or was counted before the check.
           alarm: () =>
             Effect.gen(function* () {
-              if (container.running && claudeCalls.stopIfIdle(Date.now())) {
+              if (container.running && claudeCalls.stopIfIdle(yield* Clock.currentTimeMillis)) {
                 container.signal(sigterm);
               }
 
               yield* Effect.sleep(keepAliveWait);
 
               if (container.running) {
-                yield* Effect.promise(() => state.raw.storage.setAlarm(Date.now() + alarmDelay));
+                const now = yield* Clock.currentTimeMillis;
+                yield* Effect.promise(() => state.raw.storage.setAlarm(now + alarmDelay));
               }
             }),
 
