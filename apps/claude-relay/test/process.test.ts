@@ -35,7 +35,7 @@ describe("the relay process", () => {
 
     relayProcess.signal("SIGTERM");
 
-    expect(await relayProcess.exited).toEqual({ code: 0, signal: null });
+    expect(await relayProcess.exitResultPromise).toEqual({ code: 0, signal: null });
 
     const signalIndex = relayProcess.records.findIndex(LogRecord.guards.RelaySignal);
     const exitIndex = relayProcess.records.findIndex(LogRecord.guards.RelayExit);
@@ -64,7 +64,7 @@ describe("the relay process", () => {
         "Claude relay lost the call (connection lost): the relay is stopping",
       );
 
-      expect(await relayProcess.exited).toEqual({ code: 0, signal: null });
+      expect(await relayProcess.exitResultPromise).toEqual({ code: 0, signal: null });
 
       const callEnd = relayProcess.records.find(LogRecord.guards.CallEnd);
 

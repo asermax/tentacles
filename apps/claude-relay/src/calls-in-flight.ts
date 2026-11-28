@@ -1,11 +1,12 @@
 import type { ServerResponse } from "node:http";
 import { finished } from "node:stream/promises";
 
+import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
 import type { CallId } from "@tentacles/relay-protocol/call-id";
+import { eventLine } from "@tentacles/relay-protocol/event-line";
 import { failedEvent, type FailedEventModel } from "@tentacles/relay-protocol/failed-event";
 import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
 import type { StreamRequest } from "@tentacles/relay-protocol/stream-request";
-import * as Option from "effect/Option";
 
 import { CallOutcome } from "./call-outcome";
 import { errorRecord, LogRecord, type Log } from "./log";
@@ -27,6 +28,8 @@ interface Call {
 export interface TrackedCall {
   /** The call's details are known and it goes on to the model. */
   readonly start: (details: CallDetails) => void;
+  /** Writes an event to the call's response, unless the response has ended, as when the relay's stop closed it. */
+  readonly send: (event: AssistantMessageEvent) => void;
   /** The call ended. Only the first ending counts. */
   readonly finish: (outcome: CallOutcome) => void;
   /** The call threw: logs the error with the call's id and sender, then finishes it as failed. */
@@ -45,6 +48,12 @@ const answerStopping = (response: ServerResponse) => {
   response.end(lostCallMessage(stoppingReason));
 };
 
+const writeEvent = (response: ServerResponse, event: AssistantMessageEvent) => {
+  if (!response.writableEnded) {
+    response.write(eventLine(event));
+  }
+};
+
 // The CLI is aborted first, and the session gets the lost-call error so it retries on the next container.
 const endAsLost = (call: Call) => {
   const { response, controller, details } = call;
@@ -58,9 +67,7 @@ const endAsLost = (call: Call) => {
   if (details == null) {
     answerStopping(response);
   } else {
-    response.write(
-      `${JSON.stringify(failedEvent(details.model, lostCallMessage(stoppingReason)))}\n`,
-    );
+    writeEvent(response, failedEvent(details.model, lostCallMessage(stoppingReason)));
     response.end();
   }
 
@@ -74,7 +81,7 @@ const endAsLost = (call: Call) => {
 export const createCallsInFlight = ({ reportEnd, log }: CallsInFlightDependencies) => {
   const callsById = new Map<CallId, Call>();
 
-  let isStopping = false;
+  let stopping: Promise<void> | undefined;
 
   const finishCall = (callId: CallId, outcome: CallOutcome) => {
     const call = callsById.get(callId);
@@ -88,8 +95,10 @@ export const createCallsInFlight = ({ reportEnd, log }: CallsInFlightDependencie
     log(
       LogRecord.cases.CallEnd.make({
         callId,
-        sender: call.details?.sender,
-        conversation: call.details?.conversation,
+        details:
+          call.details == null
+            ? undefined
+            : { sender: call.details.sender, conversation: call.details.conversation },
         outcome,
       }),
     );
@@ -101,72 +110,64 @@ export const createCallsInFlight = ({ reportEnd, log }: CallsInFlightDependencie
     return responseEnded;
   };
 
+  const endAllCalls = async () => {
+    await Promise.all(
+      [...callsById.keys()].map((callId) => finishCall(callId, CallOutcome.cases.Stopped.make({}))),
+    );
+  };
+
   return {
-    /** Counts a request as a call when it carries a call id; a request without one is not tracked. */
-    track: (
-      callId: Option.Option<CallId>,
-      response: ServerResponse,
-      controller: AbortController,
-    ): TrackedCall =>
-      Option.match(callId, {
-        onNone: () => ({
-          start: () => {},
-          finish: () => {},
-          fail: (cause: unknown) => log(errorRecord(cause)),
-        }),
-        onSome: (id) => {
-          const call: Call = { response, controller };
+    /** Counts a request as the call with the given id. */
+    track: (callId: CallId, response: ServerResponse, controller: AbortController): TrackedCall => {
+      const call: Call = { response, controller };
 
-          callsById.set(id, call);
+      callsById.set(callId, call);
 
-          return {
-            start: (details) => {
-              call.details = details;
+      return {
+        start: (details) => {
+          call.details = details;
 
-              log(
-                LogRecord.cases.CallStart.make({
-                  callId: id,
-                  sender: details.sender,
-                  conversation: details.conversation,
-                  modelId: details.model.id,
-                }),
-              );
-            },
-            finish: (outcome) => {
-              void finishCall(id, outcome);
-            },
-            fail: (cause) => {
-              const record = errorRecord(cause, { callId: id, sender: call.details?.sender });
-
-              log(record);
-              void finishCall(
-                id,
-                CallOutcome.cases.Failed.make({ errorMessage: record.errorMessage }),
-              );
-            },
-          };
+          log(
+            LogRecord.cases.CallStart.make({
+              callId,
+              sender: details.sender,
+              conversation: details.conversation,
+              modelId: details.model.id,
+            }),
+          );
         },
-      }),
+        send: (event) => writeEvent(response, event),
+        finish: (outcome) => {
+          void finishCall(callId, outcome);
+        },
+        fail: (cause) => {
+          const record = errorRecord(cause, { callId, sender: call.details?.sender });
+
+          log(record);
+          void finishCall(
+            callId,
+            CallOutcome.cases.Failed.make({ errorMessage: record.errorMessage }),
+          );
+        },
+      };
+    },
+
+    /** Whether a stop has begun, which is when the relay takes no new call. */
+    isStopping: () => stopping != null,
 
     /** Answers a request that arrives once the relay is stopping with 503 and the lost-call wording; reports whether it did. */
     refuseWhileStopping: (response: ServerResponse) => {
-      if (isStopping) {
-        answerStopping(response);
+      if (stopping == null) {
+        return false;
       }
 
-      return isStopping;
+      answerStopping(response);
+
+      return true;
     },
 
-    /** Takes no new call and ends every call in flight as stopped, resolving once their responses have been written. */
-    stop: async () => {
-      isStopping = true;
-
-      await Promise.all(
-        [...callsById.keys()].map((callId) =>
-          finishCall(callId, CallOutcome.cases.Stopped.make({})),
-        ),
-      );
-    },
+    /** Takes no new call and ends every call in flight as stopped, resolving once their responses have been written. Stopping again returns the same promise. */
+    stop: () => (stopping ??= endAllCalls()),
   };
 };
 

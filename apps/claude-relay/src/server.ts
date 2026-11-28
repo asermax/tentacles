@@ -35,25 +35,33 @@ const failResponse = (response: ServerResponse, cause: unknown) => {
   response.end(messageOf(cause));
 };
 
+const answerBadRequest = (response: ServerResponse, message: string) => {
+  response.writeHead(400, { "content-type": "text/plain" });
+  response.end(message);
+};
+
 const stream = async (
   callsInFlight: CallsInFlight,
   request: IncomingMessage,
   response: ServerResponse,
 ) => {
+  const callId = decodeCallId(request.headers[callIdHeader]);
+
+  if (Option.isNone(callId)) {
+    answerBadRequest(response, "missing or invalid call id");
+
+    return;
+  }
+
   // Also fires once the response ends; aborting a finished call does nothing.
   const controller = new AbortController();
 
   response.on("close", () => controller.abort());
 
-  const trackedCall = callsInFlight.track(
-    decodeCallId(request.headers[callIdHeader]),
-    response,
-    controller,
-  );
+  const trackedCall = callsInFlight.track(callId.value, response, controller);
 
   const reject = (message: string) => {
-    response.writeHead(400, { "content-type": "text/plain" });
-    response.end(message);
+    answerBadRequest(response, message);
     trackedCall.finish(CallOutcome.cases.Failed.make({ errorMessage: message }));
   };
 
@@ -95,11 +103,7 @@ const stream = async (
       const { eventToSend, outcome: eventOutcome } = eventToRelay(event);
 
       outcome = eventOutcome ?? outcome;
-
-      // The call may have been ended by the relay's stop, which closed the response.
-      if (!response.writableEnded) {
-        response.write(`${JSON.stringify(eventToSend)}\n`);
-      }
+      trackedCall.send(eventToSend);
     }
 
     response.end();
@@ -116,10 +120,11 @@ interface Dependencies extends CallsInFlightDependencies {
 
 /**
  * The relay: POST /stream runs one pi-claude-code call and streams its pi-ai events as NDJSON, ending
- * with done or error; GET / answers health and the catalog. A request that carries a call id is counted
- * as a call and reported to the Claude object when it ends. It trusts the egress CA at `egressCaPath`
- * from the first request that finds the file. `stop` ends every call in flight as lost and has the relay
- * answer a new call with 503; the server is not listening yet and is closed by the caller.
+ * with done or error; GET / answers health and the catalog. The request carries the call id the Claude
+ * object gave it, or is answered 400; the call is reported to the Claude object when it ends. It trusts
+ * the egress CA at `egressCaPath` from the first request that finds the file. `stop` ends every call in
+ * flight as lost and has the relay answer a new call with 503, and `isStopping` says whether it has
+ * been called; the server is not listening yet and is closed by the caller.
  */
 export const createRelay = ({ egressCaPath, reportEnd, log }: Dependencies) => {
   const trustEgressCa = egressCaTrust(egressCaPath);
@@ -152,5 +157,5 @@ export const createRelay = ({ egressCaPath, reportEnd, log }: Dependencies) => {
     });
   });
 
-  return { server, stop: callsInFlight.stop };
+  return { server, stop: callsInFlight.stop, isStopping: callsInFlight.isStopping };
 };

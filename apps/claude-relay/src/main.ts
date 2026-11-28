@@ -25,14 +25,10 @@ process.on("uncaughtException", (error) => writeLog(errorRecord(error)));
 
 process.on("unhandledRejection", (reason) => writeLog(errorRecord(reason)));
 
-let isShuttingDown = false;
-
 const shutDown = async (signal: NodeJS.Signals) => {
-  if (isShuttingDown) {
+  if (relay.isStopping()) {
     return;
   }
-
-  isShuttingDown = true;
 
   writeLog(LogRecord.cases.RelaySignal.make({ signal }));
 

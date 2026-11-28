@@ -20,14 +20,7 @@ afterEach(() => {
   relay.close();
 });
 
-const post = (modelId: string, signal?: AbortSignal) =>
-  fetch(`${relay.url}/stream`, {
-    method: "POST",
-    body: streamBody(modelId),
-    signal: signal ?? null,
-  });
-
-// A call the Claude object counted: it carries the call id the relay reports back.
+// A call as the Claude object makes it: it carries the call id the relay reports back.
 const postCounted = (callId: string, body: string, signal?: AbortSignal) =>
   fetch(`${relay.url}/stream`, {
     method: "POST",
@@ -35,6 +28,9 @@ const postCounted = (callId: string, body: string, signal?: AbortSignal) =>
     body,
     signal: signal ?? null,
   });
+
+const post = (modelId: string, signal?: AbortSignal) =>
+  postCounted(newCallId(), streamBody(modelId), signal);
 
 const isAlive = (pid: number) => {
   try {
@@ -68,7 +64,7 @@ const slowCallPidFile = async () => {
 const waitForPid = (pidFilePath: string) =>
   vi.waitFor(async () => Number((await readFile(pidFilePath, "utf8")).trim()), { timeout: 5_000 });
 
-// A counted call whose CLI fails in the given way, and the error message its stream ends with.
+// A call whose CLI fails in the given way, and the error message its stream ends with.
 const failedCall = async (failure: string) => {
   const callId = newCallId();
 
@@ -103,7 +99,6 @@ describe("POST /stream", () => {
 
     expect(text).toBe("Hello from the relay.");
     expect(lastEvent?.message?.content).toEqual([{ type: "text", text: "Hello from the relay." }]);
-    expect(relay.reportedEnds).toEqual([]);
   });
 
   it("streams a model that only the CLI's catalog lists", async () => {
@@ -120,23 +115,7 @@ describe("POST /stream", () => {
     expect(await response.text()).toContain("claude-unknown-9");
   });
 
-  it("aborts the CLI call when the caller hangs up", async () => {
-    const pidFilePath = await slowCallPidFile();
-    const caller = new AbortController();
-    const response = await post("claude-sonnet-5-5", caller.signal);
-
-    expect(response.status).toBe(200);
-
-    const pid = await waitForPid(pidFilePath);
-
-    expect(isAlive(pid)).toBe(true);
-
-    caller.abort();
-
-    await vi.waitFor(() => expect(isAlive(pid)).toBe(false), { timeout: 5_000 });
-  });
-
-  it("logs the start and the end of a counted call without its prompt or output, and reports its end", async () => {
+  it("logs the start and the end of a call without its prompt or output, and reports its end", async () => {
     const callId = newCallId();
     const conversation = crypto.randomUUID();
 
@@ -155,8 +134,7 @@ describe("POST /stream", () => {
       }),
       LogRecord.cases.CallEnd.make({
         callId,
-        sender,
-        conversation,
+        details: { sender, conversation },
         outcome: CallOutcome.cases.Done.make({}),
       }),
     ]);
@@ -164,7 +142,7 @@ describe("POST /stream", () => {
     expect(JSON.stringify(relay.records)).not.toContain("Hello from the relay.");
   });
 
-  it("reports the end of a counted call for a model it does not know", async () => {
+  it("reports the end of a call for a model it does not know", async () => {
     const callId = newCallId();
     const response = await postCounted(callId, streamBody("claude-unknown-9"));
 
@@ -180,7 +158,7 @@ describe("POST /stream", () => {
     ]);
   });
 
-  it("reports the end of a counted call whose body is invalid", async () => {
+  it("reports the end of a call whose body is invalid", async () => {
     const callId = newCallId();
     const response = await postCounted(callId, "not a request");
 
@@ -249,7 +227,7 @@ describe("POST /stream", () => {
     await vi.waitFor(() => expect(outcomeOf(callId)).toSatisfy(CallOutcome.guards.Failed));
   });
 
-  it("aborts the CLI of a counted call when the caller hangs up, and reports its end once", async () => {
+  it("aborts the CLI call when the caller hangs up, and reports its end once", async () => {
     const pidFilePath = await slowCallPidFile();
     const callId = newCallId();
     const caller = new AbortController();
@@ -265,6 +243,22 @@ describe("POST /stream", () => {
     await vi.waitFor(() => expect(relay.reportedEnds).toEqual([callId]));
 
     expect(outcomeOf(callId)).toEqual(CallOutcome.cases.Aborted.make({}));
+  });
+
+  it.each([
+    ["no call id", {}],
+    ["a call id that is not valid", { [callIdHeader]: "not-a-call-id" }],
+  ])("answers 400 to a call with %s and does not track it", async (_description, headers) => {
+    const response = await fetch(`${relay.url}/stream`, {
+      method: "POST",
+      headers,
+      body: streamBody("claude-sonnet-5-5"),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("missing or invalid call id");
+    expect(relay.records).toEqual([]);
+    expect(relay.reportedEnds).toEqual([]);
   });
 
   it("answers 503 with the lost-call wording to a call that reaches a stopping relay", async () => {

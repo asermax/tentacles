@@ -69,9 +69,11 @@ export const startRelayProcess = async (env: Record<string, string> = {}) => {
     }
   });
 
-  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    child.once("exit", (code, signal) => resolve({ code, signal }));
-  });
+  const exitResultPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+    (resolve) => {
+      child.once("exit", (code, signal) => resolve({ code, signal }));
+    },
+  );
 
   const url = `http://127.0.0.1:${port}`;
 
@@ -97,7 +99,7 @@ export const startRelayProcess = async (env: Record<string, string> = {}) => {
     url,
     port,
     records,
-    exited,
+    exitResultPromise,
     signal: (signal: NodeJS.Signals) => child.kill(signal),
 
     waitForRecord,

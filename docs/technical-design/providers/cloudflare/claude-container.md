@@ -109,8 +109,8 @@ The relay writes one JSON object per line on stdout, which reaches Workers obser
 | relay signal | the relay receives SIGTERM or SIGINT | the signal |
 | relay exit | the relay exits after a signal | nothing more |
 | call start | a call reaches the relay | the call id, the sender's session, the conversation, the model |
-| call end | a call ends | the call id, the sender's session, the conversation, how it ended: done, failed, lost, aborted by the caller or stopped by the signal, with the error message for failed and lost |
-| error | an error inside a call or an uncaught one | the message and the stack, and the call id and sender for a call's error |
+| call end | a call ends | the call id, how it ended: done, failed, lost, aborted by the caller or stopped by the signal, with the error message for failed and lost, and `details` with the sender's session and the conversation (absent when the call ended before it started) |
+| error | an error inside a call or an uncaught one | the message and the stack, and `call` with the call id and the sender for a call's error |
 
 The conversation is pi-durable's id for the conversation that made the call, so a subagent's calls carry a different conversation id from the calls of its root run. On the session side, every failed Claude call leaves one line in the Worker's log with the same session, conversation and error message, so a reader can match the relay's records and the Worker's line for one call.
 
