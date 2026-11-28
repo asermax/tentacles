@@ -1,3 +1,24 @@
+# [1.5.0](https://github.com/asermax/tentacles/compare/v1.4.0...v1.5.0) (2026-11-28)
+
+
+### Bug Fixes
+
+* **claude-relay:** log every signal the relay receives, not only the first ([33fb4cd](https://github.com/asermax/tentacles/commit/33fb4cded8a775c34c1051d17475a96064cfff84))
+* **provider-cloudflare:** do not log a failure for a call the run itself ended ([e19d594](https://github.com/asermax/tentacles/commit/e19d5942055c776887bf9d926b51bec4f82d74f1))
+* **provider-cloudflare:** read the time through Effect's Clock in the Claude object ([508e757](https://github.com/asermax/tentacles/commit/508e757f7f3e47213bc1b4185ca1c957c98b0e16))
+* **provider-cloudflare:** take a call off the count when any step before the relay fails ([b7246c4](https://github.com/asermax/tentacles/commit/b7246c4d40d23db610a7204c4d57c1bc293b4898))
+
+
+### Features
+
+* **claude-relay:** shut down on SIGTERM and SIGINT and survive failures outside a call ([a3fdc82](https://github.com/asermax/tentacles/commit/a3fdc82a409bf9ffe24e57df4d26cbf042671558))
+* **claude-relay:** track each call, log it and report its end to the Claude object ([a8a006e](https://github.com/asermax/tentacles/commit/a8a006ea18c1ffd0d6e27e388edd92f3a901d24d))
+* **provider-cloudflare:** count each Claude call and hold calls while the container stops ([c23dd10](https://github.com/asermax/tentacles/commit/c23dd1097c07842a43fc2c19ba93a311c0b832c0))
+* **provider-cloudflare:** fail a lost Claude call through one function that logs it ([d02edd2](https://github.com/asermax/tentacles/commit/d02edd2ce627a410178457636879e016cd83d10f))
+* **provider-cloudflare:** keep the Claude object up while its container runs and stop the container after 15 idle minutes ([8e773e4](https://github.com/asermax/tentacles/commit/8e773e4f62f1c84deb28f9f8855a9fbe82c86133))
+* **provider-cloudflare:** take a call off the Claude object's count when the relay reports its end ([5e21300](https://github.com/asermax/tentacles/commit/5e213007e4501299d9a0d7bff579f9e5aa990bec))
+* **relay-protocol:** add the package that defines the relay's wire protocol ([6df5c23](https://github.com/asermax/tentacles/commit/6df5c23eac35416e0125b54d94a2561b13ac915e))
+
 # [1.4.0](https://github.com/asermax/tentacles/compare/v1.3.0...v1.4.0) (2026-11-27)
 
 
