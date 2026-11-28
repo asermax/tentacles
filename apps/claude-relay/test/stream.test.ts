@@ -3,13 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CLAUDE_CODE_MODELS } from "@earendil-works/pi-claude-code/src/model-catalog.ts";
-import { callIdHeader, type CallId } from "@tentacles/relay-protocol/call-id";
-import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
+import { callIdHeader, newCallId, type CallId } from "@tentacles/relay-protocol/call-id";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CallOutcome } from "../src/call-outcome";
 import { LogRecord } from "../src/log";
-import { newCallId, sender, startRelay, streamBody, streamedEvents } from "./relay";
+import { sender, startRelay, streamBody, streamedEvents } from "./relay";
 
 let relay: Awaited<ReturnType<typeof startRelay>>;
 
@@ -47,13 +46,7 @@ const isAlive = (pid: number) => {
   }
 };
 
-const isOutcome = (callId: CallId, guard: (outcome: CallOutcome) => boolean) => {
-  const outcome = outcomeOf(callId);
-
-  return outcome != null && guard(outcome);
-};
-
-const lostCallPrefix = lostCallMessage("");
+const lostCallPrefix = "Claude relay lost the call (connection lost): ";
 
 const outcomeOf = (callId: CallId) =>
   relay.records
@@ -61,6 +54,34 @@ const outcomeOf = (callId: CallId) =>
       LogRecord.guards.CallEnd(record) && record.callId === callId ? [record.outcome] : [],
     )
     .at(0);
+
+// A slow call, whose CLI process the test finds through the pid file the fake CLI writes.
+const slowCallPidFile = async () => {
+  const pidFilePath = join(await mkdtemp(join(tmpdir(), "claude-relay-")), "pids");
+
+  vi.stubEnv("FAKE_CLAUDE_DELAY_MS", "500");
+  vi.stubEnv("FAKE_CLAUDE_PIDS", pidFilePath);
+
+  return pidFilePath;
+};
+
+const waitForPid = (pidFilePath: string) =>
+  vi.waitFor(async () => Number((await readFile(pidFilePath, "utf8")).trim()), { timeout: 5_000 });
+
+// A counted call whose CLI fails in the given way, and the error message its stream ends with.
+const failedCall = async (failure: string) => {
+  const callId = newCallId();
+
+  const response = await postCounted(
+    callId,
+    streamBody("claude-sonnet-5-5", { prompt: `FAKE_CLAUDE_FAIL=${failure}` }),
+  );
+
+  return {
+    callId,
+    errorMessage: streamedEvents(await response.text()).at(-1)?.error?.errorMessage,
+  };
+};
 
 describe("POST /stream", () => {
   it("streams the CLI's answer as one pi-ai event per line, ending with done", async () => {
@@ -70,18 +91,18 @@ describe("POST /stream", () => {
     expect(response.headers.get("content-type")).toBe("application/x-ndjson");
 
     const streamed = streamedEvents(await response.text());
-    const last = streamed.at(-1);
+    const lastEvent = streamed.at(-1);
 
     expect(streamed[0]?.type).toBe("start");
     expect(streamed.filter((event) => event.type === "done")).toHaveLength(1);
-    expect(last?.type).toBe("done");
+    expect(lastEvent?.type).toBe("done");
 
     const text = streamed
       .flatMap((event) => (event.type === "text_delta" ? [event.delta] : []))
       .join("");
 
     expect(text).toBe("Hello from the relay.");
-    expect(last?.message?.content).toEqual([{ type: "text", text: "Hello from the relay." }]);
+    expect(lastEvent?.message?.content).toEqual([{ type: "text", text: "Hello from the relay." }]);
     expect(relay.reportedEnds).toEqual([]);
   });
 
@@ -100,19 +121,13 @@ describe("POST /stream", () => {
   });
 
   it("aborts the CLI call when the caller hangs up", async () => {
-    const pids = join(await mkdtemp(join(tmpdir(), "claude-relay-")), "pids");
-
-    vi.stubEnv("FAKE_CLAUDE_DELAY_MS", "500");
-    vi.stubEnv("FAKE_CLAUDE_PIDS", pids);
-
+    const pidFilePath = await slowCallPidFile();
     const caller = new AbortController();
     const response = await post("claude-sonnet-5-5", caller.signal);
 
     expect(response.status).toBe(200);
 
-    const pid = await vi.waitFor(async () => Number((await readFile(pids, "utf8")).trim()), {
-      timeout: 5_000,
-    });
+    const pid = await waitForPid(pidFilePath);
 
     expect(isAlive(pid)).toBe(true);
 
@@ -177,95 +192,72 @@ describe("POST /stream", () => {
   it("ends a call the CLI lost to a signal as lost, and keeps streaming the other calls", async () => {
     vi.stubEnv("FAKE_CLAUDE_DELAY_MS", "200");
 
-    const lostId = newCallId();
-    const otherId = newCallId();
+    const lostCallId = newCallId();
+    const otherCallId = newCallId();
 
-    const [lost, other] = await Promise.all([
-      postCounted(lostId, streamBody("claude-sonnet-5-5", { prompt: "FAKE_CLAUDE_FAIL=signal" })),
-      postCounted(otherId, streamBody("claude-sonnet-5-5")),
+    const [lostCallResponse, otherCallResponse] = await Promise.all([
+      postCounted(
+        lostCallId,
+        streamBody("claude-sonnet-5-5", { prompt: "FAKE_CLAUDE_FAIL=signal" }),
+      ),
+      postCounted(otherCallId, streamBody("claude-sonnet-5-5")),
     ]);
 
-    const lostEvents = streamedEvents(await lost.text());
+    const lostEvents = streamedEvents(await lostCallResponse.text());
     const lastLost = lostEvents.at(-1);
 
     expect(lastLost?.type).toBe("error");
     expect(lastLost?.reason).toBe("error");
     expect(lastLost?.error?.errorMessage).toBe(
-      lostCallMessage("Claude Code exited from signal SIGTERM"),
+      "Claude relay lost the call (connection lost): Claude Code exited from signal SIGTERM",
     );
-    expect(streamedEvents(await other.text()).at(-1)?.type).toBe("done");
+    expect(streamedEvents(await otherCallResponse.text()).at(-1)?.type).toBe("done");
 
     await vi.waitFor(() => expect(relay.reportedEnds).toHaveLength(2));
 
-    expect(relay.reportedEnds).toContain(lostId);
-    expect(outcomeOf(lostId)).toEqual(
+    expect(relay.reportedEnds).toContain(lostCallId);
+    expect(outcomeOf(lostCallId)).toEqual(
       CallOutcome.cases.Lost.make({
-        errorMessage: lostCallMessage("Claude Code exited from signal SIGTERM"),
+        errorMessage:
+          "Claude relay lost the call (connection lost): Claude Code exited from signal SIGTERM",
       }),
     );
   });
 
   it("ends a call whose CLI exited with code 143 as lost", async () => {
-    const callId = newCallId();
-
-    const response = await postCounted(
-      callId,
-      streamBody("claude-sonnet-5-5", { prompt: "FAKE_CLAUDE_FAIL=exit-143" }),
-    );
-
-    const errorMessage = streamedEvents(await response.text()).at(-1)?.error?.errorMessage;
+    const { callId, errorMessage } = await failedCall("exit-143");
 
     expect(errorMessage).toMatch(/^Claude relay lost the call \(connection lost\): .*exit 143/);
 
-    await vi.waitFor(() => expect(isOutcome(callId, CallOutcome.guards.Lost)).toBe(true));
+    await vi.waitFor(() => expect(outcomeOf(callId)).toSatisfy(CallOutcome.guards.Lost));
   });
 
   it("keeps the message of a call whose upstream connection was lost, which already reads as lost", async () => {
-    const callId = newCallId();
-
-    const response = await postCounted(
-      callId,
-      streamBody("claude-sonnet-5-5", { prompt: "FAKE_CLAUDE_FAIL=no-message-stop" }),
-    );
-
-    const errorMessage = streamedEvents(await response.text()).at(-1)?.error?.errorMessage;
+    const { callId, errorMessage } = await failedCall("no-message-stop");
 
     expect(errorMessage).toMatch(/^Incomplete Claude Code response: .*: connection lost$/);
 
-    await vi.waitFor(() => expect(isOutcome(callId, CallOutcome.guards.Lost)).toBe(true));
+    await vi.waitFor(() => expect(outcomeOf(callId)).toSatisfy(CallOutcome.guards.Lost));
   });
 
   it("keeps the message of a call the API refused and ends it as failed", async () => {
-    const callId = newCallId();
-
-    const response = await postCounted(
-      callId,
-      streamBody("claude-sonnet-5-5", { prompt: "FAKE_CLAUDE_FAIL=api-error" }),
-    );
-
-    const errorMessage = streamedEvents(await response.text()).at(-1)?.error?.errorMessage;
+    const { callId, errorMessage } = await failedCall("api-error");
 
     expect(errorMessage).toContain("API Error: 400");
     expect(errorMessage).not.toContain(lostCallPrefix);
 
-    await vi.waitFor(() => expect(isOutcome(callId, CallOutcome.guards.Failed)).toBe(true));
+    await vi.waitFor(() => expect(outcomeOf(callId)).toSatisfy(CallOutcome.guards.Failed));
   });
 
   it("aborts the CLI of a counted call when the caller hangs up, and reports its end once", async () => {
-    const pids = join(await mkdtemp(join(tmpdir(), "claude-relay-")), "pids");
-
-    vi.stubEnv("FAKE_CLAUDE_DELAY_MS", "500");
-    vi.stubEnv("FAKE_CLAUDE_PIDS", pids);
-
+    const pidFilePath = await slowCallPidFile();
     const callId = newCallId();
     const caller = new AbortController();
     const response = await postCounted(callId, streamBody("claude-sonnet-5-5"), caller.signal);
 
     expect(response.status).toBe(200);
 
-    const pid = await vi.waitFor(async () => Number((await readFile(pids, "utf8")).trim()), {
-      timeout: 5_000,
-    });
+    const pid = await waitForPid(pidFilePath);
 
     caller.abort();
 

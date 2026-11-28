@@ -4,29 +4,24 @@ import { text } from "node:stream/consumers";
 import { normalizeContext, type Message } from "@earendil-works/pi-ai";
 import { CLAUDE_CODE_MODELS } from "@earendil-works/pi-claude-code/src/model-catalog.ts";
 import { streamClaudeCode } from "@earendil-works/pi-claude-code/src/stream.ts";
-import { CallId, callIdHeader } from "@tentacles/relay-protocol/call-id";
-import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
+import { callIdHeader, decodeCallId } from "@tentacles/relay-protocol/call-id";
 import { decodeStreamRequest } from "@tentacles/relay-protocol/stream-request";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
 
 import { CallOutcome } from "./call-outcome";
-import { createCallsInFlight, type CallsInFlight } from "./calls-in-flight";
+import {
+  createCallsInFlight,
+  type CallsInFlight,
+  type CallsInFlightDependencies,
+} from "./calls-in-flight";
 import { egressCaTrust } from "./egress-ca";
-import { errorRecord, type LogRecord } from "./log";
-import { asLostCall, isLostCall } from "./lost-call";
+import { eventToRelay } from "./event-to-relay";
+import { errorRecord, messageOf } from "./log";
 import { resolveModel } from "./resolve-model";
-
-const decodeCallId = Schema.decodeUnknownOption(CallId);
 
 const health = (response: ServerResponse) => {
   response.writeHead(200, { "content-type": "application/json" });
   response.end(JSON.stringify({ ok: true, models: CLAUDE_CODE_MODELS.map((model) => model.id) }));
-};
-
-const badRequest = (response: ServerResponse, message: string) => {
-  response.writeHead(400, { "content-type": "text/plain" });
-  response.end(message);
 };
 
 const failResponse = (response: ServerResponse, cause: unknown) => {
@@ -37,38 +32,50 @@ const failResponse = (response: ServerResponse, cause: unknown) => {
   }
 
   response.writeHead(502, { "content-type": "text/plain" });
-  response.end(cause instanceof Error ? cause.message : String(cause));
+  response.end(messageOf(cause));
 };
 
-const stream = async (calls: CallsInFlight, request: IncomingMessage, response: ServerResponse) => {
+const stream = async (
+  callsInFlight: CallsInFlight,
+  request: IncomingMessage,
+  response: ServerResponse,
+) => {
   // Also fires once the response ends; aborting a finished call does nothing.
   const controller = new AbortController();
 
   response.on("close", () => controller.abort());
 
-  const call = calls.track(decodeCallId(request.headers[callIdHeader]), response, controller);
+  const trackedCall = callsInFlight.track(
+    decodeCallId(request.headers[callIdHeader]),
+    response,
+    controller,
+  );
+
+  const reject = (message: string) => {
+    response.writeHead(400, { "content-type": "text/plain" });
+    response.end(message);
+    trackedCall.finish(CallOutcome.cases.Failed.make({ errorMessage: message }));
+  };
 
   try {
-    const body = decodeStreamRequest(await text(request));
+    const streamRequest = decodeStreamRequest(await text(request));
 
-    if (Option.isNone(body)) {
-      badRequest(response, "invalid request body");
-      call.finish(CallOutcome.cases.Failed.make({ errorMessage: "invalid request body" }));
+    if (Option.isNone(streamRequest)) {
+      reject("invalid request body");
 
       return;
     }
 
-    const { modelId, context, options, sender } = body.value;
+    const { modelId, context, options, sender } = streamRequest.value;
     const model = await resolveModel(modelId);
 
     if (model == null) {
-      badRequest(response, `unknown model ${modelId}`);
-      call.finish(CallOutcome.cases.Failed.make({ errorMessage: `unknown model ${modelId}` }));
+      reject(`unknown model ${modelId}`);
 
       return;
     }
 
-    call.start({ sender, conversation: options.sessionId, modelId });
+    trackedCall.start({ sender, conversation: options.sessionId, model });
     response.writeHead(200, { "content-type": "application/x-ndjson" });
 
     const events = streamClaudeCode(
@@ -85,47 +92,26 @@ const stream = async (calls: CallsInFlight, request: IncomingMessage, response: 
     });
 
     for await (const event of events) {
-      let sent = event;
+      const { eventToSend, outcome: eventOutcome } = eventToRelay(event);
 
-      if (event.type === "done") {
-        outcome = CallOutcome.cases.Done.make({});
-      }
-
-      if (event.type === "error" && event.reason === "aborted") {
-        outcome = CallOutcome.cases.Aborted.make({});
-      }
-
-      if (event.type === "error" && event.reason === "error") {
-        const errorMessage = event.error.errorMessage ?? "";
-        const sentMessage = asLostCall(errorMessage);
-
-        sent = { ...event, error: { ...event.error, errorMessage: sentMessage } };
-        outcome = isLostCall(errorMessage)
-          ? CallOutcome.cases.Lost.make({ errorMessage: sentMessage })
-          : CallOutcome.cases.Failed.make({ errorMessage });
-      }
+      outcome = eventOutcome ?? outcome;
 
       // The call may have been ended by the relay's stop, which closed the response.
       if (!response.writableEnded) {
-        response.write(`${JSON.stringify(sent)}\n`);
+        response.write(`${JSON.stringify(eventToSend)}\n`);
       }
     }
 
-    if (!response.writableEnded) {
-      response.end();
-    }
-
-    call.finish(outcome);
+    response.end();
+    trackedCall.finish(outcome);
   } catch (cause) {
-    call.fail(cause);
+    trackedCall.fail(cause);
     failResponse(response, cause);
   }
 };
 
-interface Dependencies {
+interface Dependencies extends CallsInFlightDependencies {
   readonly egressCaPath: string;
-  readonly reportEnd: (callId: CallId) => Promise<void>;
-  readonly log: (record: LogRecord) => void;
 }
 
 /**
@@ -137,9 +123,7 @@ interface Dependencies {
  */
 export const createRelay = ({ egressCaPath, reportEnd, log }: Dependencies) => {
   const trustEgressCa = egressCaTrust(egressCaPath);
-  const calls = createCallsInFlight({ reportEnd, log });
-
-  let isStopping = false;
+  const callsInFlight = createCallsInFlight({ reportEnd, log });
 
   const route = (request: IncomingMessage, response: ServerResponse) => {
     if (request.method === "GET" && request.url === "/") {
@@ -149,14 +133,9 @@ export const createRelay = ({ egressCaPath, reportEnd, log }: Dependencies) => {
     }
 
     if (request.method === "POST" && request.url === "/stream") {
-      if (isStopping) {
-        response.writeHead(503, { "content-type": "text/plain" });
-        response.end(lostCallMessage("the relay is stopping"));
-
-        return Promise.resolve();
-      }
-
-      return stream(calls, request, response);
+      return callsInFlight.refuseWhileStopping(response)
+        ? Promise.resolve()
+        : stream(callsInFlight, request, response);
     }
 
     response.writeHead(404).end();
@@ -173,13 +152,5 @@ export const createRelay = ({ egressCaPath, reportEnd, log }: Dependencies) => {
     });
   });
 
-  return {
-    server,
-
-    stop: async () => {
-      isStopping = true;
-
-      await calls.endAll();
-    },
-  };
+  return { server, stop: callsInFlight.stop };
 };

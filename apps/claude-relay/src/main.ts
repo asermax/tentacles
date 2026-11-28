@@ -1,5 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
+import * as Schema from "effect/Schema";
+
 import { LogRecord, errorRecord, writeLog } from "./log";
 import { createReportEnd } from "./report-end";
 import { createRelay } from "./server";
@@ -11,7 +13,9 @@ if (port == null || egressCaPath == null) {
   throw new Error("PORT and EGRESS_CA_PATH must be set");
 }
 
-// The platform follows SIGTERM with SIGKILL, so the calls in flight get only this long to end.
+const listenPort = Schema.decodeSync(Schema.NumberFromString.check(Schema.isInt()))(port);
+
+// The platform follows SIGTERM with SIGKILL up to 15 minutes later. The relay does not wait that long for the calls in flight to end; it ends them after this long.
 const stopTimeoutMs = 5_000;
 
 const relay = createRelay({ egressCaPath, reportEnd: createReportEnd(writeLog), log: writeLog });
@@ -43,6 +47,6 @@ process.on("SIGTERM", (signal) => void shutDown(signal));
 
 process.on("SIGINT", (signal) => void shutDown(signal));
 
-relay.server.listen(Number(port), () =>
-  writeLog(LogRecord.cases.RelayStart.make({ port: Number(port) })),
+relay.server.listen(listenPort, () =>
+  writeLog(LogRecord.cases.RelayStart.make({ port: listenPort })),
 );

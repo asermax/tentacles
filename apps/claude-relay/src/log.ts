@@ -38,20 +38,25 @@ export type LogRecord = typeof LogRecord.Type;
 
 const encodeLogRecord = Schema.encodeSync(Schema.fromJsonString(LogRecord));
 
+export type Log = (record: LogRecord) => void;
+
 export const writeLog = (record: LogRecord) => {
   process.stdout.write(`${encodeLogRecord(record)}\n`);
 };
 
+export const messageOf = (cause: unknown) =>
+  cause instanceof Error ? cause.message : String(cause);
+
 /** The Error record for anything thrown or rejected, with the call it happened in when there is one. */
 export const errorRecord = (
   cause: unknown,
-  call: {
+  callIdentity: {
     readonly callId?: CallId | undefined;
     readonly sender?: typeof Sender.Type | undefined;
   } = {},
 ) =>
   LogRecord.cases.Error.make({
-    errorMessage: cause instanceof Error ? cause.message : String(cause),
+    errorMessage: messageOf(cause),
     stack: cause instanceof Error ? cause.stack : undefined,
-    ...call,
+    ...callIdentity,
   });

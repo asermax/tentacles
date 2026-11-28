@@ -3,18 +3,21 @@ import { createServer } from "node:net";
 import { delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { callIdHeader } from "@tentacles/relay-protocol/call-id";
+import { callIdHeader, newCallId } from "@tentacles/relay-protocol/call-id";
 import * as Schema from "effect/Schema";
 import { vi } from "vitest";
 
 import { LogRecord } from "../src/log";
-import { newCallId, streamBody } from "./relay";
+import {
+  egressCaPath,
+  fakeClaudeFolder,
+  listeningPort,
+  claudeRecordingPath,
+  streamBody,
+} from "./relay";
 
-const bundle = fileURLToPath(new URL("../dist/main.js", import.meta.url));
-const fakeClaudeFolder = fileURLToPath(new URL("fake-claude", import.meta.url));
-const recording = fileURLToPath(new URL("fixtures/claude-turn.ndjson", import.meta.url));
-const failureHook = fileURLToPath(new URL("hooks/fail-outside-a-call.mjs", import.meta.url));
-const egressCa = fileURLToPath(new URL("fixtures/no-egress-ca.crt", import.meta.url));
+const relayBundlePath = fileURLToPath(new URL("../dist/main.js", import.meta.url));
+const failureHookPath = fileURLToPath(new URL("hooks/fail-outside-a-call.mjs", import.meta.url));
 
 const decodeRecord = Schema.decodeUnknownSync(Schema.fromJsonString(LogRecord));
 
@@ -24,9 +27,7 @@ const freePort = () =>
 
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
-      const { port } = Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Int }))(
-        server.address(),
-      );
+      const port = listeningPort(server);
 
       server.close(() => resolve(port));
     });
@@ -40,30 +41,30 @@ const freePort = () =>
 export const startRelayProcess = async (env: Record<string, string> = {}) => {
   const port = await freePort();
 
-  const child = spawn(process.execPath, [bundle], {
+  const child = spawn(process.execPath, [relayBundlePath], {
     env: {
       ...process.env,
       ...env,
       PORT: String(port),
-      EGRESS_CA_PATH: egressCa,
+      EGRESS_CA_PATH: egressCaPath,
       PATH: `${fakeClaudeFolder}${delimiter}${process.env.PATH ?? ""}`,
-      FAKE_CLAUDE_RECORDING: recording,
-      NODE_OPTIONS: `--import ${failureHook}`,
+      FAKE_CLAUDE_RECORDING: claudeRecordingPath,
+      NODE_OPTIONS: `--import ${failureHookPath}`,
     },
     stdio: ["ignore", "pipe", "inherit"],
   });
 
   const records: Array<LogRecord> = [];
-  let pending = "";
+  let unterminatedStdout = "";
 
   child.stdout.on("data", (chunk) => {
-    pending += String(chunk);
+    unterminatedStdout += String(chunk);
 
-    const lines = pending.split("\n");
+    const stdoutLines = unterminatedStdout.split("\n");
 
-    pending = lines.pop() ?? "";
+    unterminatedStdout = stdoutLines.pop() ?? "";
 
-    for (const line of lines) {
+    for (const line of stdoutLines) {
       records.push(decodeRecord(line));
     }
   });
@@ -74,6 +75,24 @@ export const startRelayProcess = async (env: Record<string, string> = {}) => {
 
   const url = `http://127.0.0.1:${port}`;
 
+  /** Waits for the first record the guard accepts and the condition holds for, and returns it. */
+  const waitForRecord = <Match extends LogRecord>(
+    isMatch: (record: LogRecord) => record is Match,
+    satisfies: (match: Match) => boolean = () => true,
+  ) =>
+    vi.waitFor(
+      () => {
+        const record = records.filter(isMatch).find(satisfies);
+
+        if (record == null) {
+          throw new Error("The relay has not logged that record yet");
+        }
+
+        return record;
+      },
+      { timeout: 10_000 },
+    );
+
   return {
     url,
     port,
@@ -81,39 +100,11 @@ export const startRelayProcess = async (env: Record<string, string> = {}) => {
     exited,
     signal: (signal: NodeJS.Signals) => child.kill(signal),
 
-    /** Waits for the first record the guard accepts, and returns it. */
-    waitForRecord: <Match extends LogRecord>(isMatch: (record: LogRecord) => record is Match) =>
-      vi.waitFor(
-        () => {
-          const record = records.find(isMatch);
-
-          if (record == null) {
-            throw new Error("The relay has not logged that record yet");
-          }
-
-          return record;
-        },
-        { timeout: 10_000 },
-      ),
+    waitForRecord,
 
     /** Waits for the first Error record whose message holds the text, and returns it. */
     waitForError: (text: string) =>
-      vi.waitFor(
-        () => {
-          const error = records
-            .flatMap((record) =>
-              LogRecord.guards.Error(record) && record.errorMessage.includes(text) ? [record] : [],
-            )
-            .at(0);
-
-          if (error == null) {
-            throw new Error(`The relay has not logged an error about ${text} yet`);
-          }
-
-          return error;
-        },
-        { timeout: 10_000 },
-      ),
+      waitForRecord(LogRecord.guards.Error, (record) => record.errorMessage.includes(text)),
 
     /** A counted call to the relay; the response's body ends when the call does. */
     call: (init: { callId?: string; prompt?: string } = {}) =>
