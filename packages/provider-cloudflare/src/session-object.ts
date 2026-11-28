@@ -25,7 +25,8 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import { browserLayer } from "./browser";
-import { claudeObjectName, ClaudeObject } from "./claude-object";
+import { ClaudeObject } from "./claude-object";
+import { claudeObjectName } from "./claude-names";
 import { codemodeSandboxClass, codeSandboxLayer } from "./codemode-sandbox";
 import type { CodemodeSandbox } from "./codemode-worker";
 import { sendableCode } from "./close-code";
@@ -134,7 +135,11 @@ export const SessionObjectLive = SessionObject.make(
         browserLayer(yield* browser.raw, cdpSecret, raw.storage),
         CloudflarePreviewRouter,
         registryStoreLayer(registries),
-        modelProvidersLayer(yield* ai.raw, () => claudeObjects.getByName(claudeObjectName)),
+        modelProvidersLayer(
+          yield* ai.raw,
+          () => claudeObjects.getByName(claudeObjectName),
+          sessionId,
+        ),
         codeSandboxLayer(codemodeSandboxes, sessionId),
       );
 

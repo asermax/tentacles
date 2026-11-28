@@ -1,6 +1,7 @@
 import type { Workspace } from "@cloudflare/computer";
 import type { WorkspaceInit } from "@tentacles/contracts/workspace";
 import type { Parent } from "@tentacles/worker-api/parent";
+import type { FakeContainerSetup, FakeContainerSnapshot } from "./fake-container";
 import type { CreateSession } from "@tentacles/worker-api/sessions";
 import type {
   SessionDetails,
@@ -31,6 +32,24 @@ interface WorkspaceRpc extends Rpc.DurableObjectBranded {
   directoriesAmong(paths: ReadonlyArray<string>): ReadonlyArray<string>;
 }
 
+// The Claude object's test entry: its container is a fake, and these read and drive it, its clock and
+// its alarm.
+interface ClaudeRpc extends Rpc.DurableObjectBranded {
+  restart(): void;
+  reset(setup: FakeContainerSetup): Promise<void>;
+  speedUpTime(scale: number): void;
+  restoreTime(): void;
+  advanceTime(ms: number): void;
+  containerState(): FakeContainerSnapshot;
+  workerErrors(): ReadonlyArray<string>;
+  stopContainer(): Promise<void>;
+  vanishContainer(): void;
+  storedCallIds(): ReadonlyArray<string>;
+  storeCall(callId: string): void;
+  alarmAt(): number | null;
+  runAlarm(): Promise<void>;
+}
+
 // The registry object's RPC as a test calls it from outside the Worker: each member of
 // RegistryStore, answered by the Alchemy bridge with its plain result.
 interface RegistryRpc extends Rpc.DurableObjectBranded {
@@ -54,6 +73,7 @@ declare global {
       readonly GATEWAY: Fetcher;
       readonly BROWSER_STUB: Fetcher & { connectedSessions(): Promise<ReadonlyArray<string>> };
       readonly SessionObject: DurableObjectNamespace<SessionRpc>;
+      readonly ClaudeObject: DurableObjectNamespace<ClaudeRpc>;
       readonly RegistryObject: DurableObjectNamespace<RegistryRpc>;
       readonly WorkspaceObject: DurableObjectNamespace<WorkspaceRpc>;
     }

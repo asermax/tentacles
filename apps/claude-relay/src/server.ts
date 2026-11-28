@@ -4,36 +4,51 @@ import { text } from "node:stream/consumers";
 import { normalizeContext, type Message } from "@earendil-works/pi-ai";
 import { CLAUDE_CODE_MODELS } from "@earendil-works/pi-claude-code/src/model-catalog.ts";
 import { streamClaudeCode } from "@earendil-works/pi-claude-code/src/stream.ts";
+import { callIdHeader, decodeCallId } from "@tentacles/relay-protocol/call-id";
+import { decodeStreamRequest } from "@tentacles/relay-protocol/stream-request";
 import * as Option from "effect/Option";
 
+import { CallOutcome } from "./call-outcome";
+import {
+  createCallsInFlight,
+  type CallsInFlight,
+  type CallsInFlightDependencies,
+} from "./calls-in-flight";
 import { egressCaTrust } from "./egress-ca";
+import { eventToRelay } from "./event-to-relay";
+import { errorRecord, messageOf } from "./log";
 import { resolveModel } from "./resolve-model";
-import { decodeStreamRequest } from "./stream-request";
 
 const health = (response: ServerResponse) => {
   response.writeHead(200, { "content-type": "application/json" });
   response.end(JSON.stringify({ ok: true, models: CLAUDE_CODE_MODELS.map((model) => model.id) }));
 };
 
-const badRequest = (response: ServerResponse, message: string) => {
-  response.writeHead(400, { "content-type": "text/plain" });
-  response.end(message);
-};
-
-const stream = async (request: IncomingMessage, response: ServerResponse) => {
-  const body = decodeStreamRequest(await text(request));
-
-  if (Option.isNone(body)) {
-    badRequest(response, "invalid request body");
+const failResponse = (response: ServerResponse, cause: unknown) => {
+  if (response.headersSent) {
+    response.end();
 
     return;
   }
 
-  const { modelId, context, options } = body.value;
-  const model = await resolveModel(modelId);
+  response.writeHead(502, { "content-type": "text/plain" });
+  response.end(messageOf(cause));
+};
 
-  if (model == null) {
-    badRequest(response, `unknown model ${modelId}`);
+const answerBadRequest = (response: ServerResponse, message: string) => {
+  response.writeHead(400, { "content-type": "text/plain" });
+  response.end(message);
+};
+
+const stream = async (
+  callsInFlight: CallsInFlight,
+  request: IncomingMessage,
+  response: ServerResponse,
+) => {
+  const callId = decodeCallId(request.headers[callIdHeader]);
+
+  if (Option.isNone(callId)) {
+    answerBadRequest(response, "missing or invalid call id");
 
     return;
   }
@@ -42,60 +57,105 @@ const stream = async (request: IncomingMessage, response: ServerResponse) => {
   const controller = new AbortController();
 
   response.on("close", () => controller.abort());
-  response.writeHead(200, { "content-type": "application/x-ndjson" });
 
-  const events = streamClaudeCode(
-    model,
-    // SAFETY: the relay provider sends the transcript pi-ai gave it, and pi-claude-code reads each
-    // message's parts when it builds the CLI's frames; pi-ai has no runtime schema to decode it with.
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    normalizeContext({ messages: context.messages as Array<Message> }),
-    { ...options, signal: controller.signal },
-  );
+  const trackedCall = callsInFlight.track(callId.value, response, controller);
 
-  for await (const event of events) {
-    response.write(`${JSON.stringify(event)}\n`);
+  const reject = (message: string) => {
+    answerBadRequest(response, message);
+    trackedCall.finish(CallOutcome.cases.Failed.make({ errorMessage: message }));
+  };
+
+  try {
+    const streamRequest = decodeStreamRequest(await text(request));
+
+    if (Option.isNone(streamRequest)) {
+      reject("invalid request body");
+
+      return;
+    }
+
+    const { modelId, context, options, sender } = streamRequest.value;
+    const model = await resolveModel(modelId);
+
+    if (model == null) {
+      reject(`unknown model ${modelId}`);
+
+      return;
+    }
+
+    trackedCall.start({ sender, conversation: options.sessionId, model });
+    response.writeHead(200, { "content-type": "application/x-ndjson" });
+
+    const events = streamClaudeCode(
+      model,
+      // SAFETY: the Claude provider sends the transcript pi-ai gave it, and pi-claude-code reads each
+      // message's parts when it builds the CLI's frames; pi-ai has no runtime schema to decode it with.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      normalizeContext({ messages: context.messages as Array<Message> }),
+      { ...options, signal: controller.signal },
+    );
+
+    let outcome: CallOutcome = CallOutcome.cases.Failed.make({
+      errorMessage: "The call ended without a result",
+    });
+
+    for await (const event of events) {
+      const { eventToSend, outcome: eventOutcome } = eventToRelay(event);
+
+      outcome = eventOutcome ?? outcome;
+      trackedCall.send(eventToSend);
+    }
+
+    response.end();
+    trackedCall.finish(outcome);
+  } catch (cause) {
+    trackedCall.fail(cause);
+    failResponse(response, cause);
   }
-
-  response.end();
 };
 
-const route = (request: IncomingMessage, response: ServerResponse) => {
-  if (request.method === "GET" && request.url === "/") {
-    health(response);
-
-    return Promise.resolve();
-  }
-
-  if (request.method === "POST" && request.url === "/stream") {
-    return stream(request, response);
-  }
-
-  response.writeHead(404).end();
-
-  return Promise.resolve();
-};
+interface Dependencies extends CallsInFlightDependencies {
+  readonly egressCaPath: string;
+}
 
 /**
- * The relay's HTTP server: POST /stream runs one pi-claude-code call and streams its pi-ai events as
- * NDJSON, ending with done or error; GET / answers health and the catalog. It trusts the egress CA at
- * `egressCaPath` from the first request that finds the file.
+ * The relay: POST /stream runs one pi-claude-code call and streams its pi-ai events as NDJSON, ending
+ * with done or error; GET / answers health and the catalog. The request carries the call id the Claude
+ * object gave it, or is answered 400; the call is reported to the Claude object when it ends. It trusts
+ * the egress CA at `egressCaPath` from the first request that finds the file. `stop` ends every call in
+ * flight as lost and has the relay answer a new call with 503, and `isStopping` says whether it has
+ * been called; the server is not listening yet and is closed by the caller.
  */
-export const relayServer = (egressCaPath: string) => {
+export const createRelay = ({ egressCaPath, reportEnd, log }: Dependencies) => {
   const trustEgressCa = egressCaTrust(egressCaPath);
+  const callsInFlight = createCallsInFlight({ reportEnd, log });
 
-  return createServer((request, response) => {
+  const route = (request: IncomingMessage, response: ServerResponse) => {
+    if (request.method === "GET" && request.url === "/") {
+      health(response);
+
+      return Promise.resolve();
+    }
+
+    if (request.method === "POST" && request.url === "/stream") {
+      return callsInFlight.refuseWhileStopping(response)
+        ? Promise.resolve()
+        : stream(callsInFlight, request, response);
+    }
+
+    response.writeHead(404).end();
+
+    return Promise.resolve();
+  };
+
+  const server = createServer((request, response) => {
     trustEgressCa();
 
-    route(request, response).catch((error) => {
-      if (response.headersSent) {
-        response.end();
-
-        return;
-      }
-
-      response.writeHead(502, { "content-type": "text/plain" });
-      response.end(error instanceof Error ? error.message : String(error));
+    route(request, response).catch((cause) => {
+      log(errorRecord(cause));
+      failResponse(response, cause);
     });
   });
+
+  return { server, stop: callsInFlight.stop, isStopping: callsInFlight.isStopping };
 };

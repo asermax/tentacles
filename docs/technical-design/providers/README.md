@@ -13,4 +13,4 @@ One row per provider, kept by hand: adding a provider's folder here is part of w
 
 | Provider | Explains |
 |---|---|
-| [Cloudflare](cloudflare/README.md) | The Worker, the Workspace Worker, the Durable Objects, the Computer workspace, Browser Run and the deploy stack that fill every contract on Cloudflare |
+| [Cloudflare](cloudflare/README.md) | The Worker, the Workspace Worker, the Durable Objects, the Computer workspace, Browser Run, the shared Claude container and the deploy stack that fill every contract on Cloudflare |

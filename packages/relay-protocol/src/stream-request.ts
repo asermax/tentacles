@@ -1,4 +1,5 @@
 import type { CacheRetention, ThinkingLevel } from "@earendil-works/pi-ai";
+import { SessionId } from "@tentacles/worker-api/ids";
 import * as Schema from "effect/Schema";
 
 const thinkingLevels = [
@@ -13,8 +14,9 @@ const thinkingLevels = [
 const cacheRetentions = ["none", "short", "long"] as const satisfies ReadonlyArray<CacheRetention>;
 
 /**
- * The body of POST /stream: one model call from the relay provider, which sends the transcript pi-ai
- * handed it. The messages stay opaque here; pi-claude-code reads them when it builds the CLI's frames.
+ * The body of POST /stream: one model call from the Claude provider, which sends the transcript pi-ai
+ * handed it and who made the call. The messages stay opaque here; pi-claude-code reads them when it
+ * builds the CLI's frames.
  */
 export const StreamRequest = Schema.Struct({
   modelId: Schema.String,
@@ -26,6 +28,9 @@ export const StreamRequest = Schema.Struct({
     reasoning: Schema.optionalKey(Schema.Literals(thinkingLevels)),
     maxTokens: Schema.optionalKey(Schema.Int),
     cacheRetention: Schema.optionalKey(Schema.Literals(cacheRetentions)),
+  }),
+  sender: Schema.Struct({
+    session: SessionId,
   }),
 });
 

@@ -2,7 +2,10 @@
 // Stands in for the claude CLI on PATH. It answers the login check and the model catalog request the way
 // Claude Code does, and answers each user turn by replaying the stream-json recording at
 // FAKE_CLAUDE_RECORDING, one line every FAKE_CLAUDE_DELAY_MS. Each turn process appends its pid to
-// FAKE_CLAUDE_PIDS.
+// FAKE_CLAUDE_PIDS. A turn whose prompt holds FAKE_CLAUDE_FAIL=<kind> fails instead of answering: "signal"
+// and "exit-143" end the process mid-turn by SIGTERM or with code 143, "no-message-stop" replays the
+// answer without its message_stop, as a lost upstream connection does, and "api-error" answers with the
+// API's error.
 import { appendFileSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -21,6 +24,9 @@ const cliModels = [
 
 const recording = readFileSync(process.env.FAKE_CLAUDE_RECORDING, "utf8").split("\n").filter((line) => line !== "");
 const delay = Number(process.env.FAKE_CLAUDE_DELAY_MS ?? "0");
+
+// A failing turn has streamed some of its answer by then.
+const failAfterLines = 4;
 
 for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
   const frame = JSON.parse(line);
@@ -46,11 +52,39 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
     appendFileSync(process.env.FAKE_CLAUDE_PIDS, `${process.pid}\n`);
   }
 
-  for (const recorded of recording) {
+  const failure = /FAKE_CLAUDE_FAIL=([a-z0-9-]+)/.exec(line)?.[1];
+
+  if (failure === "api-error") {
+    write({
+      type: "assistant",
+      error: "invalid_request",
+      message: { role: "assistant", content: [{ type: "text", text: "API Error: 400 The request was refused" }] },
+    });
+    write({ type: "result", subtype: "success", is_error: true, num_turns: 1, ...echo });
+    continue;
+  }
+
+  for (const [index, recorded] of recording.entries()) {
     await sleep(delay);
+
+    if (index === failAfterLines && failure === "signal") {
+      process.kill(process.pid, "SIGTERM");
+      await sleep(10_000);
+    }
+
+    if (index === failAfterLines && failure === "exit-143") {
+      process.exit(143);
+    }
 
     const event = JSON.parse(recorded);
 
-    write(event.type === "result" ? { ...event, ...echo } : event);
+    if (failure === "no-message-stop" && event.event?.type === "message_stop") {
+      continue;
+    }
+
+    // A result that carries no text is what Claude Code reports after the upstream stream was cut.
+    const resultText = failure === "no-message-stop" ? { result: "" } : {};
+
+    write(event.type === "result" ? { ...event, ...resultText, ...echo } : event);
   }
 }

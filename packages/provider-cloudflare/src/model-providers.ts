@@ -1,5 +1,4 @@
 import type {
-  AssistantMessage,
   AssistantMessageEvent,
   Model,
   SimpleStreamOptions,
@@ -16,8 +15,14 @@ import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.mode
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import { ModelProviders } from "@tentacles/contracts/model-providers";
+import { eventLineEnd } from "@tentacles/relay-protocol/event-line";
+import { failedEvent } from "@tentacles/relay-protocol/failed-event";
+import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
+import { StreamRequest } from "@tentacles/relay-protocol/stream-request";
+import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Struct from "effect/Struct";
 
 /** The AI Gateway the gateway provider goes through, declared by the stack. */
 export const gatewayId = "tentacles";
@@ -98,29 +103,6 @@ const gatewayProvider = (ai: AiBinding) => {
   });
 };
 
-const failed = (model: Model<string>, message: string): AssistantMessageEvent => {
-  const error: AssistantMessage = {
-    role: "assistant",
-    content: [],
-    api: model.api,
-    provider: model.provider,
-    model: model.id,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "error",
-    errorMessage: message,
-    timestamp: Date.now(),
-  };
-
-  return { type: "error", reason: "error", error };
-};
-
 const relayLines = async function* (body: ReadableStream<Uint8Array>) {
   const decoder = new TextDecoder();
   let buffered = "";
@@ -132,13 +114,13 @@ const relayLines = async function* (body: ReadableStream<Uint8Array>) {
     buffered += decoder.decode(chunk, { stream: true });
 
     for (
-      let newline = buffered.indexOf("\n", searchFrom);
-      newline >= 0;
-      newline = buffered.indexOf("\n")
+      let lineEnd = buffered.indexOf(eventLineEnd, searchFrom);
+      lineEnd >= 0;
+      lineEnd = buffered.indexOf(eventLineEnd)
     ) {
-      const line = buffered.slice(0, newline);
+      const line = buffered.slice(0, lineEnd);
 
-      buffered = buffered.slice(newline + 1);
+      buffered = buffered.slice(lineEnd + eventLineEnd.length);
 
       if (line.length > 0) {
         yield line;
@@ -152,8 +134,9 @@ const relayLines = async function* (body: ReadableStream<Uint8Array>) {
 };
 
 // The Claude subscription through the relay in the shared Claude container: one POST per call,
-// one pi-ai event per NDJSON line back. A broken stream becomes an error event.
-const claudeProvider = (claude: () => Fetcher) => {
+// one pi-ai event per NDJSON line back. A call that fails ends in an error event, and a stream that
+// ends with neither done nor error is a lost call, which pi-durable retries.
+const claudeProvider = (claude: () => Fetcher, tentaclesSessionId: SessionId) => {
   const stream = (
     model: Model<string>,
     context: TranscriptContext,
@@ -161,20 +144,33 @@ const claudeProvider = (claude: () => Fetcher) => {
   ) => {
     const events = createAssistantMessageEventStream();
 
+    // The one place a failed call is pushed and logged, with the session and conversation the relay's
+    // records carry, so both sides of the call can be matched.
+    const failCall = (errorMessage: string) => {
+      console.error(
+        JSON.stringify({
+          message: "A Claude call failed",
+          session: tentaclesSessionId,
+          conversation: options?.sessionId,
+          errorMessage,
+        }),
+      );
+
+      events.push(failedEvent(model, errorMessage));
+    };
+
     const relay = async () => {
+      const streamRequest: StreamRequest = {
+        modelId: model.id,
+        context: { messages: context.messages },
+        options: Struct.pick(options ?? {}, Struct.keys(StreamRequest.fields.options.fields)),
+        sender: { session: tentaclesSessionId },
+      };
+
       const response = await claude().fetch("http://claude/stream", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          modelId: model.id,
-          context,
-          options: {
-            sessionId: options?.sessionId,
-            reasoning: options?.reasoning,
-            maxTokens: options?.maxTokens,
-            cacheRetention: options?.cacheRetention,
-          },
-        }),
+        body: JSON.stringify(streamRequest),
         signal: options?.signal ?? null,
       });
 
@@ -182,19 +178,35 @@ const claudeProvider = (claude: () => Fetcher) => {
         throw new Error(`The Claude relay answered ${response.status}: ${await response.text()}`);
       }
 
+      let hasEnded = false;
+
       for await (const line of relayLines(response.body)) {
         // The relay is apps/claude-relay, which writes pi-ai's own AssistantMessageEvents one
         // per line, so the shape is pi-ai's on both ends and the line is not parsed again.
         const event: AssistantMessageEvent = JSON.parse(line);
 
-        events.push(event);
+        if (event.type === "error") {
+          failCall(event.error.errorMessage ?? "The Claude relay reported an error");
+          hasEnded = true;
+        } else {
+          events.push(event);
+          hasEnded ||= event.type === "done";
+        }
+      }
+
+      if (!hasEnded) {
+        throw new Error(lostCallMessage("the relay's stream ended without a result"));
       }
     };
 
+    // The run aborts the signal once it has what it needs, such as the done event while the relay's
+    // stream is still open, and the read that fails because of it is not a failed call.
     relay()
-      .catch((error) =>
-        events.push(failed(model, error instanceof Error ? error.message : String(error))),
-      )
+      .catch((error) => {
+        if (options?.signal?.aborted !== true) {
+          failCall(error instanceof Error ? error.message : String(error));
+        }
+      })
       .finally(() => events.end());
 
     return events;
@@ -221,12 +233,19 @@ const claudeProvider = (claude: () => Fetcher) => {
   });
 };
 
-/** Every model a session can name: Workers AI through the gateway, and Claude through the relay. */
-export const modelProvidersLayer = (ai: AiBinding, claude: () => Fetcher) => {
+/**
+ * Every model a session can name: Workers AI through the gateway, and Claude through the relay, which
+ * is told which tentacles session each call comes from.
+ */
+export const modelProvidersLayer = (
+  ai: AiBinding,
+  claude: () => Fetcher,
+  tentaclesSessionId: SessionId,
+) => {
   const models = createModels();
 
   models.setProvider(gatewayProvider(ai));
-  models.setProvider(claudeProvider(claude));
+  models.setProvider(claudeProvider(claude, tentaclesSessionId));
 
   return Layer.succeed(ModelProviders, ModelProviders.of({ models: () => Effect.succeed(models) }));
 };
