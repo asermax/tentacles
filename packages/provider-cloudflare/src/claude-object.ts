@@ -12,7 +12,7 @@ import { credentialPlaceholder, egressCaPath, interceptEgressHosts, loopback } f
 
 const relayPort = 8080;
 
-// The container sleeps once no call has reached it for this long.
+// The object stops the container once no call is in flight and none has been forwarded or ended for this long.
 const sleepAfter = 15 * 60_000;
 
 // An alarm pass waits this long before it sets the next alarm, so the object always has work in
@@ -50,9 +50,9 @@ const relayReady = (container: Container) =>
   );
 
 /**
- * The shared Claude object: starts the Claude container on the first call after it slept, keeps itself and
- * the container up while the container is in use, stops it after 15 idle minutes, and passes each relay
- * request to it. The container calls api.anthropic.com through the egress and reports each call's end to the
+ * The shared Claude object: starts the Claude container on the first call after it stopped, keeps itself and
+ * the container up while the container is in use, stops it once no call is in flight and none has been
+ * forwarded or ended for 15 minutes, and passes each relay request to it. The container calls api.anthropic.com through the egress and reports each call's end to the
  * Worker, which tells this object.
  */
 export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
@@ -159,26 +159,26 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
 
             claudeCalls.add(callId);
 
-            const request = yield* HttpServerRequest.HttpServerRequest.pipe(
-              Effect.flatMap(HttpServerRequest.toWeb),
-              Effect.orDie,
-            );
-
-            // A call that finds the object stopping waits for the container to be gone, and is counted
-            // again since the container's stop forgot it.
-            if (claudeCalls.isStopping()) {
-              yield* Effect.suspend(() =>
-                container.running
-                  ? Deferred.await(containerStopped)
-                  : Effect.sync(() => claudeCalls.reset()),
+            // The relay reports a call's end only once it has the call, so a call that fails before it
+            // reaches the relay, or is interrupted on the way, is taken off the count here.
+            return yield* Effect.gen(function* () {
+              const request = yield* HttpServerRequest.HttpServerRequest.pipe(
+                Effect.flatMap(HttpServerRequest.toWeb),
+                Effect.orDie,
               );
 
-              claudeCalls.add(callId);
-            }
+              // A call that finds the object stopping waits for the container to be gone, and is
+              // counted again since the container's stop forgot it.
+              if (claudeCalls.isStopping()) {
+                yield* Effect.suspend(() =>
+                  container.running
+                    ? Deferred.await(containerStopped)
+                    : Effect.sync(() => claudeCalls.reset()),
+                );
 
-            // The relay reports a call's end only once it has the call, so a call that never reaches it
-            // is taken off the count here.
-            return yield* Effect.gen(function* () {
+                claudeCalls.add(callId);
+              }
+
               yield* starting.withPermit(
                 Effect.suspend(() => (container.running ? Effect.void : start)),
               );

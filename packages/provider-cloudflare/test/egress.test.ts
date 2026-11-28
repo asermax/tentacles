@@ -80,7 +80,7 @@ describe("the Claude container's end report", () => {
   });
 
   it("answers 404 to another path on the internal host", async () => {
-    const response = await env.TENTACLES.fetch("http://tentacles.internal/lifetime", {
+    const response = await env.TENTACLES.fetch("http://tentacles.internal/claude/calls", {
       method: "POST",
     });
 
