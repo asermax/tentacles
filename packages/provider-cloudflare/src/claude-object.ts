@@ -8,7 +8,7 @@ import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 
 import { createClaudeCalls } from "./claude-calls";
-import { credentialPlaceholder, EgressHosts, egressCaPath, loopback } from "./egress";
+import { credentialPlaceholder, egressCaPath, interceptEgressHosts, loopback } from "./egress";
 
 const relayPort = 8080;
 
@@ -82,8 +82,7 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
           yield* Effect.promise(() =>
             Promise.all([
               container.setInactivityTimeout(sleepAfter),
-              container.interceptOutboundHttps(EgressHosts.anthropic, egress),
-              container.interceptOutboundHttp(EgressHosts.endReport, egress),
+              interceptEgressHosts(container, egress),
             ]),
           );
 

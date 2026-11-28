@@ -1,11 +1,21 @@
 import { describe, expect, it } from "@effect/vitest";
-import { beforeEach, vi } from "vitest";
+import { beforeEach } from "vitest";
 
-import { callClaude, claudeObject, resetClaude, restartClaude } from "./claude";
+import {
+  alarmAfterIdle,
+  callClaude,
+  claudeObject,
+  forwardedCallId,
+  reportCallEnd,
+  resetClaude,
+  restartClaude,
+} from "./claude";
 
 const sleepAfterMs = 15 * 60_000;
 
 const sigterm = 15;
+
+const pastSleepAfterMs = 20 * 60_000;
 
 const anthropicInterception = { protocol: "https", host: "api.anthropic.com" };
 
@@ -47,64 +57,67 @@ describe("the Claude object's calls", () => {
   });
 
   it("starts the container once and forwards and counts both of two calls that arrive during the start", async () => {
-    await resetClaude({ readyOnProbe: 3 });
+    await resetClaude({ readyOnProbe: 3, answers: ["open"] });
 
     const responses = await Promise.all([callClaude(), callClaude()]);
     const { starts, relayRequests } = await claudeObject().containerState();
-    const { callIds } = await claudeObject().storedCalls();
+    const firstCallId = await forwardedCallId(0);
+    const secondCallId = await forwardedCallId(1);
 
     expect(responses.map((response) => response.status)).toEqual([200, 200]);
     expect(starts).toHaveLength(1);
     expect(relayRequests.map((request) => request.probesAnswered)).toEqual([3, 3]);
+    expect(firstCallId).not.toBe(secondCallId);
 
-    const forwardedIds = relayRequests.map((request) => request.callId);
+    await reportCallEnd(firstCallId);
 
-    expect(new Set(forwardedIds).size).toBe(2);
-    expect(new Set(callIds)).toEqual(new Set(forwardedIds));
+    expect(await alarmAfterIdle(pastSleepAfterMs)).toEqual([]);
+
+    await reportCallEnd(secondCallId);
+
+    expect(await alarmAfterIdle(sleepAfterMs)).toEqual([sigterm]);
   });
 
   it("forwards a call to a running container with its call id and counts it", async () => {
-    await resetClaude({ isRunning: true });
+    await resetClaude({ isRunning: true, answers: ["open"] });
 
     const response = await callClaude();
     const { starts, relayRequests } = await claudeObject().containerState();
-    const { callIds, lastActivity } = await claudeObject().storedCalls();
 
     expect(response.status).toBe(200);
     expect(starts).toHaveLength(0);
     expect(relayRequests).toHaveLength(1);
-    expect(callIds).toEqual([relayRequests[0]?.callId]);
-    expect(lastActivity).not.toBeNull();
+    expect(await forwardedCallId(0)).toEqual(expect.any(String));
+    expect(await alarmAfterIdle(pastSleepAfterMs)).toEqual([]);
   });
 
   it("takes a call off the count when it cannot reach the relay", async () => {
     await resetClaude({ isRunning: true, answers: ["unreachable"] });
 
     const response = await callClaude().catch(() => null);
-    const { callIds } = await claudeObject().storedCalls();
 
     expect(response?.status).not.toBe(200);
-    expect(callIds).toEqual([]);
+    expect(await alarmAfterIdle(sleepAfterMs)).toEqual([sigterm]);
   });
 
   it("arms the container it starts and counts the call that started it", async () => {
-    const response = await callClaude();
+    await resetClaude({ answers: ["open"] });
 
-    const { starts, relayRequests } = await claudeObject().containerState();
-    const { callIds, lastActivity } = await claudeObject().storedCalls();
+    const response = await callClaude();
+    const { starts } = await claudeObject().containerState();
 
     expect(response.status).toBe(200);
     expect(starts).toHaveLength(1);
 
     await expectArmed();
 
-    expect(callIds).toEqual([relayRequests[0]?.callId]);
-    expect(lastActivity).not.toBeNull();
+    expect(await alarmAfterIdle(pastSleepAfterMs)).toEqual([]);
   });
 
   it("holds a call that arrives while the object is stopping until the container is gone, then starts a new one", async () => {
     await armedClaude();
-    await claudeObject().storeStopping();
+
+    expect(await alarmAfterIdle(sleepAfterMs)).toEqual([sigterm]);
 
     const heldCallResponse = callClaude();
 
@@ -119,62 +132,54 @@ describe("the Claude object's calls", () => {
 
     const response = await heldCallResponse;
     const { starts, relayRequests } = await claudeObject().containerState();
-    const { callIds, isStopping } = await claudeObject().storedCalls();
 
     expect(response.status).toBe(200);
     expect(starts).toHaveLength(1);
     expect(relayRequests).toHaveLength(1);
-    expect(callIds).toEqual([relayRequests[0]?.callId]);
-    expect(isStopping).toBe(false);
+
+    // The held call is counted again, and the container it started can be stopped when it is idle.
+    expect(await alarmAfterIdle(pastSleepAfterMs)).toEqual([sigterm]);
+
+    await reportCallEnd(await forwardedCallId(0));
+
+    expect(await alarmAfterIdle(sleepAfterMs)).toEqual([sigterm, sigterm]);
   });
 });
 
 describe("the Claude object's alarm", () => {
   it("stops a container that has been idle for 15 minutes with SIGTERM", async () => {
     await armedClaude();
-    await claudeObject().storeLastActivity(sleepAfterMs);
-    await claudeObject().runAlarm();
 
-    const { signals } = await claudeObject().containerState();
-
-    expect(signals).toEqual([sigterm]);
-    expect((await claudeObject().storedCalls()).isStopping).toBe(true);
+    expect(await alarmAfterIdle(sleepAfterMs)).toEqual([sigterm]);
     expect(await claudeObject().alarmAt()).not.toBeNull();
   });
 
   it("leaves a container that has been idle for less than 15 minutes running", async () => {
     await armedClaude();
-    await claudeObject().storeLastActivity(60_000);
-    await claudeObject().runAlarm();
 
-    expect((await claudeObject().containerState()).signals).toEqual([]);
+    expect(await alarmAfterIdle(sleepAfterMs - 60_000)).toEqual([]);
     expect(await claudeObject().alarmAt()).not.toBeNull();
   });
 
   it("leaves a container with a call in flight running past 15 minutes", async () => {
-    await armedClaude();
-    await claudeObject().storeCall(crypto.randomUUID());
-    await claudeObject().storeLastActivity(20 * 60_000);
-    await claudeObject().runAlarm();
+    await armedClaude({ answers: ["open"] });
+    await callClaude();
 
-    expect((await claudeObject().containerState()).signals).toEqual([]);
+    expect(await alarmAfterIdle(pastSleepAfterMs)).toEqual([]);
   });
 
   it("does not stop a container twice", async () => {
     await armedClaude();
-    await claudeObject().storeStopping();
-    await claudeObject().storeLastActivity(sleepAfterMs);
-    await claudeObject().runAlarm();
 
-    expect((await claudeObject().containerState()).signals).toEqual([]);
+    expect(await alarmAfterIdle(sleepAfterMs)).toEqual([sigterm]);
+    expect(await alarmAfterIdle(sleepAfterMs)).toEqual([sigterm]);
   });
 
-  it("neither signals nor sets another alarm once the container has stopped", async () => {
-    await resetClaude({ isRunning: false });
-    await claudeObject().storeLastActivity(sleepAfterMs);
-    await claudeObject().runAlarm();
+  it("neither signals nor sets another alarm once the container has stopped running", async () => {
+    await armedClaude();
+    await claudeObject().vanishContainer();
 
-    expect((await claudeObject().containerState()).signals).toEqual([]);
+    expect(await alarmAfterIdle(sleepAfterMs)).toEqual([]);
     expect(await claudeObject().alarmAt()).toBeNull();
   });
 });
@@ -190,12 +195,8 @@ describe("a new Claude object instance", () => {
 
     await expectArmed();
 
-    expect((await claudeObject().storedCalls()).callIds).toEqual([callId]);
-
-    await claudeObject().storeLastActivity(20 * 60_000);
-    await claudeObject().runAlarm();
-
-    expect((await claudeObject().containerState()).signals).toEqual([]);
+    expect(await claudeObject().storedCallIds()).toEqual([callId]);
+    expect(await alarmAfterIdle(pastSleepAfterMs)).toEqual([]);
   });
 
   it("arms nothing when it finds the container stopped", async () => {
@@ -213,30 +214,28 @@ describe("a new Claude object instance", () => {
 });
 
 describe("a Claude container that stops", () => {
-  it("clears the count, the stopping mark and the last activity when it dies with a call counted", async () => {
-    await armedClaude();
-    await claudeObject().storeCall(crypto.randomUUID());
-    await claudeObject().storeStopping();
+  it("forgets the calls in flight, so the next container is not kept up by them", async () => {
+    await armedClaude({ answers: ["open", "done"] });
+    await callClaude();
     await claudeObject().stopContainer();
 
-    await vi.waitFor(async () =>
-      expect(await claudeObject().storedCalls()).toEqual({
-        callIds: [],
-        isStopping: false,
-        lastActivity: null,
-      }),
-    );
+    const response = await callClaude();
+    const { starts } = await claudeObject().containerState();
+
+    expect(response.status).toBe(200);
+    expect(starts).toHaveLength(1);
+
+    await reportCallEnd(await forwardedCallId(1));
+
+    expect(await alarmAfterIdle(sleepAfterMs)).toEqual([sigterm]);
   });
 
   it("starts a new container for the next call once the idle stop has completed", async () => {
     await armedClaude();
-    await claudeObject().storeLastActivity(sleepAfterMs);
-    await claudeObject().runAlarm();
-    await claudeObject().stopContainer();
 
-    await vi.waitFor(async () =>
-      expect((await claudeObject().storedCalls()).isStopping).toBe(false),
-    );
+    expect(await alarmAfterIdle(sleepAfterMs)).toEqual([sigterm]);
+
+    await claudeObject().stopContainer();
 
     const response = await callClaude();
     const { starts, relayRequests } = await claudeObject().containerState();

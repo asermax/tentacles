@@ -3,9 +3,18 @@ import { env } from "cloudflare:workers";
 import { beforeEach } from "vitest";
 import * as Schema from "effect/Schema";
 
-import { callClaude, claudeObject, resetClaude } from "./claude";
+import {
+  alarmAfterIdle,
+  callClaude,
+  claudeObject,
+  forwardedCallId,
+  reportCallEnd,
+  resetClaude,
+} from "./claude";
 import { Forwarded } from "./echo";
 import { testSecrets } from "./secrets";
+
+const sigterm = 15;
 
 // What the Claude image sends in place of a credential; the egress replaces whatever arrives.
 const placeholder = "tentacles-egress-credential";
@@ -25,47 +34,49 @@ describe("the Claude container's egress", () => {
   });
 });
 
-const postEndReport = (callId: string) =>
-  env.TENTACLES.fetch(`http://tentacles.internal/claude/calls/${callId}/end`, { method: "POST" });
-
 describe("the Claude container's end report", () => {
   beforeEach(async () => {
-    await resetClaude({ isRunning: true });
+    await resetClaude({ isRunning: true, answers: ["open"] });
   });
 
-  it("takes a counted call off the Claude object's count and moves its last activity", async () => {
+  it("takes a call in flight off the Claude object's count and moves its last activity", async () => {
     await callClaude();
 
-    const [relayRequest] = (await claudeObject().containerState()).relayRequests;
-    const callId = relayRequest?.callId;
+    const callId = await forwardedCallId(0);
 
-    if (callId == null) {
-      throw new Error("The call did not reach the relay with a call id");
-    }
+    await claudeObject().advanceTime(14 * 60_000);
 
-    await claudeObject().storeLastActivity(60_000);
-
-    const response = await postEndReport(callId);
-    const { callIds, lastActivity } = await claudeObject().storedCalls();
+    const response = await reportCallEnd(callId);
 
     expect(response.status).toBe(204);
-    expect(callIds).toEqual([]);
-    expect(lastActivity).toBeGreaterThan(Date.now() - 30_000);
+
+    // Idle for 14 minutes since the end report, though 28 since the call began.
+    expect(await alarmAfterIdle(14 * 60_000)).toEqual([]);
+    expect(await alarmAfterIdle(2 * 60_000)).toEqual([sigterm]);
   });
 
   it("changes nothing for a call the Claude object no longer holds", async () => {
-    await claudeObject().storeCall(crypto.randomUUID());
-    await claudeObject().storeLastActivity(60_000);
+    await callClaude();
 
-    const callsBeforeEndReport = await claudeObject().storedCalls();
-    const response = await postEndReport(crypto.randomUUID());
+    const callId = await forwardedCallId(0);
+    const unknownCallResponse = await reportCallEnd(crypto.randomUUID());
 
-    expect(response.status).toBe(204);
-    expect(await claudeObject().storedCalls()).toEqual(callsBeforeEndReport);
+    expect(unknownCallResponse.status).toBe(204);
+
+    // The call in flight stays counted.
+    expect(await alarmAfterIdle(20 * 60_000)).toEqual([]);
+
+    await reportCallEnd(callId);
+    await claudeObject().advanceTime(14 * 60_000);
+
+    expect((await reportCallEnd(crypto.randomUUID())).status).toBe(204);
+
+    // The report of the unknown call did not move the last activity.
+    expect(await alarmAfterIdle(2 * 60_000)).toEqual([sigterm]);
   });
 
   it("answers 404 to an end report whose id is not a call id", async () => {
-    expect((await postEndReport("not-a-call-id")).status).toBe(404);
+    expect((await reportCallEnd("not-a-call-id")).status).toBe(404);
   });
 
   it("answers 404 to another path on the internal host", async () => {

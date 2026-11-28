@@ -15,6 +15,7 @@ import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.mode
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import { ModelProviders } from "@tentacles/contracts/model-providers";
+import { eventLineEnd } from "@tentacles/relay-protocol/event-line";
 import { failedEvent } from "@tentacles/relay-protocol/failed-event";
 import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
 import { StreamRequest } from "@tentacles/relay-protocol/stream-request";
@@ -113,13 +114,13 @@ const relayLines = async function* (body: ReadableStream<Uint8Array>) {
     buffered += decoder.decode(chunk, { stream: true });
 
     for (
-      let newline = buffered.indexOf("\n", searchFrom);
-      newline >= 0;
-      newline = buffered.indexOf("\n")
+      let lineEnd = buffered.indexOf(eventLineEnd, searchFrom);
+      lineEnd >= 0;
+      lineEnd = buffered.indexOf(eventLineEnd)
     ) {
-      const line = buffered.slice(0, newline);
+      const line = buffered.slice(0, lineEnd);
 
-      buffered = buffered.slice(newline + 1);
+      buffered = buffered.slice(lineEnd + eventLineEnd.length);
 
       if (line.length > 0) {
         yield line;

@@ -16,11 +16,6 @@ export const egressCaPath = "/etc/cloudflare/certs/cloudflare-containers-ca.crt"
 /** What the Claude image sends in place of a credential; the egress handler sends the real one instead. */
 export const credentialPlaceholder = "tentacles-egress-credential";
 
-export const EgressHosts = {
-  anthropic: "api.anthropic.com",
-  endReport: endReportHost,
-} as const;
-
 /**
  * The interceptor the Claude container's outbound requests go to: the Worker's own default
  * entrypoint, since an Effect Worker exports no named entrypoint.
@@ -36,22 +31,54 @@ export const loopback = (state: Cloudflare.DurableObjectState["Service"]) => {
       );
 };
 
-type EgressHandler = (request: Request) => Effect.Effect<Response, never, RuntimeContext>;
+type EgressHandler = (request: Request, url: URL) => Effect.Effect<Response, never, RuntimeContext>;
+
+interface EgressDependencies {
+  readonly claudeToken: Redacted.Redacted;
+  readonly claudeObjects: Cloudflare.DurableObject<ClaudeObject>;
+}
+
+interface EgressRoute {
+  readonly host: string;
+  readonly scheme: "http" | "https";
+  readonly handler: (dependencies: EgressDependencies) => EgressHandler;
+}
+
+const anthropicHandler =
+  ({ claudeToken }: EgressDependencies): EgressHandler =>
+  (request) =>
+    Effect.promise(() => fetchWithAuthorization(request, `Bearer ${Redacted.value(claudeToken)}`));
 
 const endReportHandler =
-  (claudeObjects: Cloudflare.DurableObject<ClaudeObject>): EgressHandler =>
-  (request) =>
-    Option.match(
-      request.method === "POST" ? parseEndReportPath(new URL(request.url).pathname) : Option.none(),
-      {
-        onNone: () => Effect.succeed(new Response("Not found", { status: 404 })),
-        onSome: (callId) =>
-          claudeObjects
-            .getByName(claudeObjectName)
-            .callEnded(callId)
-            .pipe(Effect.as(new Response(null, { status: 204 })), Effect.orDie),
-      },
-    );
+  ({ claudeObjects }: EgressDependencies): EgressHandler =>
+  (request, url) =>
+    Option.match(request.method === "POST" ? parseEndReportPath(url.pathname) : Option.none(), {
+      onNone: () => Effect.succeed(new Response("Not found", { status: 404 })),
+      onSome: (callId) =>
+        claudeObjects
+          .getByName(claudeObjectName)
+          .callEnded(callId)
+          .pipe(Effect.as(new Response(null, { status: 204 })), Effect.orDie),
+    });
+
+/** Every host the Claude container's outbound traffic is intercepted for, with the scheme it is intercepted on and the handler that answers it. */
+const egressRoutes: ReadonlyArray<EgressRoute> = [
+  { host: "api.anthropic.com", scheme: "https", handler: anthropicHandler },
+  { host: endReportHost, scheme: "http", handler: endReportHandler },
+];
+
+/** Has the container send the traffic of every egress host to the interceptor. */
+export const interceptEgressHosts = (
+  container: Container,
+  interceptor: Parameters<Container["interceptOutboundHttps"]>[1],
+) =>
+  Promise.all(
+    egressRoutes.map(({ host, scheme }) =>
+      scheme === "https"
+        ? container.interceptOutboundHttps(host, interceptor)
+        : container.interceptOutboundHttp(host, interceptor),
+    ),
+  );
 
 /**
  * The Claude container's outbound traffic, run by the Worker's default entrypoint, which the container
@@ -64,19 +91,15 @@ export const egress = (claudeObjects: Cloudflare.DurableObject<ClaudeObject>) =>
   Effect.gen(function* () {
     const claudeToken = yield* Config.Redacted("TENTACLES_CLAUDE_TOKEN");
 
-    const anthropicHandler: EgressHandler = (request) =>
-      Effect.promise(() =>
-        fetchWithAuthorization(request, `Bearer ${Redacted.value(claudeToken)}`),
-      );
+    const handlersByHostname = new Map(
+      egressRoutes.map(({ host, handler }) => [host, handler({ claudeToken, claudeObjects })]),
+    );
 
-    const handlersByHostname = new Map<string, EgressHandler>([
-      [EgressHosts.anthropic, anthropicHandler],
-      [EgressHosts.endReport, endReportHandler(claudeObjects)],
-    ]);
+    return (request: Request) => {
+      const url = new URL(request.url);
 
-    return (request: Request) =>
-      Option.map(
-        Option.fromNullishOr(handlersByHostname.get(new URL(request.url).hostname)),
-        (handler) => handler(request),
+      return Option.map(Option.fromNullishOr(handlersByHostname.get(url.hostname)), (handler) =>
+        handler(request, url),
       );
+    };
   });

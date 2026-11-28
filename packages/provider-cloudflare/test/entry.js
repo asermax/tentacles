@@ -124,6 +124,11 @@ export class ClaudeObject extends DurableObjectBridge("ClaudeObject") {
     clock = realClock;
   }
 
+  // Moves the clock forward by the given time, as if it had passed.
+  advanceTime(ms) {
+    clock = { scale: clock.scale, realAt: realDateNow(), fakeAt: Date.now() + ms };
+  }
+
   // What the object did to the container, and what its relay received.
   containerState() {
     return fakeContainer.snapshot();
@@ -133,33 +138,30 @@ export class ClaudeObject extends DurableObjectBridge("ClaudeObject") {
     return [...loggedErrors];
   }
 
-  // The container ends on its own: it stops running and every monitor() settles.
-  stopContainer() {
+  // The container ends on its own: it stops running and every monitor() settles. Returns once the
+  // object has had time to see the stop and forget its calls.
+  async stopContainer() {
     fakeContainer.stop();
+
+    await scheduler.wait(50);
   }
 
-  // The count of calls in flight, the stopping mark and the last activity the object stored.
-  storedCalls() {
-    const { kv } = this.ctx.storage;
+  // The container stops running, and its monitors are still open: the object has not seen the stop yet.
+  vanishContainer() {
+    fakeContainer.vanish();
+  }
 
-    return {
-      callIds: [...kv.list({ prefix: "call:" })].map(([key]) => key.slice("call:".length)),
-      isStopping: kv.get("isStopping") === true,
-      lastActivity: kv.get("lastActivity") ?? null,
-    };
+  // The calls the object keeps in its storage under its own keys. Only the test of a new instance
+  // taking up an earlier instance's calls reads and writes them; every other test goes through the
+  // relay's answers, the end reports, the clock and the alarm.
+  storedCallIds() {
+    return [...this.ctx.storage.kv.list({ prefix: "call:" })].map(([key]) =>
+      key.slice("call:".length),
+    );
   }
 
   storeCall(callId) {
     this.ctx.storage.kv.put(`call:${callId}`, Date.now());
-  }
-
-  storeStopping() {
-    this.ctx.storage.kv.put("isStopping", true);
-  }
-
-  // Moves the last activity the given time into the past.
-  storeLastActivity(agoMs) {
-    this.ctx.storage.kv.put("lastActivity", Date.now() - agoMs);
   }
 
   alarmAt() {

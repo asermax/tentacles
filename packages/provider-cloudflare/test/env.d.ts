@@ -32,24 +32,20 @@ interface WorkspaceRpc extends Rpc.DurableObjectBranded {
   directoriesAmong(paths: ReadonlyArray<string>): ReadonlyArray<string>;
 }
 
-// The Claude object's test entry: its container is a fake, and these read and drive it and the
-// object's storage.
+// The Claude object's test entry: its container is a fake, and these read and drive it, its clock and
+// its alarm.
 interface ClaudeRpc extends Rpc.DurableObjectBranded {
   restart(): void;
   reset(setup: FakeContainerSetup): Promise<void>;
   speedUpTime(scale: number): void;
   restoreTime(): void;
+  advanceTime(ms: number): void;
   containerState(): FakeContainerSnapshot;
   workerErrors(): ReadonlyArray<string>;
-  stopContainer(): void;
-  storedCalls(): {
-    callIds: ReadonlyArray<string>;
-    isStopping: boolean;
-    lastActivity: number | null;
-  };
+  stopContainer(): Promise<void>;
+  vanishContainer(): void;
+  storedCallIds(): ReadonlyArray<string>;
   storeCall(callId: string): void;
-  storeStopping(): void;
-  storeLastActivity(agoMs: number): void;
   alarmAt(): number | null;
   runAlarm(): Promise<void>;
 }

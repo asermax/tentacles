@@ -23,6 +23,32 @@ export const callClaude = (session?: string) =>
 export const resetClaude = (setup: Partial<FakeContainerSetup> = {}) =>
   claudeObject().reset({ isRunning: false, readyOnProbe: 1, answers: ["done"], ...setup });
 
+/** The call id of the nth call the relay received. */
+export const forwardedCallId = async (index: number) => {
+  const callId = (await claudeObject().containerState()).relayRequests[index]?.callId;
+
+  if (callId == null) {
+    throw new Error(`The relay received no call ${index} with a call id`);
+  }
+
+  return callId;
+};
+
+/** The relay's end report for a call, as the container sends it. */
+export const reportCallEnd = (callId: string) =>
+  env.TENTACLES.fetch(`http://tentacles.internal/claude/calls/${callId}/end`, { method: "POST" });
+
+/**
+ * Moves the Claude object's clock forward by the idle time and runs one alarm pass, as the platform
+ * would once that time had passed. Returns the signals the container has received so far.
+ */
+export const alarmAfterIdle = async (idleMs: number) => {
+  await claudeObject().advanceTime(idleMs);
+  await claudeObject().runAlarm();
+
+  return (await claudeObject().containerState()).signals;
+};
+
 /** Aborts the Claude object; the next call to it runs on a new instance. */
 export const restartClaude = () =>
   claudeObject()

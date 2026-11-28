@@ -1,10 +1,12 @@
 import type { AssistantMessage, AssistantMessageEvent, ToolCall } from "@earendil-works/pi-ai";
 import { callIdHeader } from "@tentacles/relay-protocol/call-id";
+import { eventLine } from "@tentacles/relay-protocol/event-line";
 
 /** How the scripted relay answers one POST /stream. */
 export type RelayAnswer =
   | "done"
   | "doneThenOpen"
+  | "open"
   | "lost"
   | "refusal"
   | "stopping"
@@ -103,8 +105,7 @@ const errorEvents = (errorMessage: string): ReadonlyArray<AssistantMessageEvent>
   },
 ];
 
-const ndjson = (events: ReadonlyArray<AssistantMessageEvent>) =>
-  events.map((event) => `${JSON.stringify(event)}\n`).join("");
+const ndjson = (events: ReadonlyArray<AssistantMessageEvent>) => events.map(eventLine).join("");
 
 const responsesByAnswer = {
   done: () => new Response(ndjson(doneEvents())),
@@ -117,6 +118,8 @@ const responsesByAnswer = {
         },
       }),
     ),
+
+  open: () => new Response(new ReadableStream<Uint8Array>()),
 
   lost: () =>
     new Response(
@@ -254,6 +257,11 @@ export const createFakeContainer = () => {
 
     /** Ends the container: it stops running and every monitor() settles. */
     stop,
+
+    /** Stops the container running while its monitors stay open. */
+    vanish: () => {
+      isRunning = false;
+    },
 
     /** Starts over from a container in the given state, with nothing recorded. */
     reset: (setup: FakeContainerSetup) => {
