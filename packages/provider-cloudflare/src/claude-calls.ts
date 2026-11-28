@@ -14,7 +14,7 @@ const decodeStopping = Schema.decodeUnknownOption(Schema.Literal(true));
  * kept in the object's storage so a new instance takes up where the last one left off. A call is stored
  * as `call:<callId>`, so any such key means a call is in flight.
  */
-export const claudeCalls = (storage: DurableObjectStorage, idleAfterMs: number) => {
+export const createClaudeCalls = (storage: DurableObjectStorage, idleAfterMs: number) => {
   const { kv } = storage;
 
   const isStopping = () => Option.isSome(decodeStopping(kv.get(isStoppingKey)));
@@ -37,10 +37,6 @@ export const claudeCalls = (storage: DurableObjectStorage, idleAfterMs: number) 
       }
     },
 
-    beginStopping: () => {
-      kv.put(isStoppingKey, true);
-    },
-
     /** Forgets every call, the stopping mark and the last activity, as a container that is gone has none. */
     reset: () => {
       for (const [key] of kv.list({ prefix: callPrefix })) {
@@ -51,8 +47,8 @@ export const claudeCalls = (storage: DurableObjectStorage, idleAfterMs: number) 
       kv.delete(lastActivityKey);
     },
 
-    /** Starts the idle timer for a running container the object has no activity recorded for. */
-    startIdleTimer: (now: number) => {
+    /** Records the time as the last activity of a running container the object has none recorded for. */
+    recordFirstActivity: (now: number) => {
       if (Option.isNone(decodeTimestamp(kv.get(lastActivityKey)))) {
         kv.put(lastActivityKey, now);
       }
@@ -60,13 +56,21 @@ export const claudeCalls = (storage: DurableObjectStorage, idleAfterMs: number) 
 
     isStopping,
 
-    /** Whether the container is unused: no stop decided, no call in flight, and the idle time passed. */
-    isIdle: (now: number) =>
-      !isStopping() &&
-      !hasCallInFlight() &&
-      Option.match(decodeTimestamp(kv.get(lastActivityKey)), {
-        onNone: () => false,
-        onSome: (lastActivity) => now - lastActivity >= idleAfterMs,
-      }),
+    /** Marks the object stopping when the container is unused: no stop decided, no call in flight, and the idle time passed. Reports whether it did. */
+    stopIfIdle: (now: number) => {
+      const isIdle =
+        !isStopping() &&
+        !hasCallInFlight() &&
+        Option.match(decodeTimestamp(kv.get(lastActivityKey)), {
+          onNone: () => false,
+          onSome: (lastActivity) => now - lastActivity >= idleAfterMs,
+        });
+
+      if (isIdle) {
+        kv.put(isStoppingKey, true);
+      }
+
+      return isIdle;
+    },
   };
 };

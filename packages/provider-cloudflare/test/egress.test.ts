@@ -25,7 +25,7 @@ describe("the Claude container's egress", () => {
   });
 });
 
-const endReport = (callId: string) =>
+const postEndReport = (callId: string) =>
   env.TENTACLES.fetch(`http://tentacles.internal/claude/calls/${callId}/end`, { method: "POST" });
 
 describe("the Claude container's end report", () => {
@@ -36,11 +36,16 @@ describe("the Claude container's end report", () => {
   it("takes a counted call off the Claude object's count and moves its last activity", async () => {
     await callClaude();
 
-    const callId = (await claudeObject().containerState()).relayRequests[0]?.callId ?? "";
+    const [relayRequest] = (await claudeObject().containerState()).relayRequests;
+    const callId = relayRequest?.callId;
+
+    if (callId == null) {
+      throw new Error("The call did not reach the relay with a call id");
+    }
 
     await claudeObject().storeLastActivity(60_000);
 
-    const response = await endReport(callId);
+    const response = await postEndReport(callId);
     const { callIds, lastActivity } = await claudeObject().storedCalls();
 
     expect(response.status).toBe(204);
@@ -52,15 +57,15 @@ describe("the Claude container's end report", () => {
     await claudeObject().storeCall(crypto.randomUUID());
     await claudeObject().storeLastActivity(60_000);
 
-    const before = await claudeObject().storedCalls();
-    const response = await endReport(crypto.randomUUID());
+    const callsBeforeEndReport = await claudeObject().storedCalls();
+    const response = await postEndReport(crypto.randomUUID());
 
     expect(response.status).toBe(204);
-    expect(await claudeObject().storedCalls()).toEqual(before);
+    expect(await claudeObject().storedCalls()).toEqual(callsBeforeEndReport);
   });
 
   it("answers 404 to an end report whose id is not a call id", async () => {
-    expect((await endReport("not-a-call-id")).status).toBe(404);
+    expect((await postEndReport("not-a-call-id")).status).toBe(404);
   });
 
   it("answers 404 to another path on the internal host", async () => {
@@ -77,6 +82,5 @@ describe("the Claude container's end report", () => {
     });
 
     expect(response.status).toBe(404);
-    expect(await response.text()).toBe("Not found");
   });
 });

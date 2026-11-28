@@ -1,5 +1,4 @@
 import type {
-  AssistantMessage,
   AssistantMessageEvent,
   Model,
   SimpleStreamOptions,
@@ -16,8 +15,9 @@ import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.mode
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import { ModelProviders } from "@tentacles/contracts/model-providers";
+import { failedEvent } from "@tentacles/relay-protocol/failed-event";
 import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
-import type { StreamRequest } from "@tentacles/relay-protocol/stream-request";
+import { StreamRequest } from "@tentacles/relay-protocol/stream-request";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -102,29 +102,6 @@ const gatewayProvider = (ai: AiBinding) => {
   });
 };
 
-const failed = (model: Model<string>, message: string): AssistantMessageEvent => {
-  const error: AssistantMessage = {
-    role: "assistant",
-    content: [],
-    api: model.api,
-    provider: model.provider,
-    model: model.id,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "error",
-    errorMessage: message,
-    timestamp: Date.now(),
-  };
-
-  return { type: "error", reason: "error", error };
-};
-
 const relayLines = async function* (body: ReadableStream<Uint8Array>) {
   const decoder = new TextDecoder();
   let buffered = "";
@@ -168,7 +145,7 @@ const claudeProvider = (claude: () => Fetcher, tentaclesSessionId: SessionId) =>
 
     // The one place a failed call is pushed and logged, with the session and conversation the relay's
     // records carry, so both sides of the call can be matched.
-    const fail = (errorMessage: string) => {
+    const failCall = (errorMessage: string) => {
       console.error(
         JSON.stringify({
           message: "A Claude call failed",
@@ -178,26 +155,21 @@ const claudeProvider = (claude: () => Fetcher, tentaclesSessionId: SessionId) =>
         }),
       );
 
-      events.push(failed(model, errorMessage));
+      events.push(failedEvent(model, errorMessage));
     };
 
     const relay = async () => {
-      const body: StreamRequest = {
+      const streamRequest: StreamRequest = {
         modelId: model.id,
         context: { messages: context.messages },
-        options: Struct.pick(options ?? {}, [
-          "sessionId",
-          "reasoning",
-          "maxTokens",
-          "cacheRetention",
-        ]),
+        options: Struct.pick(options ?? {}, Struct.keys(StreamRequest.fields.options.fields)),
         sender: { session: tentaclesSessionId },
       };
 
       const response = await claude().fetch("http://claude/stream", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(streamRequest),
         signal: options?.signal ?? null,
       });
 
@@ -213,7 +185,7 @@ const claudeProvider = (claude: () => Fetcher, tentaclesSessionId: SessionId) =>
         const event: AssistantMessageEvent = JSON.parse(line);
 
         if (event.type === "error") {
-          fail(event.error.errorMessage ?? "The Claude relay reported an error");
+          failCall(event.error.errorMessage ?? "The Claude relay reported an error");
           hasEnded = true;
         } else {
           events.push(event);
@@ -231,7 +203,7 @@ const claudeProvider = (claude: () => Fetcher, tentaclesSessionId: SessionId) =>
     relay()
       .catch((error) => {
         if (options?.signal?.aborted !== true) {
-          fail(error instanceof Error ? error.message : String(error));
+          failCall(error instanceof Error ? error.message : String(error));
         }
       })
       .finally(() => events.end());

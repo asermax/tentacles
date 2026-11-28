@@ -65,7 +65,7 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
     // The session objects call the Claude object, and the egress tells it when a call ended; an
     // isolate that wakes for the Claude object alone builds the Worker's init, which has to register
     // its class.
-    const claude = yield* ClaudeObject;
+    const claudeObjects = yield* ClaudeObject;
     const apiKey = yield* Config.Redacted("TENTACLES_API_KEY");
 
     // The session objects read the browser and its signing secret; the Worker that hosts them
@@ -73,7 +73,7 @@ export default class TentaclesWorker extends Cloudflare.Worker<TentaclesWorker>(
     yield* Cloudflare.Browser("BROWSER");
     yield* Config.Redacted("TENTACLES_CDP_SECRET");
 
-    const egressRoute = yield* egress(claude);
+    const egressRoute = yield* egress(claudeObjects);
     const scheduler = yield* cloudflareScheduler;
 
     const contracts = Layer.mergeAll(sessionHostLayer(sessions), registryStoreLayer(registries));

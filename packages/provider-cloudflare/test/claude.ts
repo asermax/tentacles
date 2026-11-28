@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
 
+import { claudeObjectName } from "../src/claude-names";
 import type { FakeContainerSetup } from "./fake-container";
 
 /** The one Claude object every session reaches. */
-export const claudeObject = () => env.ClaudeObject.getByName("claude");
+export const claudeObject = () => env.ClaudeObject.getByName(claudeObjectName);
 
 /** A relay request body for a call from the given session, as the Claude provider sends it. */
 export const streamBody = (session = crypto.randomUUID()) =>

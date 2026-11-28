@@ -1,6 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import type { RuntimeContext } from "alchemy/RuntimeContext";
-import { parseEndReportPath } from "@tentacles/relay-protocol/end-report";
+import { endReportHost, parseEndReportPath } from "@tentacles/relay-protocol/end-report";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -18,7 +18,7 @@ export const credentialPlaceholder = "tentacles-egress-credential";
 
 export const EgressHosts = {
   anthropic: "api.anthropic.com",
-  internal: "tentacles.internal",
+  endReport: endReportHost,
 } as const;
 
 /**
@@ -38,17 +38,15 @@ export const loopback = (state: Cloudflare.DurableObjectState["Service"]) => {
 
 type EgressHandler = (request: Request) => Effect.Effect<Response, never, RuntimeContext>;
 
-const notFound = () => new Response("Not found", { status: 404 });
-
-const endReport =
-  (claude: Cloudflare.DurableObject<ClaudeObject>): EgressHandler =>
+const endReportHandler =
+  (claudeObjects: Cloudflare.DurableObject<ClaudeObject>): EgressHandler =>
   (request) =>
     Option.match(
       request.method === "POST" ? parseEndReportPath(new URL(request.url).pathname) : Option.none(),
       {
-        onNone: () => Effect.succeed(notFound()),
+        onNone: () => Effect.succeed(new Response("Not found", { status: 404 })),
         onSome: (callId) =>
-          claude
+          claudeObjects
             .getByName(claudeObjectName)
             .callEnded(callId)
             .pipe(Effect.as(new Response(null, { status: 204 })), Effect.orDie),
@@ -62,22 +60,23 @@ const endReport =
  * and tells the Claude object the call ended. The workspace containers' traffic goes to the Workspace
  * Worker's gateway instead. Runs in the Worker's init.
  */
-export const egress = (claude: Cloudflare.DurableObject<ClaudeObject>) =>
+export const egress = (claudeObjects: Cloudflare.DurableObject<ClaudeObject>) =>
   Effect.gen(function* () {
     const claudeToken = yield* Config.Redacted("TENTACLES_CLAUDE_TOKEN");
 
-    const anthropic: EgressHandler = (request) =>
+    const anthropicHandler: EgressHandler = (request) =>
       Effect.promise(() =>
         fetchWithAuthorization(request, `Bearer ${Redacted.value(claudeToken)}`),
       );
 
-    const handlers = new Map<string, EgressHandler>([
-      [EgressHosts.anthropic, anthropic],
-      [EgressHosts.internal, endReport(claude)],
+    const handlersByHostname = new Map<string, EgressHandler>([
+      [EgressHosts.anthropic, anthropicHandler],
+      [EgressHosts.endReport, endReportHandler(claudeObjects)],
     ]);
 
     return (request: Request) =>
-      Option.map(Option.fromNullishOr(handlers.get(new URL(request.url).hostname)), (handler) =>
-        handler(request),
+      Option.map(
+        Option.fromNullishOr(handlersByHostname.get(new URL(request.url).hostname)),
+        (handler) => handler(request),
       );
   });

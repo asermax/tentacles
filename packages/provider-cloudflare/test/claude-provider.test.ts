@@ -1,5 +1,4 @@
 import { describe, expect, it } from "@effect/vitest";
-import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
 import { StreamRequest } from "@tentacles/relay-protocol/stream-request";
 import { SessionState } from "@tentacles/worker-api/session-state";
 import { env } from "cloudflare:workers";
@@ -41,7 +40,7 @@ const runSession = async (answers: ReadonlyArray<RelayAnswer>) => {
     settings: { ...claudeSettings, repository: null },
   });
 
-  const state = await waitUntilRunEnds(sessionId, generousRunMs / 100).finally(() =>
+  const sessionState = await waitUntilRunEnds(sessionId, generousRunMs / 100).finally(() =>
     claudeObject().restoreTime(),
   );
 
@@ -53,7 +52,7 @@ const runSession = async (answers: ReadonlyArray<RelayAnswer>) => {
 
   return {
     sessionId,
-    state,
+    sessionState,
     failures,
     calls: relayRequests.map((request) => ({
       body: decodeRequest(request.body),
@@ -66,9 +65,9 @@ describe("a Claude model call from a session run", () => {
   it(
     "reaches the relay with the session and the conversation, and finishes the run",
     async () => {
-      const { sessionId, state, failures, calls } = await runSession(["done"]);
+      const { sessionId, sessionState, failures, calls } = await runSession(["done"]);
 
-      expect(SessionState.guards.idle(state)).toBe(true);
+      expect(SessionState.guards.idle(sessionState)).toBe(true);
       expect(failures).toEqual([]);
       expect(calls).toHaveLength(1);
       expect(calls[0]?.body.sender.session).toBe(sessionId);
@@ -80,9 +79,9 @@ describe("a Claude model call from a session run", () => {
   it(
     "does not log a failure when the run ends the call while the relay's stream is still open after done",
     async () => {
-      const { state, failures, calls } = await runSession(["doneThenOpen"]);
+      const { sessionState, failures, calls } = await runSession(["doneThenOpen"]);
 
-      expect(SessionState.guards.idle(state)).toBe(true);
+      expect(SessionState.guards.idle(sessionState)).toBe(true);
       expect(calls).toHaveLength(1);
       expect(failures).toEqual([]);
     },
@@ -92,7 +91,7 @@ describe("a Claude model call from a session run", () => {
   it(
     "retries a subagent's lost call after 2 seconds and logs the failure once",
     async () => {
-      const { sessionId, state, failures, calls } = await runSession([
+      const { sessionId, sessionState, failures, calls } = await runSession([
         "subagent",
         "lost",
         "done",
@@ -101,14 +100,15 @@ describe("a Claude model call from a session run", () => {
 
       const [rootCall, lostCall, retriedCall] = calls;
 
-      expect(SessionState.guards.idle(state)).toBe(true);
+      expect(SessionState.guards.idle(sessionState)).toBe(true);
       expect(calls).toHaveLength(4);
       expect(failures).toEqual([
         {
           message: "A Claude call failed",
           session: sessionId,
           conversation: lostCall?.body.options.sessionId,
-          errorMessage: lostCallMessage("Claude Code exited from signal SIGTERM"),
+          errorMessage:
+            "Claude relay lost the call (connection lost): Claude Code exited from signal SIGTERM",
         },
       ]);
       expect(lostCall?.body.options.sessionId).not.toBe(rootCall?.body.options.sessionId);
@@ -123,9 +123,11 @@ describe("a Claude model call from a session run", () => {
   it(
     "ends the run as failed after the third retry of a call that is lost every time, with four log lines",
     async () => {
-      const { state, failures, calls } = await runSession(["lost"]);
+      const { sessionState, failures, calls } = await runSession(["lost"]);
 
-      expect(SessionState.guards.failed(state) && state.failure).toContain("model_error");
+      expect(SessionState.guards.failed(sessionState) && sessionState.failure).toContain(
+        "model_error",
+      );
       expect(calls).toHaveLength(retryDelaysMs.length + 1);
       expect(failures).toHaveLength(retryDelaysMs.length + 1);
     },
@@ -135,9 +137,11 @@ describe("a Claude model call from a session run", () => {
   it(
     "does not retry a call the model refused, and logs it once",
     async () => {
-      const { state, failures, calls } = await runSession(["refusal"]);
+      const { sessionState, failures, calls } = await runSession(["refusal"]);
 
-      expect(SessionState.guards.failed(state) && state.failure).toContain("model_error");
+      expect(SessionState.guards.failed(sessionState) && sessionState.failure).toContain(
+        "model_error",
+      );
       expect(calls).toHaveLength(1);
       expect(failures.map((failure) => failure.errorMessage)).toEqual([
         "Claude refused the request",
@@ -149,9 +153,9 @@ describe("a Claude model call from a session run", () => {
   it(
     "logs and retries a call the relay answered 503 while it was stopping",
     async () => {
-      const { state, failures, calls } = await runSession(["stopping", "done"]);
+      const { sessionState, failures, calls } = await runSession(["stopping", "done"]);
 
-      expect(SessionState.guards.idle(state)).toBe(true);
+      expect(SessionState.guards.idle(sessionState)).toBe(true);
       expect(calls).toHaveLength(2);
       expect(failures).toHaveLength(1);
       expect(failures[0]?.errorMessage).toContain("503");
@@ -162,9 +166,9 @@ describe("a Claude model call from a session run", () => {
   it(
     "turns a stream that ends with no closing event into a lost call that is logged and retried",
     async () => {
-      const { state, failures, calls } = await runSession(["cut", "done"]);
+      const { sessionState, failures, calls } = await runSession(["cut", "done"]);
 
-      expect(SessionState.guards.idle(state)).toBe(true);
+      expect(SessionState.guards.idle(sessionState)).toBe(true);
       expect(calls).toHaveLength(2);
       expect(failures).toHaveLength(1);
       expect(failures[0]?.errorMessage).toMatch(

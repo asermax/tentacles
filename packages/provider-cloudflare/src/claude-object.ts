@@ -1,14 +1,13 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
-import { CallId, callIdHeader } from "@tentacles/relay-protocol/call-id";
+import { callIdHeader, newCallId, type CallId } from "@tentacles/relay-protocol/call-id";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Schedule from "effect/Schedule";
-import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
-import { claudeCalls as createClaudeCalls } from "./claude-calls";
+import { createClaudeCalls } from "./claude-calls";
 import { credentialPlaceholder, EgressHosts, egressCaPath, loopback } from "./egress";
 
 const relayPort = 8080;
@@ -75,21 +74,7 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
         const starting = yield* Semaphore.make(1);
 
         // Settled once the container the object holds is gone and its calls are forgotten.
-        let stopped = Deferred.makeUnsafe<void>();
-
-        // monitor() settles when the container stops, whoever stopped it, and rejects when it fails.
-        const watchContainer = Effect.gen(function* () {
-          const settled = Deferred.makeUnsafe<void>();
-
-          stopped = settled;
-
-          yield* state.waitUntil(
-            Effect.promise(() => container.monitor().catch(() => {})).pipe(
-              Effect.andThen(Effect.sync(() => claudeCalls.reset())),
-              Effect.andThen(Deferred.succeed(settled, undefined)),
-            ),
-          );
-        });
+        let containerStopped = Deferred.makeUnsafe<void>();
 
         // Keeps the container and the object up while the container runs: the platform's timeout, both
         // interceptions (which a new container lacks), the monitor and the alarm loop that hold the object in use.
@@ -98,13 +83,23 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
             Promise.all([
               container.setInactivityTimeout(sleepAfter),
               container.interceptOutboundHttps(EgressHosts.anthropic, egress),
-              container.interceptOutboundHttp(EgressHosts.internal, egress),
+              container.interceptOutboundHttp(EgressHosts.endReport, egress),
             ]),
           );
 
-          yield* watchContainer;
+          // monitor() settles when the container stops, whoever stopped it, and rejects when it fails.
+          const thisContainerStopped = Deferred.makeUnsafe<void>();
 
-          claudeCalls.startIdleTimer(Date.now());
+          containerStopped = thisContainerStopped;
+
+          yield* state.waitUntil(
+            Effect.promise(() => container.monitor().catch(() => {})).pipe(
+              Effect.andThen(Effect.sync(() => claudeCalls.reset())),
+              Effect.andThen(Deferred.succeed(thisContainerStopped, undefined)),
+            ),
+          );
+
+          claudeCalls.recordFirstActivity(Date.now());
 
           yield* Effect.promise(async () => {
             if ((await state.raw.storage.getAlarm()) == null) {
@@ -132,13 +127,6 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
           yield* relayReady(container);
         });
 
-        // A call that finds the object stopping waits for the container to be gone, and is counted
-        // again since the container's stop forgot it.
-        const waitForStop = (callId: CallId) =>
-          Effect.suspend(() =>
-            container.running ? Deferred.await(stopped) : Effect.sync(() => claudeCalls.reset()),
-          ).pipe(Effect.andThen(Effect.sync(() => claudeCalls.add(callId))));
-
         // A container that is not running has no calls, whatever an earlier instance stored.
         if (container.running) {
           yield* armContainer;
@@ -154,8 +142,7 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
           // the stopping mark or was counted before the check.
           alarm: () =>
             Effect.gen(function* () {
-              if (container.running && claudeCalls.isIdle(Date.now())) {
-                claudeCalls.beginStopping();
+              if (container.running && claudeCalls.stopIfIdle(Date.now())) {
                 container.signal(sigterm);
               }
 
@@ -169,7 +156,7 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
           fetch: Effect.gen(function* () {
             // Counted before anything is awaited, so no alarm pass sees an empty count while the call
             // is on its way.
-            const callId = Schema.decodeSync(CallId)(crypto.randomUUID());
+            const callId = newCallId();
 
             claudeCalls.add(callId);
 
@@ -178,8 +165,16 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
               Effect.orDie,
             );
 
+            // A call that finds the object stopping waits for the container to be gone, and is counted
+            // again since the container's stop forgot it.
             if (claudeCalls.isStopping()) {
-              yield* waitForStop(callId);
+              yield* Effect.suspend(() =>
+                container.running
+                  ? Deferred.await(containerStopped)
+                  : Effect.sync(() => claudeCalls.reset()),
+              );
+
+              claudeCalls.add(callId);
             }
 
             // The relay reports a call's end only once it has the call, so a call that never reaches it
@@ -189,15 +184,15 @@ export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
                 Effect.suspend(() => (container.running ? Effect.void : start)),
               );
 
-              const forwarded = new Request(request);
+              const relayRequest = new Request(request);
 
-              forwarded.headers.set(callIdHeader, callId);
+              relayRequest.headers.set(callIdHeader, callId);
 
-              const response = yield* Effect.promise(() =>
-                container.getTcpPort(relayPort).fetch(forwarded),
+              const relayResponse = yield* Effect.promise(() =>
+                container.getTcpPort(relayPort).fetch(relayRequest),
               );
 
-              return HttpServerResponse.raw(response, { status: response.status });
+              return HttpServerResponse.raw(relayResponse, { status: relayResponse.status });
             }).pipe(Effect.onError(() => Effect.sync(() => claudeCalls.remove(callId))));
           }),
         };

@@ -1,6 +1,5 @@
 import type { AssistantMessage, AssistantMessageEvent, ToolCall } from "@earendil-works/pi-ai";
 import { callIdHeader } from "@tentacles/relay-protocol/call-id";
-import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
 
 /** How the scripted relay answers one POST /stream. */
 export type RelayAnswer =
@@ -107,7 +106,7 @@ const errorEvents = (errorMessage: string): ReadonlyArray<AssistantMessageEvent>
 const ndjson = (events: ReadonlyArray<AssistantMessageEvent>) =>
   events.map((event) => `${JSON.stringify(event)}\n`).join("");
 
-const answerResponses = {
+const responsesByAnswer = {
   done: () => new Response(ndjson(doneEvents())),
 
   doneThenOpen: () =>
@@ -120,11 +119,20 @@ const answerResponses = {
     ),
 
   lost: () =>
-    new Response(ndjson(errorEvents(lostCallMessage("Claude Code exited from signal SIGTERM")))),
+    new Response(
+      ndjson(
+        errorEvents(
+          "Claude relay lost the call (connection lost): Claude Code exited from signal SIGTERM",
+        ),
+      ),
+    ),
 
   refusal: () => new Response(ndjson(errorEvents("Claude refused the request"))),
 
-  stopping: () => new Response(lostCallMessage("the relay is stopping"), { status: 503 }),
+  stopping: () =>
+    new Response("Claude relay lost the call (connection lost): the relay is stopping", {
+      status: 503,
+    }),
 
   cut: () => new Response(ndjson(doneEvents().slice(0, 1))),
 
@@ -154,7 +162,7 @@ export const createFakeContainer = () => {
   let signals: Array<number> = [];
   let interceptions: Array<{ protocol: "http" | "https"; host: string }> = [];
   let relayRequests: Array<RelayRequest> = [];
-  let openMonitors: Array<() => void> = [];
+  let monitorResolvers: Array<() => void> = [];
 
   const relayFetch = async (input: RequestInfo, init?: RequestInit) => {
     const request = new Request(input, init);
@@ -182,7 +190,7 @@ export const createFakeContainer = () => {
 
       callsAnswered += 1;
 
-      return answerResponses[answer]();
+      return responsesByAnswer[answer]();
     }
 
     return new Response(null, { status: 404 });
@@ -191,11 +199,11 @@ export const createFakeContainer = () => {
   const stop = () => {
     isRunning = false;
 
-    for (const settle of openMonitors) {
-      settle();
+    for (const resolveMonitor of monitorResolvers) {
+      resolveMonitor();
     }
 
-    openMonitors = [];
+    monitorResolvers = [];
   };
 
   const container = {
@@ -218,7 +226,7 @@ export const createFakeContainer = () => {
     monitor: () =>
       isRunning
         ? new Promise<void>((resolve) => {
-            openMonitors.push(resolve);
+            monitorResolvers.push(resolve);
           })
         : Promise.resolve(),
 
@@ -270,7 +278,7 @@ export const createFakeContainer = () => {
       inactivityTimeoutMs,
       interceptions,
       relayRequests,
-      openMonitorCount: openMonitors.length,
+      openMonitorCount: monitorResolvers.length,
     }),
   };
 };

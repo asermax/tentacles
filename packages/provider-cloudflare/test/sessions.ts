@@ -51,9 +51,9 @@ export const waitUntilIdle = (sessionId: string) =>
 export const waitUntilRunEnds = async (sessionId: string, attempts: number) => {
   await pollUntil(
     async () => {
-      const state = await statusOf(sessionId);
+      const sessionStatus = await statusOf(sessionId);
 
-      return SessionState.guards.idle(state) || SessionState.guards.failed(state);
+      return SessionState.guards.idle(sessionStatus) || SessionState.guards.failed(sessionStatus);
     },
     `Session ${sessionId} never ended its run`,
     attempts,
@@ -86,13 +86,12 @@ export const idleSession = async (
   sessionId: string,
   repository: Repository | null = null,
   prompt = "Say done.",
-  settings: Settings = testSettings,
 ) => {
   await env.SessionObject.getByName(sessionId).create({
     name: "worker",
     parent,
     prompt,
-    settings: { ...settings, repository },
+    settings: { ...testSettings, repository },
   });
 
   await waitUntilIdle(sessionId);

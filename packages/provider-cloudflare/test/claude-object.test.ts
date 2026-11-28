@@ -17,6 +17,19 @@ const armedClaude = async (setup: Parameters<typeof resetClaude>[0] = {}) => {
   await restartClaude();
 };
 
+// What arming a running container sets: the platform's timeout, both interceptions, a monitor and the alarm.
+const expectArmed = async () => {
+  const { inactivityTimeoutMs, interceptions, openMonitorCount } =
+    await claudeObject().containerState();
+
+  expect(inactivityTimeoutMs).toBe(sleepAfterMs);
+  expect(interceptions).toEqual(
+    expect.arrayContaining([anthropicInterception, internalInterception]),
+  );
+  expect(openMonitorCount).toBeGreaterThan(0);
+  expect(await claudeObject().alarmAt()).not.toBeNull();
+};
+
 beforeEach(async () => {
   await resetClaude();
 });
@@ -77,19 +90,14 @@ describe("the Claude object's calls", () => {
   it("arms the container it starts and counts the call that started it", async () => {
     const response = await callClaude();
 
-    const { starts, inactivityTimeoutMs, interceptions, openMonitorCount, relayRequests } =
-      await claudeObject().containerState();
-
+    const { starts, relayRequests } = await claudeObject().containerState();
     const { callIds, lastActivity } = await claudeObject().storedCalls();
 
     expect(response.status).toBe(200);
     expect(starts).toHaveLength(1);
-    expect(inactivityTimeoutMs).toBe(sleepAfterMs);
-    expect(interceptions).toEqual(
-      expect.arrayContaining([anthropicInterception, internalInterception]),
-    );
-    expect(openMonitorCount).toBeGreaterThan(0);
-    expect(await claudeObject().alarmAt()).not.toBeNull();
+
+    await expectArmed();
+
     expect(callIds).toEqual([relayRequests[0]?.callId]);
     expect(lastActivity).not.toBeNull();
   });
@@ -98,18 +106,18 @@ describe("the Claude object's calls", () => {
     await armedClaude();
     await claudeObject().storeStopping();
 
-    const held = callClaude();
+    const heldCallResponse = callClaude();
 
     await scheduler.wait(200);
 
-    const whileHeld = await claudeObject().containerState();
+    const containerWhileHeld = await claudeObject().containerState();
 
-    expect(whileHeld.relayRequests).toHaveLength(0);
-    expect(whileHeld.starts).toHaveLength(0);
+    expect(containerWhileHeld.relayRequests).toHaveLength(0);
+    expect(containerWhileHeld.starts).toHaveLength(0);
 
     await claudeObject().stopContainer();
 
-    const response = await held;
+    const response = await heldCallResponse;
     const { starts, relayRequests } = await claudeObject().containerState();
     const { callIds, isStopping } = await claudeObject().storedCalls();
 
@@ -163,6 +171,7 @@ describe("the Claude object's alarm", () => {
 
   it("neither signals nor sets another alarm once the container has stopped", async () => {
     await resetClaude({ isRunning: false });
+    await claudeObject().storeLastActivity(sleepAfterMs);
     await claudeObject().runAlarm();
 
     expect((await claudeObject().containerState()).signals).toEqual([]);
@@ -179,15 +188,8 @@ describe("a new Claude object instance", () => {
     await claudeObject().storeCall(callId);
     await restartClaude();
 
-    const { inactivityTimeoutMs, interceptions, openMonitorCount } =
-      await claudeObject().containerState();
+    await expectArmed();
 
-    expect(inactivityTimeoutMs).toBe(sleepAfterMs);
-    expect(interceptions).toEqual(
-      expect.arrayContaining([anthropicInterception, internalInterception]),
-    );
-    expect(openMonitorCount).toBeGreaterThan(0);
-    expect(await claudeObject().alarmAt()).not.toBeNull();
     expect((await claudeObject().storedCalls()).callIds).toEqual([callId]);
 
     await claudeObject().storeLastActivity(20 * 60_000);

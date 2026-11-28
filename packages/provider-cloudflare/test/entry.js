@@ -167,7 +167,9 @@ export class ClaudeObject extends DurableObjectBridge("ClaudeObject") {
   }
 
   // One alarm pass, as the platform would run it.
-  runAlarm() {
+  async runAlarm() {
+    await this.ctx.storage.deleteAlarm();
+
     return this.alarm();
   }
 }
