@@ -24,9 +24,10 @@ flowchart LR
         WsObj@{ shape: rect, label: "Workspace DO, Workspace Worker<br/>Computer workspace, git client,<br/>egress gateway with the CDP relay" }
         Shell@{ shape: rect, label: "Isolate shell<br/>Dynamic Worker" }
         Workspace@{ shape: rect, label: "Workspace container<br/>computerd, /workspace mount,<br/>agent-browser" }
+        ClaudeObj@{ shape: rect, label: "Claude DO<br/>call count, idle stop" }
         Claude@{ shape: rect, label: "Claude container, shared<br/>relay and claude CLI" }
         Codemode@{ shape: rect, label: "Codemode Worker<br/>sandbox Durable Object" }
-        Egress@{ shape: hex, label: "Claude outbound handler<br/>subscription token" }
+        Egress@{ shape: hex, label: "Claude outbound handlers<br/>subscription token, end report" }
     end
     Anthropic@{ shape: cloud, label: "Anthropic" }
     GitHub@{ shape: cloud, label: "GitHub" }
@@ -44,11 +45,13 @@ flowchart LR
     WsObj -->|"git client and gateway:<br/>GitHub token added"| GitHub
     WsObj -->|"CDP relay"| Browser
     Session -->|"binding: preview's browser"| Browser
-    Session -->|"Claude calls"| Claude
+    Session -->|"Claude calls"| ClaudeObj
+    ClaudeObj -->|"start, forward, SIGTERM"| Claude
     Session -->|"other models"| Gateway
     Session -->|"codemode scripts"| Codemode
-    Claude --> Egress
-    Egress --> Anthropic
+    Claude -->|"Anthropic calls, end reports"| Egress
+    Egress -->|"subscription token added"| Anthropic
+    Egress -->|"end report"| ClaudeObj
     Browser -->|"preview URL"| Worker
 
     classDef grey fill:#f3f4f6,stroke:#4b5563,color:#1f2937
@@ -58,7 +61,7 @@ flowchart LR
     classDef violet fill:#ede9fe,stroke:#7c3aed,color:#1f2937
     class Plugin grey
     class Worker blue
-    class Registry,Session,WsObj,Shell,Workspace,Claude,Codemode green
+    class Registry,Session,WsObj,Shell,Workspace,ClaudeObj,Claude,Codemode green
     class Egress amber
     class Anthropic,GitHub,Gateway,Browser violet
 ```
@@ -125,4 +128,4 @@ The provider is the `provider-cloudflare` package. It shares the relay's protoco
 
 ---
 
-Related: [runtime-components](../../runtime-components.md), [claude-container](claude-container.md), [computer-workspace](computer-workspace.md), [preview-and-browser](preview-and-browser.md), [sessions](../../sessions.md), [worker-api](../../worker-api.md)
+Related: [runtime-components](../../runtime-components.md), [claude-container](claude-container.md), [computer-workspace](computer-workspace.md), [preview-and-browser](preview-and-browser.md), [sessions](../../sessions.md), [worker-api](../../worker-api.md), [workspace](../../workspace.md)

@@ -8,7 +8,7 @@ created: "2026-11-26"
 
 ## 🔭 Overview
 
-One Claude container serves every Claude model call from every session and subagent, on the owner's Claude subscription. A single Durable Object, the Claude object, owns the container. The object starts the container on the first call that finds it stopped, keeps itself and the container alive while calls are in flight and for 15 minutes after the last one, and then stops the container itself. Inside the container, the relay is the first and only long-lived process. The relay runs each call through one claude CLI process, streams the result back, and keeps every failure inside the call that caused it, so one call's failure never ends another call or the relay. A call lost on the way, because the container stopped or a connection dropped, reaches the session as an error that pi-durable retries.
+One Claude container serves every Claude model call from every session and subagent, on the owner's Claude subscription. A single Durable Object, the Claude object, owns the container. The object starts the container on the first call that finds it stopped, keeps itself and the container alive while calls are in flight and for 15 minutes after the last one, and then stops the container itself. Inside the container, the relay is the first and only long-lived process. The relay runs each call through one claude CLI process, streams the result back, and keeps every failure inside the call that caused it, so one call's failure never ends another call or the relay.
 
 ## 📩 How a call travels
 
@@ -57,7 +57,7 @@ stateDiagram-v2
     class Stopped grey
 ```
 
-The Claude object starts the container when a call finds it stopped. Calls that arrive during the start wait for it, and none reaches the relay before the relay answers. Once the relay answers, the object sets the outbound interception that adds the subscription token, holds the container's monitor open and keeps an alarm pending. Each alarm pass waits about a minute before setting the next one, so the object always has work in progress while the container runs. A new instance of the object that finds the container running arms it the same way: interception, inactivity timeout, monitor and alarm.
+The Claude object starts the container when a call finds it stopped. Calls that arrive during the start wait for it, and none reaches the relay before the relay answers. Right after the start, before it waits for the relay, the object arms the container: it sets the inactivity timeout and two outbound interceptions, one that adds the subscription token to calls to Anthropic and one that takes the relay's end reports, holds the container's monitor open and keeps an alarm pending. Each alarm pass waits about a minute before setting the next one, so the object always has work in progress while the container runs. A new instance of the object that finds the container running arms it the same way: inactivity timeout, both interceptions, monitor and alarm.
 
 The object counts every call it forwards and takes the call off its count when the relay reports the call's end, aborted calls included. The object keeps the count and the time of the last forward or end report in its storage, so a new instance takes up the same count and the same timer. On an alarm pass, when no call is in flight and 15 minutes have passed since the last forward or end report, the object marks itself stopping and sends the container SIGTERM. A call that arrives while the object is stopping waits until the container has stopped, and the object then starts the next container for it. When the monitor reports that the container stopped, whoever stopped it, the object clears its count and its stopping mark.
 
@@ -108,7 +108,7 @@ The relay writes one JSON object per line on stdout, which reaches Workers obser
 | relay start | the relay listens | the port |
 | relay signal | the relay receives SIGTERM or SIGINT | the signal |
 | relay exit | the relay exits after a signal | nothing more |
-| call start | a call reaches the relay | the call id, the sender's session, the conversation, the model |
+| call start | the relay has read the call's body and resolved its model | the call id, the sender's session, the conversation, the model |
 | call end | a call ends | the call id, how it ended: done, failed, lost, aborted by the caller or stopped by the signal, with the error message for failed and lost, and `details` with the sender's session and the conversation (absent when the call ended before it started) |
 | error | an error inside a call or an uncaught one | the message and the stack, and `call` with the call id and the sender for a call's error |
 
@@ -116,7 +116,7 @@ The conversation is pi-durable's id for the conversation that made the call, so 
 
 ## ⚙️ Implementation details
 
-The relay and the provider that calls it both import the `relay-protocol` package, which defines the request body, the call id and the header that carries it, the path of the end report, and the lost-call wording. The Cloudflare provider owns the end report's route through `tentacles.internal` and the egress handler.
+The relay and the provider that calls it both import the `relay-protocol` package, which defines the request body, the call id and the header that carries it, the end report's host (`tentacles.internal`) and path, the line format of the streamed events, the error event of a failed call, and the lost-call wording. The Cloudflare provider owns the interception of the end report's host and the egress handler that passes the report to the Claude object.
 
 ---
 
