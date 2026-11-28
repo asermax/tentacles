@@ -28,11 +28,11 @@ const main = (argv: ReadonlyArray<string>) =>
       return yield* watchSessions(sessionIds, (line) => Console.log(encodeLine(line)));
     }
 
-    const result = isCommandName(name)
+    const commandResult = isCommandName(name)
       ? yield* runCommand(name, rest[0] ?? "{}")
       : HelperError.make({ message: `Unknown command "${name}".` });
 
-    return yield* Console.log(encodeResult(result));
+    return yield* Console.log(encodeResult(commandResult));
   });
 
 void Effect.runPromise(

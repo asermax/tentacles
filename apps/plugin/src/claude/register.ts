@@ -44,17 +44,22 @@ function watchOf($: Engine, helper: string): Glue["watch"] {
   };
 }
 
-function glueOf($: Engine, helper: string, statePath: string, runs: Map<string, ToolRun>): Glue {
+function glueOf(
+  $: Engine,
+  helper: string,
+  statePath: string,
+  toolRunsByName: Map<string, ToolRun>,
+): Glue {
   const wake = createWakeQueue(async (text) => {
     await $.prompt.submit({ text });
   });
 
   return {
     readState: () => readStateFile($, statePath),
-    writeState: (state) => writeStateFile($, statePath, state),
+    writeState: (localState) => writeStateFile($, statePath, localState),
     status: (line) => $.ui.status(line),
     wake,
-    registerTool: (tool, run) =>
+    registerTool: (tool, runTool) =>
       void $.tool
         .register({
           name: tool.name,
@@ -66,7 +71,7 @@ function glueOf($: Engine, helper: string, statePath: string, runs: Map<string, 
           // Not behind ToolSearch: the skill expects the tools at hand.
           isDeferred: false,
         })
-        .then((registered) => runs.set(registered.tool, run))
+        .then((registered) => toolRunsByName.set(registered.tool, runTool))
         .catch((error: Error) =>
           $.ui.log(`tentacles: the ${tool.name} tool is not available (${error.message})`),
         ),
@@ -98,23 +103,23 @@ function argumentsOf(event: ToolCall): Schema.JsonObject {
 }
 
 export function register(on: On): void {
-  const runs = new Map<string, ToolRun>();
+  const toolRunsByName = new Map<string, ToolRun>();
   let controller: Controller | undefined;
 
   on("session.start", async ($, event, next) => {
-    const started = await next(event);
+    const startOutcome = await next(event);
     const [sessionId, helper] = await Promise.all([$.session.id(), helperOf($)]);
     const statePath = await stateFilePath($, sessionId);
 
     controller?.stop();
-    runs.clear();
-    controller = createController(glueOf($, helper, statePath, runs), Harnesses.claude);
+    toolRunsByName.clear();
+    controller = createController(glueOf($, helper, statePath, toolRunsByName), Harnesses.claude);
     // The start-up sync calls the Worker, which must not hold up the session.
     void controller
       .start({ parentSessionId: sessionId, isInteractive: event.isInteractive })
       .catch(() => undefined);
 
-    return started;
+    return startOutcome;
   });
 
   on("session.end", async (_$, event, next) => {
@@ -125,13 +130,13 @@ export function register(on: On): void {
   });
 
   on("tool.call", async (_$, event, next) => {
-    const run = runs.get(event.tool);
+    const toolRun = toolRunsByName.get(event.tool);
 
-    if (run == null) {
+    if (toolRun == null) {
       return next(event);
     }
 
-    const outcome = await run(argumentsOf(event));
+    const outcome = await toolRun(argumentsOf(event));
 
     return outcome.isError ? { deny: outcome.text } : { result: outcome.text };
   }).catch((_$, event, next) =>

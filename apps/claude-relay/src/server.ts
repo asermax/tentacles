@@ -4,6 +4,7 @@ import { text } from "node:stream/consumers";
 import { normalizeContext, type Message } from "@earendil-works/pi-ai";
 import { CLAUDE_CODE_MODELS } from "@earendil-works/pi-claude-code/src/model-catalog.ts";
 import { streamClaudeCode } from "@earendil-works/pi-claude-code/src/stream.ts";
+import { messageOf } from "@tentacles/common/message-of";
 import { callIdHeader, decodeCallId } from "@tentacles/relay-protocol/call-id";
 import { decodeStreamRequest } from "@tentacles/relay-protocol/stream-request";
 import * as Option from "effect/Option";
@@ -16,7 +17,7 @@ import {
 } from "./calls-in-flight";
 import { egressCaTrust } from "./egress-ca";
 import { eventToRelay } from "./event-to-relay";
-import { errorRecord, messageOf } from "./log";
+import { errorRecord } from "./log";
 import { resolveModel } from "./resolve-model";
 
 const health = (response: ServerResponse) => {

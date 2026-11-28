@@ -137,11 +137,11 @@ export class WorkspaceObject extends withWorkspaceContainer(
   #lastOperation: Promise<unknown> = Promise.resolve();
 
   #serialized<Result>(operation: () => Promise<Result>) {
-    const result = this.#lastOperation.then(operation, operation);
+    const operationResult = this.#lastOperation.then(operation, operation);
 
-    this.#lastOperation = result.catch(() => undefined);
+    this.#lastOperation = operationResult.catch(() => undefined);
 
-    return result;
+    return operationResult;
   }
 
   // Answers the failure instead of throwing it: a rejected call reaches the session object as an

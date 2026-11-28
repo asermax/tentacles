@@ -30,6 +30,8 @@
     "tentacles/null-check": "error",
     "tentacles/no-enum": "error",
     "tentacles/test-location": "error",
+    "tentacles/no-ad-hoc-event-line": "error",
+    "tentacles/no-ad-hoc-error-message": "error",
     "oxc/no-accumulating-spread": "error",
     "vitest/no-standalone-expect": [
       "error",
@@ -60,6 +62,13 @@
     "anti-slop-effect/prefer-effect-match": "error"
   },
   "overrides": [
+    {
+      "files": ["apps/*/src/**", "packages/*/src/**"],
+      "rules": {
+        "typescript/no-unsafe-assignment": "error",
+        "tentacles/no-generic-names": "error"
+      }
+    },
     {
       "files": [
         "*.config.ts",

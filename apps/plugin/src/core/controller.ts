@@ -73,8 +73,8 @@ const failureText = Match.type<TentaclesError>().pipe(
 
 // What the parent was last woken with per session: a watch restart reconnects
 // every socket and each sends its current state, which must not wake again.
-const wakeKeyOf = (state: SessionState) =>
-  Match.value(state).pipe(
+const wakeKeyOf = (sessionState: SessionState) =>
+  Match.value(sessionState).pipe(
     Match.tag(
       SessionStatuses.waiting,
       (waiting) => `${SessionStatuses.waiting}:${waiting.question.id}`,
@@ -90,11 +90,11 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
   let watchProcess: WatchProcess | undefined;
   let waiters: Array<(text: string) => void> = [];
 
-  const wakeKeys = new Map<SessionId, string>();
+  const wakeKeysBySessionId = new Map<SessionId, string>();
 
   // Wakes that went out as a message while no wait was registered: pi holds such a message until
   // its turn ends, so a wait called in that turn returns the wake instead of waiting for the next.
-  const unwaited = new Map<SessionId, string>();
+  const unwaitedWakesBySessionId = new Map<SessionId, string>();
 
   const save = (next: ReadonlyArray<SessionRef>) => {
     sessions = next;
@@ -119,15 +119,15 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
   };
 
   const drop = (sessionId: SessionId) => {
-    wakeKeys.delete(sessionId);
-    unwaited.delete(sessionId);
+    wakeKeysBySessionId.delete(sessionId);
+    unwaitedWakesBySessionId.delete(sessionId);
     save(sessions.filter((session) => session.sessionId !== sessionId));
   };
 
   const deliver = (sessionId: SessionId, text: string) => {
     if (waiters.length === 0) {
-      unwaited.delete(sessionId);
-      unwaited.set(sessionId, text);
+      unwaitedWakesBySessionId.delete(sessionId);
+      unwaitedWakesBySessionId.set(sessionId, text);
       glue.wake(text);
 
       return;
@@ -139,24 +139,24 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
     woken.forEach((resolve) => resolve(text));
   };
 
-  const onStateLine = (sessionId: SessionId, state: SessionState) => {
+  const onStateLine = (sessionId: SessionId, sessionState: SessionState) => {
     const session = sessions.find((candidate) => candidate.sessionId === sessionId);
 
     if (session == null) {
       return;
     }
 
-    setStatus(sessionId, statusOf(state));
+    setStatus(sessionId, statusOf(sessionState));
 
-    const key = wakeKeyOf(state);
+    const key = wakeKeyOf(sessionState);
 
-    if (wakeKeys.get(sessionId) === key) {
+    if (wakeKeysBySessionId.get(sessionId) === key) {
       return;
     }
 
-    wakeKeys.set(sessionId, key);
+    wakeKeysBySessionId.set(sessionId, key);
 
-    const text = Match.value(state).pipe(
+    const text = Match.value(sessionState).pipe(
       Match.tag(SessionStatuses.waiting, (waiting) => questionWake(session, waiting.question)),
       Match.tag(SessionStatuses.idle, (idle) => finishWake(session, idle.lastEntry)),
       Match.tag(SessionStatuses.failed, (failed) => failureWake(session, failed.failure)),
@@ -164,7 +164,7 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
     );
 
     if (text == null) {
-      unwaited.delete(sessionId);
+      unwaitedWakesBySessionId.delete(sessionId);
 
       return;
     }
@@ -203,11 +203,13 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
   };
 
   const runCommand = async (name: string, args: Schema.JsonObject): Promise<CommandResult> => {
-    const printed = await glue.runHelper([name, JSON.stringify(args)]).catch(String);
-    const lastLine = printed.trim().split("\n").at(-1) ?? "";
+    const helperOutput = await glue.runHelper([name, JSON.stringify(args)]).catch(String);
+    const lastLine = helperOutput.trim().split("\n").at(-1) ?? "";
 
     return Option.getOrElse(decodeCommandResult(lastLine), () =>
-      HelperError.make({ message: `The helper printed no result: ${printed.trim() || "nothing"}` }),
+      HelperError.make({
+        message: `The helper printed no result: ${helperOutput.trim() || "nothing"}`,
+      }),
     );
   };
 
@@ -216,32 +218,36 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
     (args: Schema.JsonObject, success: typeof Success.Type) => void
   > = {
     spawn: (args, success) => {
-      const created = Schema.decodeUnknownSync(SpawnResult)(success.result);
+      const spawnResult = Schema.decodeUnknownSync(SpawnResult)(success.result);
       const { name } = Schema.decodeUnknownSync(NamedArguments)(args);
 
-      wakeKeys.set(created.sessionId, SessionStatuses.running);
+      wakeKeysBySessionId.set(spawnResult.sessionId, SessionStatuses.running);
       save([
         ...sessions,
-        SessionRef.make({ sessionId: created.sessionId, name, status: SessionStatuses.running }),
+        SessionRef.make({
+          sessionId: spawnResult.sessionId,
+          name,
+          status: SessionStatuses.running,
+        }),
       ]);
       restartWatch();
     },
     close: (args) => {
       Option.map(targetOf(args), (sessionId) => {
-        unwaited.delete(sessionId);
+        unwaitedWakesBySessionId.delete(sessionId);
         setStatus(sessionId, SessionStatuses.closed);
         restartWatch();
       });
     },
     prompt: (args) => {
-      const reopened = Option.filter(targetOf(args), (sessionId) =>
+      const reopenedSessionId = Option.filter(targetOf(args), (sessionId) =>
         sessions.some(
           (session) => session.sessionId === sessionId && session.status === SessionStatuses.closed,
         ),
       );
 
-      Option.map(reopened, (sessionId) => {
-        wakeKeys.set(sessionId, SessionStatuses.running);
+      Option.map(reopenedSessionId, (sessionId) => {
+        wakeKeysBySessionId.set(sessionId, SessionStatuses.running);
         setStatus(sessionId, SessionStatuses.running);
         restartWatch();
       });
@@ -273,9 +279,9 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
       return { isError: true, text: "The tentacles plugin has not started for this session yet." };
     }
 
-    const result = await runCommand(tool.name, requestOf[tool.name](args, current));
+    const commandResult = await runCommand(tool.name, requestOf[tool.name](args, current));
 
-    return Match.value(result).pipe(
+    return Match.value(commandResult).pipe(
       Match.tagsExhaustive({
         Success: (success) => {
           afterSuccess[tool.name](args, success);
@@ -305,12 +311,12 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
       });
     }
 
-    const [pending] = unwaited;
+    const [unwaitedWake] = unwaitedWakesBySessionId;
 
-    if (pending != null) {
-      const [sessionId, text] = pending;
+    if (unwaitedWake != null) {
+      const [sessionId, text] = unwaitedWake;
 
-      unwaited.delete(sessionId);
+      unwaitedWakesBySessionId.delete(sessionId);
 
       return Promise.resolve({ isError: false, text });
     }
@@ -343,8 +349,8 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
     start: async (options) => {
       parent = { harness, sessionId: ParentSessionId.make(options.parentSessionId) };
       waiters = [];
-      wakeKeys.clear();
-      unwaited.clear();
+      wakeKeysBySessionId.clear();
+      unwaitedWakesBySessionId.clear();
       isInteractive = options.isInteractive;
 
       const local = await glue.readState();
@@ -353,13 +359,13 @@ export const createController = (glue: Glue, harness: Harness): Controller => {
 
       // Keyed by what the parent last saw, so a change it missed while away still wakes it once
       // the watch connects.
-      sessions.forEach((session) => wakeKeys.set(session.sessionId, session.status));
+      sessions.forEach((session) => wakeKeysBySessionId.set(session.sessionId, session.status));
 
       if (sessions.length > 0) {
-        const listed = await runCommand(ToolNames.list, { parent });
+        const listResult = await runCommand(ToolNames.list, { parent });
 
-        if (Predicate.isTagged(listed, "Success")) {
-          sessions = Schema.decodeUnknownSync(SessionRefs)(listed.result);
+        if (Predicate.isTagged(listResult, "Success")) {
+          sessions = Schema.decodeUnknownSync(SessionRefs)(listResult.result);
         }
 
         save(sessions);

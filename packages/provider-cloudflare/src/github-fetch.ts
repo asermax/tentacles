@@ -19,8 +19,8 @@ export const fetchWithAuthorization = (request: Request, authorization: string) 
  */
 export const githubFetch =
   (token: string, onNotFound?: () => void): typeof fetch =>
-  async (input, init) => {
-    const request = new Request(input, init);
+  async (requestOrUrl, requestInit) => {
+    const request = new Request(requestOrUrl, requestInit);
 
     const { protocol, hostname } = new URL(request.url);
 

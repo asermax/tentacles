@@ -1,3 +1,4 @@
+import { messageOf } from "@tentacles/common/message-of";
 import { CallId } from "@tentacles/relay-protocol/call-id";
 import { StreamRequest } from "@tentacles/relay-protocol/stream-request";
 import * as Schema from "effect/Schema";
@@ -48,9 +49,6 @@ export type Log = (record: LogRecord) => void;
 export const writeLog = (record: LogRecord) => {
   process.stdout.write(`${encodeLogRecord(record)}\n`);
 };
-
-export const messageOf = (cause: unknown) =>
-  cause instanceof Error ? cause.message : String(cause);
 
 /** The Error record for anything thrown or rejected, with the call it happened in when there is one. */
 export const errorRecord = (cause: unknown, call?: typeof ErrorCall.Type) =>

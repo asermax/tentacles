@@ -10,7 +10,9 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
 
-const write = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
+import { eventLine } from "@tentacles/relay-protocol/event-line";
+
+const write = (value) => process.stdout.write(eventLine(value));
 
 if (process.argv.includes("auth") && process.argv.includes("status")) {
   write({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" });

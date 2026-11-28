@@ -22,7 +22,7 @@ import { registry } from "./schema";
 /** A synchronous drizzle SQLite database: a Durable Object's storage, or better-sqlite3 in tests. */
 export type RegistryDatabase = BaseSQLiteDatabase<"sync", unknown>;
 
-const stopped = Arr.difference(Object.values(SessionStatuses), activeStatuses);
+const inactiveStatuses = Arr.difference(Object.values(SessionStatuses), activeStatuses);
 
 const decodeListings = Schema.decodeUnknownEffect(Schema.Array(SessionListing));
 
@@ -55,7 +55,7 @@ const changesFor = (status: SessionStatus, now: number) => {
     case SessionStatuses.closed:
       return {
         status,
-        lastStopped: sql`case when ${inArray(registry.status, stopped)} then ${registry.lastStopped} else ${now} end`,
+        lastStopped: sql`case when ${inArray(registry.status, inactiveStatuses)} then ${registry.lastStopped} else ${now} end`,
         previewPort: null,
         previewToken: null,
       };

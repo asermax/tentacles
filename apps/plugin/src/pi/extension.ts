@@ -21,14 +21,14 @@ export const tentaclesExtension = (pi: PiExtensionApi): void => {
   const glue: Glue = {
     readState: async () =>
       context == null ? LocalState.make({ sessions: [] }) : readStateEntry(context),
-    writeState: async (state) => writeStateEntry(pi, state),
+    writeState: async (localState) => writeStateEntry(pi, localState),
     status: (line) => context?.ui.setWidget(statusWidgetKey, line == null ? undefined : [line]),
     wake: (text) =>
       pi.sendMessage(
         { customType: wakeMessageType, content: text, display: true },
         { triggerTurn: true },
       ),
-    registerTool: (tool, run) =>
+    registerTool: (tool, runTool) =>
       pi.registerTool({
         name: `tentacles_${tool.name}`,
         label: `tentacles ${tool.name}`,
@@ -38,7 +38,7 @@ export const tentaclesExtension = (pi: PiExtensionApi): void => {
           WatchOnly: () => ({ type: "object", properties: {} }),
         }),
         execute: async (_toolCallId, params, signal) => {
-          const outcome = await run(params, signal);
+          const outcome = await runTool(params, signal);
 
           if (outcome.isError) {
             throw new Error(outcome.text);

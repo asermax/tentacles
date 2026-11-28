@@ -74,35 +74,35 @@ const check = <Item extends { readonly name: string }, Source extends { readonly
   sources: ReadonlyArray<Source>,
   decode: (source: Source) => Result.Result<Item, string>,
 ) => {
-  const items: Array<Item> = [];
+  const validItems: Array<Item> = [];
   const problems: Array<Problem> = [];
-  const owners = new Map<string, string>();
+  const ownersByName = new Map<string, string>();
 
   for (const source of sources) {
-    const decoded = decode(source);
+    const decodeResult = decode(source);
 
-    if (Result.isFailure(decoded)) {
-      problems.push({ path: source.path, message: decoded.failure });
+    if (Result.isFailure(decodeResult)) {
+      problems.push({ path: source.path, message: decodeResult.failure });
 
       continue;
     }
 
-    const owner = owners.get(decoded.success.name);
+    const owner = ownersByName.get(decodeResult.success.name);
 
     if (owner != null) {
       problems.push({
         path: source.path,
-        message: `name '${decoded.success.name}' is already used by ${owner}`,
+        message: `name '${decodeResult.success.name}' is already used by ${owner}`,
       });
 
       continue;
     }
 
-    owners.set(decoded.success.name, source.path);
-    items.push(decoded.success);
+    ownersByName.set(decodeResult.success.name, source.path);
+    validItems.push(decodeResult.success);
   }
 
-  return { items, problems };
+  return { items: validItems, problems };
 };
 
 /** Every skill rule: name format, name equals its folder, description length, unique names. */

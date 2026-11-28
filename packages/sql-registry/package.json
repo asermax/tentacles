@@ -8,7 +8,7 @@
     "./migrations": "./src/migrations/migrations.js"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "effect-tsgo tsc --noEmit",
     "test": "vitest run",
     "generate": "drizzle-kit generate"
   },

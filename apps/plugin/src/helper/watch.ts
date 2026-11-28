@@ -17,18 +17,18 @@ const reconnectAfter = "5 seconds";
 
 // Only a session already idle when the socket connects lacks its last entry:
 // the idle a finishing run sends carries it.
-const withLastEntry = (sessionId: SessionId, state: SessionState) =>
+const withLastEntry = (sessionId: SessionId, sessionState: SessionState) =>
   Effect.gen(function* () {
-    if (!Predicate.isTagged(state, SessionStatuses.idle) || state.lastEntry != null) {
-      return state;
+    if (!Predicate.isTagged(sessionState, SessionStatuses.idle) || sessionState.lastEntry != null) {
+      return sessionState;
     }
 
     const client = yield* TentaclesClient;
     const entries = yield* client.sessions.messages({ params: { sessionId }, query: { count: 1 } });
 
     return Option.match(Option.fromNullishOr(entries.at(-1)), {
-      onNone: () => state,
-      onSome: (lastEntry) => SessionState.cases.idle.make({ ...state, lastEntry }),
+      onNone: () => sessionState,
+      onSome: (lastEntry) => SessionState.cases.idle.make({ ...sessionState, lastEntry }),
     });
   });
 
@@ -44,10 +44,10 @@ const connection = (sessionId: SessionId, print: (line: WatchLine) => Effect.Eff
           Predicate.isString(chunk) ? chunk : textDecoder.decode(chunk),
         );
 
-        const state = isConnected ? received : yield* withLastEntry(sessionId, received);
+        const reportedState = isConnected ? received : yield* withLastEntry(sessionId, received);
 
         isConnected = true;
-        yield* print(StateLine.make({ sessionId, state }));
+        yield* print(StateLine.make({ sessionId, state: reportedState }));
       }
     }
   }).pipe(Effect.scoped);

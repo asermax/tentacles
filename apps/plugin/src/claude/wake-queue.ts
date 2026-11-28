@@ -6,18 +6,18 @@
 export const createWakeQueue = (
   submit: (text: string) => Promise<void>,
 ): ((text: string) => void) => {
-  let pending: Array<string> = [];
+  let pendingWakes: Array<string> = [];
   let isInFlight = false;
 
   const flush = async (): Promise<void> => {
-    if (isInFlight || pending.length === 0) {
+    if (isInFlight || pendingWakes.length === 0) {
       return;
     }
 
-    const text = pending.join("\n\n");
+    const text = pendingWakes.join("\n\n");
 
     isInFlight = true;
-    pending = [];
+    pendingWakes = [];
 
     // A refused prompt loses this wake only; list stays the backstop.
     await submit(text).catch(() => undefined);
@@ -27,7 +27,7 @@ export const createWakeQueue = (
   };
 
   return (text) => {
-    pending.push(text);
+    pendingWakes.push(text);
     void flush();
   };
 };

@@ -1,9 +1,4 @@
-import type {
-  AssistantMessageEvent,
-  Model,
-  SimpleStreamOptions,
-  TranscriptContext,
-} from "@earendil-works/pi-ai";
+import type { Model, SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
 import {
   CLOUDFLARE_GATEWAY_BINDING_AUTH_SENTINEL,
   createAiBindingFetch,
@@ -14,7 +9,9 @@ import { createModels, createProvider } from "@earendil-works/pi-ai/models";
 import { ANTHROPIC_MODELS } from "@earendil-works/pi-ai/providers/anthropic.models";
 import { CLOUDFLARE_AI_GATEWAY_MODELS } from "@earendil-works/pi-ai/providers/cloudflare-ai-gateway.models";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
+import { messageOf } from "@tentacles/common/message-of";
 import { ModelProviders } from "@tentacles/contracts/model-providers";
+import { decodeEventLine } from "@tentacles/relay-protocol/decode-event-line";
 import { eventLineEnd } from "@tentacles/relay-protocol/event-line";
 import { failedEvent } from "@tentacles/relay-protocol/failed-event";
 import { lostCallMessage } from "@tentacles/relay-protocol/lost-call";
@@ -22,6 +19,7 @@ import { StreamRequest } from "@tentacles/relay-protocol/stream-request";
 import type { SessionId } from "@tentacles/worker-api/ids";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Struct from "effect/Struct";
 
 /** The AI Gateway the gateway provider goes through, declared by the stack. */
@@ -57,11 +55,11 @@ const gatewayProvider = (ai: AiBinding) => {
     model.id.startsWith(workersAiPrefix),
   );
 
-  const catalogIds = new Map(catalog.map((model) => [shortId(model.id), model.id]));
+  const catalogIdsByShortId = new Map(catalog.map((model) => [shortId(model.id), model.id]));
 
   const upstream = <T extends { id: string }>(model: T): T => ({
     ...model,
-    id: catalogIds.get(model.id) ?? model.id,
+    id: catalogIdsByShortId.get(model.id) ?? model.id,
   });
 
   // The binding is authenticated in the account; the sentinel only satisfies the API's check for
@@ -167,23 +165,26 @@ const claudeProvider = (claude: () => Fetcher, tentaclesSessionId: SessionId) =>
         sender: { session: tentaclesSessionId },
       };
 
-      const response = await claude().fetch("http://claude/stream", {
+      const streamResponse = await claude().fetch("http://claude/stream", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(streamRequest),
         signal: options?.signal ?? null,
       });
 
-      if (!response.ok || response.body == null) {
-        throw new Error(`The Claude relay answered ${response.status}: ${await response.text()}`);
+      if (!streamResponse.ok || streamResponse.body == null) {
+        throw new Error(
+          `The Claude relay answered ${streamResponse.status}: ${await streamResponse.text()}`,
+        );
       }
 
       let hasEnded = false;
 
-      for await (const line of relayLines(response.body)) {
-        // The relay is apps/claude-relay, which writes pi-ai's own AssistantMessageEvents one
-        // per line, so the shape is pi-ai's on both ends and the line is not parsed again.
-        const event: AssistantMessageEvent = JSON.parse(line);
+      for await (const line of relayLines(streamResponse.body)) {
+        const event = Option.getOrThrowWith(
+          decodeEventLine(line),
+          () => new Error(`The Claude relay sent a line that is not an event: ${line}`),
+        );
 
         if (event.type === "error") {
           failCall(event.error.errorMessage ?? "The Claude relay reported an error");
@@ -204,7 +205,7 @@ const claudeProvider = (claude: () => Fetcher, tentaclesSessionId: SessionId) =>
     relay()
       .catch((error) => {
         if (options?.signal?.aborted !== true) {
-          failCall(error instanceof Error ? error.message : String(error));
+          failCall(messageOf(error));
         }
       })
       .finally(() => events.end());

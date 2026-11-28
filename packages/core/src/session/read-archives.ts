@@ -35,10 +35,10 @@ export const readArchives = (request: Pick<CreateSession, ArchiveKind>) =>
     { mode: "result", concurrency: "unbounded" },
   ).pipe(
     Effect.flatMap((results) => {
-      const combined = Result.all(results);
+      const archivesResult = Result.all(results);
 
-      return Result.isSuccess(combined)
-        ? Effect.succeed(combined.success)
+      return Result.isSuccess(archivesResult)
+        ? Effect.succeed(archivesResult.success)
         : Effect.fail(
             new InvalidArchive({
               message: Object.values(results).flatMap(failureMessage).join("\n"),

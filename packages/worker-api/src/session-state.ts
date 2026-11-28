@@ -47,8 +47,8 @@ export const SessionState = Schema.Union([
 export type SessionState = typeof SessionState.Type;
 
 /** The registry's status for a state. */
-export const statusOf = (state: SessionState): SessionStatus =>
-  SessionState.match(state, {
+export const statusOf = (sessionState: SessionState): SessionStatus =>
+  SessionState.match(sessionState, {
     running: () => SessionStatuses.running,
     waiting: () => SessionStatuses.waiting,
     idle: () => SessionStatuses.idle,

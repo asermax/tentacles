@@ -44,11 +44,14 @@ export class WorkspaceContainerBackend extends ContainerBackend {
       rpc: {
         sync,
         shell: {
-          exec: (input) =>
-            shell.exec({ ...input, env: { ...input.env, ...this.#commandEnvironment } }),
-          getExec: (input) => shell.getExec(input),
-          killExec: (input) => shell.killExec(input),
-          disposeExec: (input) => shell.disposeExec(input),
+          exec: (execRequest) =>
+            shell.exec({
+              ...execRequest,
+              env: { ...execRequest.env, ...this.#commandEnvironment },
+            }),
+          getExec: (execLookup) => shell.getExec(execLookup),
+          killExec: (killRequest) => shell.killExec(killRequest),
+          disposeExec: (disposeRequest) => shell.disposeExec(disposeRequest),
         },
       },
       close: () => backendHandle.close(),

@@ -8,13 +8,13 @@ import { HttpApi } from "effect/http-api";
 // rather than its URL string, and the required keys from the wire side, so a
 // field with a decoding default stays optional for the agent.
 const argumentsOf = (part: Schema.Top) => {
-  const decoded = Schema.toJsonSchemaDocument(Schema.toType(part));
+  const decodedDocument = Schema.toJsonSchemaDocument(Schema.toType(part));
   const wire = Schema.toJsonSchemaDocument(part);
 
   return {
-    properties: decoded.schema.properties ?? {},
+    properties: decodedDocument.schema.properties ?? {},
     required: wire.schema.required ?? [],
-    definitions: { ...decoded.definitions, ...wire.definitions },
+    definitions: { ...decodedDocument.definitions, ...wire.definitions },
   };
 };
 
@@ -34,12 +34,12 @@ export const endpointArguments = (
     },
   });
 
-  const merged = parts.map(argumentsOf);
+  const partArguments = parts.map(argumentsOf);
 
   return {
     type: "object",
-    properties: Object.assign({}, ...merged.map((part) => part.properties)),
-    required: merged.flatMap((part) => part.required),
-    $defs: Object.assign({}, ...merged.map((part) => part.definitions)),
+    properties: Object.assign({}, ...partArguments.map((part) => part.properties)),
+    required: partArguments.flatMap((part) => part.required),
+    $defs: Object.assign({}, ...partArguments.map((part) => part.definitions)),
   };
 };

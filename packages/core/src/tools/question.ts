@@ -22,7 +22,7 @@ const answerOf = async (api: ToolExecutionApi, id: QuestionId, context: Context)
   }
 
   return new Promise<string>((resolve, reject) => {
-    const settle = (questions: readonly StoredQuestion[]) => {
+    const resolveIfAnswered = (questions: readonly StoredQuestion[]) => {
       const answer = findQuestion(questions, id)?.answer;
 
       if (answer != null) {
@@ -31,10 +31,10 @@ const answerOf = async (api: ToolExecutionApi, id: QuestionId, context: Context)
       }
     };
 
-    settle(watch.value.questions);
+    resolveIfAnswered(watch.value.questions);
     watch.start(async (call) => {
       if (call.kind === "value") {
-        settle(call.value.questions);
+        resolveIfAnswered(call.value.questions);
       }
     });
     void watch.closed.then((end) =>
@@ -64,9 +64,9 @@ export const askParentTool = () =>
     replay: "safe",
     execute: async (args, api, context) => {
       const id = decodeQuestionId(String(api.taskId));
-      const stored = await api.snapshot(QuestionsDoc, context);
+      const storedQuestionsDoc = await api.snapshot(QuestionsDoc, context);
 
-      if (findQuestion(stored?.questions ?? [], id) == null) {
+      if (findQuestion(storedQuestionsDoc?.questions ?? [], id) == null) {
         await api.commit(async (tx) => {
           const draft = await tx.doc(QuestionsDoc);
 

@@ -1,7 +1,7 @@
 import { defineRule } from "@oxlint/plugins";
 
 const testFile = /\.test\.tsx?$/;
-const testFolder = /\/(apps|packages)\/[^/]+\/test\//;
+const testFolder = /\/(apps|packages|tools)\/[^/]+\/test\//;
 
 /** Tests exercise a package or app through its entry points, so they live in its test folder. */
 export const testLocationRule = defineRule({

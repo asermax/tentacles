@@ -10,7 +10,7 @@
     "format": "oxfmt .",
     "lockfile:check": "pnpm install --frozen-lockfile --offline --lockfile-only --ignore-scripts",
     "typecheck": "turbo run typecheck",
-    "typecheck-tools": "tsc --noEmit -p tsconfig.json",
+    "typecheck-tools": "effect-tsgo tsc --noEmit -p tsconfig.json",
     "test": "turbo run test",
     "build": "turbo run build",
     "dev": "turbo run dev",

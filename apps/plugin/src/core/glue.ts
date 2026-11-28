@@ -25,11 +25,11 @@ export interface WatchProcess {
 /** What each harness supplies to the shared controller; the pi extension and the Claude mod each implement it. */
 export interface Glue {
   readonly readState: () => Promise<LocalState>;
-  readonly writeState: (state: LocalState) => Promise<void>;
+  readonly writeState: (localState: LocalState) => Promise<void>;
   readonly status: StatusSink;
   readonly wake: WakeSender;
   /** tentacles_<name> on pi, <name> on Claude. */
-  readonly registerTool: (tool: ToolEntry, run: ToolRun) => void;
+  readonly registerTool: (tool: ToolEntry, runTool: ToolRun) => void;
   /** Runs one helper command and resolves with what it printed. */
   readonly runHelper: (argv: ReadonlyArray<string>) => Promise<string>;
   /** Starts the helper's watch on these sessions and hands over its output as it comes. */

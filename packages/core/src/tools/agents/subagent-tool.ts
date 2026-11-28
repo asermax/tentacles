@@ -64,21 +64,21 @@ export const subagentTool = (withheld: (caller: ConversationId) => readonly Exte
           const agent = await agentNamed(args.agent, api, context);
 
           const child = await api.commit(async (tx) => {
-            const created = await tx.createConversation({
+            const createdConversation = await tx.createConversation({
               ownership: { kind: "task", taskId: api.taskId },
             });
 
-            await configure(tx, created.id, {
+            await configure(tx, createdConversation.id, {
               extensions: { remove: withheld(api.conversationId) },
               instructions: agent?.prompt ?? null,
             });
 
-            return created.id;
+            return createdConversation.id;
           }, context);
 
-          const handle = await api.conversation(child, context);
+          const childConversation = await api.conversation(child, context);
 
-          const submission = await handle?.submit(
+          const submission = await childConversation?.submit(
             { type: "input", content: args.task, requestId: `subagent:${api.taskId}` },
             context,
           );
@@ -107,11 +107,11 @@ export const subagentTool = (withheld: (caller: ConversationId) => readonly Exte
           const id = await api.commit(async (tx) => {
             const anchor = await tx.createTask(Anchor, null, background);
 
-            const created = await tx.createConversation({
+            const createdConversation = await tx.createConversation({
               ownership: { kind: "task", taskId: anchor },
             });
 
-            await configure(tx, created.id, {
+            await configure(tx, createdConversation.id, {
               extensions: { remove: withheld(api.conversationId) },
               instructions:
                 agent?.prompt ??
@@ -120,19 +120,24 @@ export const subagentTool = (withheld: (caller: ConversationId) => readonly Exte
 
             const reporter = await tx.createTask(
               Reporter,
-              { name: args.name, conversationId: created.id, message: args.task, followUp: true },
+              {
+                name: args.name,
+                conversationId: createdConversation.id,
+                message: args.task,
+                followUp: true,
+              },
               background,
             );
 
             (await tx.doc(Subagents, api.conversationId)).children.push({
-              id: String(created.id),
+              id: String(createdConversation.id),
               name: args.name,
-              conversationId: created.id,
+              conversationId: createdConversation.id,
               reporters: [reporter],
               reported: [],
             });
 
-            return String(created.id);
+            return String(createdConversation.id);
           }, context);
 
           return reply(`Started subagent ${args.name} with id ${id}.`);
@@ -163,8 +168,10 @@ export const subagentTool = (withheld: (caller: ConversationId) => readonly Exte
         }
 
         case "wait": {
-          const last = findChild(children, args.id).reporters.at(-1);
-          const settled = last == null ? null : await api.waitForTask(last, context);
+          const lastReporter = findChild(children, args.id).reporters.at(-1);
+
+          const settled =
+            lastReporter == null ? null : await api.waitForTask(lastReporter, context);
 
           const answer =
             settled?.state.outcome.status === "completed" ? settled.state.outcome.result : null;
@@ -181,7 +188,7 @@ export const subagentTool = (withheld: (caller: ConversationId) => readonly Exte
         }
 
         case "list": {
-          const lines = await Promise.all(
+          const subagentLines = await Promise.all(
             children.map(async (child) => {
               const live = await api.snapshot(LiveDoc, child.conversationId, context);
 
@@ -189,7 +196,7 @@ export const subagentTool = (withheld: (caller: ConversationId) => readonly Exte
             }),
           );
 
-          return reply(lines.length === 0 ? "No subagents." : lines.join("\n"));
+          return reply(subagentLines.length === 0 ? "No subagents." : subagentLines.join("\n"));
         }
 
         default: {

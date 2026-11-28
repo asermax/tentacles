@@ -31,7 +31,7 @@ import { skillsExtension } from "./skills";
  */
 export const remoteAgentExtensions = (sessionId: SessionId) =>
   Effect.gen(function* () {
-    const run = Effect.runPromiseWith(
+    const runEffect = Effect.runPromiseWith(
       yield* Effect.context<Browser | PreviewRouter | RegistryStore>(),
     );
 
@@ -52,7 +52,7 @@ export const remoteAgentExtensions = (sessionId: SessionId) =>
     return [
       defineExtension({ name: "tentacles-workspace", tools: workspace.tools }),
       createCodemodeExtension({ sandbox }),
-      defineExtension({ name: "tentacles", tools: [previewTool(sessionId, run)] }),
+      defineExtension({ name: "tentacles", tools: [previewTool(sessionId, runEffect)] }),
       skillsExtension,
       contextExtension,
       agents,

@@ -1,6 +1,9 @@
 import { eslintCompatPlugin } from "@oxlint/plugins";
 
+import { noAdHocErrorMessageRule } from "./rules/no-ad-hoc-error-message.ts";
+import { noAdHocEventLineRule } from "./rules/no-ad-hoc-event-line.ts";
 import { noEnumRule } from "./rules/no-enum.ts";
+import { noGenericNamesRule } from "./rules/no-generic-names.ts";
 import { nullCheckRule } from "./rules/null-check.ts";
 import { testLocationRule } from "./rules/test-location.ts";
 
@@ -11,6 +14,9 @@ const tentaclesPlugin = eslintCompatPlugin({
     "null-check": nullCheckRule,
     "no-enum": noEnumRule,
     "test-location": testLocationRule,
+    "no-ad-hoc-event-line": noAdHocEventLineRule,
+    "no-ad-hoc-error-message": noAdHocErrorMessageRule,
+    "no-generic-names": noGenericNamesRule,
   },
 });
 

@@ -54,11 +54,11 @@ const unreadable = (kind: ArchiveKind) => (error: ArchiveUnreadable) =>
 
 const succeedUnlessInvalid = <Item>(
   kind: ArchiveKind,
-  items: ReadonlyArray<Item>,
+  archiveItems: ReadonlyArray<Item>,
   problems: ReadonlyArray<Problem>,
 ): Effect.Effect<ReadonlyArray<Item>, InvalidArchive> =>
   problems.length === 0
-    ? Effect.succeed(items)
+    ? Effect.succeed(archiveItems)
     : Effect.fail(
         invalid(kind, problems.map((problem) => `${problem.path}: ${problem.message}`).join("; ")),
       );
@@ -97,11 +97,11 @@ export const readSkillsArchive = (bytes: Uint8Array) =>
         }
       }
 
-      const checked = checkSkills(sources);
+      const skillsCheck = checkSkills(sources);
 
-      return succeedUnlessInvalid("skills", checked.skills, [
+      return succeedUnlessInvalid("skills", skillsCheck.skills, [
         ...problems,
-        ...checked.problems,
+        ...skillsCheck.problems,
       ]).pipe(Effect.map((skills) => ({ skills, entries })));
     }),
   );
@@ -115,16 +115,19 @@ export const readAgentsArchive = (bytes: Uint8Array) =>
   readArchive(bytes).pipe(
     Effect.mapError(unreadable("agents")),
     Effect.flatMap((entries) => {
-      const nested = entries
+      const nestedEntryProblems = entries
         .filter((entry) => entry.path.includes("/"))
         .map((entry): Problem => ({ path: entry.path, message: "is not at the top level" }));
 
-      const checked = checkAgents(
+      const agentsCheck = checkAgents(
         entries
           .filter((entry) => !entry.path.includes("/"))
           .map((entry) => ({ path: entry.path, text: decoder.decode(entry.bytes) })),
       );
 
-      return succeedUnlessInvalid("agents", checked.agents, [...nested, ...checked.problems]);
+      return succeedUnlessInvalid("agents", agentsCheck.agents, [
+        ...nestedEntryProblems,
+        ...agentsCheck.problems,
+      ]);
     }),
   );

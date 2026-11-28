@@ -166,7 +166,7 @@ const make = (sessionId: SessionId) =>
     yield* arm(harness.wake());
     harness.resume();
 
-    const handle: SessionHandle = {
+    const sessionHandle: SessionHandle = {
       create: (request) =>
         Effect.gen(function* () {
           // The archives are read before anything is stored, so one that
@@ -332,15 +332,15 @@ const make = (sessionId: SessionId) =>
           // A pi-durable entry can map to several entries (an answer with text
           // and tool calls), so pages are read until enough are mapped.
           do {
-            const page = yield* Effect.promise(() =>
+            const entriesPage = yield* Effect.promise(() =>
               conversation.entries({ order: "descending" }, count, cursor, BACKGROUND_CONTEXT),
             );
 
-            for (const item of page.items) {
-              entries.unshift(...toEntries(item));
+            for (const durableEntry of entriesPage.items) {
+              entries.unshift(...toEntries(durableEntry));
             }
 
-            cursor = page.next;
+            cursor = entriesPage.next;
           } while (entries.length < count && cursor != null);
 
           return entries.slice(-count);
@@ -378,7 +378,7 @@ const make = (sessionId: SessionId) =>
         }),
     };
 
-    return handle;
+    return sessionHandle;
   });
 
 /** One session's logic around pi-durable, which a provider's session host runs once per instance. */

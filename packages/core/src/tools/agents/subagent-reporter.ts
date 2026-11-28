@@ -46,29 +46,32 @@ export const Reporter = defineTask<ReporterInput, ReporterState, string | null>(
         context,
       );
 
-      const settled = await submission.wait(context);
+      const submissionOutcome = await submission.wait(context);
 
       await runtime.commit(async (tx) => {
-        if (settled.status === "unanswered") {
-          const outcome = settled.reason === "aborted" ? "stopped" : "failed";
+        if (submissionOutcome.status === "unanswered") {
+          const outcome = submissionOutcome.reason === "aborted" ? "stopped" : "failed";
 
-          return toReport(`[subagent ${name} ${outcome}: ${unansweredReason(settled)}]`, null);
+          return toReport(
+            `[subagent ${name} ${outcome}: ${unansweredReason(submissionOutcome)}]`,
+            null,
+          );
         }
 
-        if (settled.type !== "input") {
+        if (submissionOutcome.type !== "input") {
           return toReport(null, null);
         }
 
-        const answer = await answerOf(tx, settled.answer);
+        const answer = await answerOf(tx, submissionOutcome.answer);
 
-        const state = await tx.doc(Subagents, runtime.conversationId);
-        const known = state.children.find((each) => each.conversationId === conversationId);
+        const subagentsDoc = await tx.doc(Subagents, runtime.conversationId);
+        const known = subagentsDoc.children.find((each) => each.conversationId === conversationId);
 
-        if (known == null || known.reported.includes(settled.answer)) {
+        if (known == null || known.reported.includes(submissionOutcome.answer)) {
           return toReport(null, answer);
         }
 
-        known.reported.push(settled.answer);
+        known.reported.push(submissionOutcome.answer);
 
         return toReport(`[subagent ${name} answered] ${answer}`, answer);
       }, context);

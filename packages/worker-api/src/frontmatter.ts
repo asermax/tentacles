@@ -6,7 +6,7 @@ const plainLinePattern = /^([A-Za-z0-9_][\w.-]*):[ \t]+(\S.*?)[ \t]*(\r?)$/;
 
 const indentedPattern = /^[ \t]+\S/;
 
-const isPlainValue = (value: string) => !/^["'|>]/.test(value);
+const isPlainValue = (yamlValue: string) => !/^["'|>]/.test(yamlValue);
 
 const isInvalidAlone = (line: string) => {
   try {
@@ -23,9 +23,9 @@ const isInvalidAlone = (line: string) => {
 // single-line values that fail on their own keeps their text and leaves every
 // valid line as written.
 const quoteFailingValues = (block: string) => {
-  const lines = block.split("\n");
+  const blockLines = block.split("\n");
 
-  return lines
+  return blockLines
     .map((line, index) => {
       const match = plainLinePattern.exec(line);
 
@@ -33,7 +33,7 @@ const quoteFailingValues = (block: string) => {
         return line;
       }
 
-      if (indentedPattern.test(lines[index + 1] ?? "") || !isInvalidAlone(line.trimEnd())) {
+      if (indentedPattern.test(blockLines[index + 1] ?? "") || !isInvalidAlone(line.trimEnd())) {
         return line;
       }
 
@@ -58,18 +58,18 @@ export const readFrontmatter = (text: string): Frontmatter => {
   }
 
   const [whole, open = "", block = "", lineBreak = "", close = ""] = match;
-  const body = text.slice(whole.length);
+  const markdownBody = text.slice(whole.length);
 
   try {
-    return { attributes: parse(block) ?? {}, body, text };
+    return { attributes: parse(block) ?? {}, body: markdownBody, text };
   } catch (strict) {
-    const repaired = quoteFailingValues(block);
+    const repairedBlock = quoteFailingValues(block);
 
     try {
       return {
-        attributes: parse(repaired) ?? {},
-        body,
-        text: `${open}${repaired}${lineBreak}${close}${body}`,
+        attributes: parse(repairedBlock) ?? {},
+        body: markdownBody,
+        text: `${open}${repairedBlock}${lineBreak}${close}${markdownBody}`,
       };
     } catch {
       throw strict;

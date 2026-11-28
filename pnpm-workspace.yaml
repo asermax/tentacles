@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "tools/*"
 
 # Fail an install whose peer pins do not match, so two copies of a package
 # (such as a second pi-durable through ws) cannot slip in.

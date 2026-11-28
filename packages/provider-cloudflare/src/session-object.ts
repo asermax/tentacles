@@ -26,17 +26,16 @@ import * as Scope from "effect/Scope";
 
 import { browserLayer } from "./browser";
 import { ClaudeObject } from "./claude-object";
-import { claudeObjectName } from "./claude-names";
+import { claudeObjectClass, claudeObjectName } from "./claude-names";
 import { codemodeSandboxClass, codeSandboxLayer } from "./codemode-sandbox";
-import type { CodemodeSandbox } from "./codemode-worker";
 import { sendableCode } from "./close-code";
 import { modelProvidersLayer } from "./model-providers";
 import { CloudflarePreviewRouter } from "./preview-router";
 import { RegistryObject, registryStoreLayer } from "./registry-object";
+import { sessionBindings } from "./session-bindings";
 import { sessionDeletedReason } from "./session-deleted";
 import { destroyWorkspace, workspaceLayer } from "./workspace";
 import { previewPortHeader, workspaceObjectClass } from "./workspace-names";
-import type { WorkspaceObject } from "./workspace-worker";
 
 /** The session operations the object answers over RPC; connect and preview go through fetch. */
 export interface SessionOperations {
@@ -67,8 +66,8 @@ const FetchRoutes = {
   preview: "preview",
 } as const;
 
-const encodeState = (state: SessionState) =>
-  Schema.encodeEffect(SessionState)(state).pipe(Effect.map(JSON.stringify), Effect.orDie);
+const encodeState = (sessionState: SessionState) =>
+  Schema.encodeEffect(SessionState)(sessionState).pipe(Effect.map(JSON.stringify), Effect.orDie);
 
 const notFound = () =>
   HttpServerResponse.text("Session not found", { status: 404, headers: { [notFoundHeader]: "1" } });
@@ -77,18 +76,19 @@ const objectDependencies = Effect.gen(function* () {
   return {
     state: yield* Cloudflare.DurableObjectState,
     registries: yield* RegistryObject,
+    // Yielded so the Worker binds the Claude object, which `bindings` carries by name.
     claude: yield* ClaudeObject,
     ai: yield* Cloudflare.Workers.AI(),
     browser: yield* Cloudflare.Browser("BROWSER"),
     cdpSecret: yield* Config.Redacted("TENTACLES_CDP_SECRET").pipe(Effect.orDie),
-    env: yield* Cloudflare.WorkerEnvironment,
+    bindings: yield* sessionBindings,
   };
 }).pipe(
   Effect.provide(Layer.mergeAll(Cloudflare.Workers.AIBinding, Cloudflare.Workers.BrowserBinding)),
 );
 
 export const SessionObjectLive = SessionObject.make(
-  Effect.map(objectDependencies, ({ state, registries, claude, ai, browser, cdpSecret, env }) =>
+  Effect.map(objectDependencies, ({ state, registries, ai, browser, cdpSecret, bindings }) =>
     Effect.gen(function* () {
       const raw = state.raw;
 
@@ -99,11 +99,11 @@ export const SessionObjectLive = SessionObject.make(
       const storage = yield* Effect.promise(() => openDurableObjectSqliteStorage(raw.storage));
 
       // Raw bindings for the Promise-based clients that pi-ai and pi-codemode bring.
-      const claudeObjects: DurableObjectNamespace = env[claude.name];
+      const claudeObjects = bindings[claudeObjectClass];
 
-      const codemodeSandboxes: DurableObjectNamespace<CodemodeSandbox> = env[codemodeSandboxClass];
+      const codemodeSandboxes = bindings[codemodeSandboxClass];
 
-      const workspaces: DurableObjectNamespace<WorkspaceObject> = env[workspaceObjectClass];
+      const workspaces = bindings[workspaceObjectClass];
 
       const contracts = Layer.mergeAll(
         Layer.succeed(
@@ -144,7 +144,7 @@ export const SessionObjectLive = SessionObject.make(
       );
 
       // The harness lives as long as the object's instance, so its scope is never closed.
-      const handle = yield* Session.make(sessionId).pipe(
+      const sessionHandle = yield* Session.make(sessionId).pipe(
         Effect.provide(contracts),
         Scope.provide(Scope.makeUnsafe()),
       );
@@ -153,15 +153,15 @@ export const SessionObjectLive = SessionObject.make(
       // this object stored: a destroy that fails leaves the session whole for the next try. The
       // abort at the end drops this instance, and rejects the call with sessionDeletedReason.
       return {
-        create: (request: CreateSession) => handle.create(request),
+        create: (request: CreateSession) => sessionHandle.create(request),
 
-        prompt: (request: Prompt) => handle.prompt(request),
-        answer: (request: Answer) => handle.answer(request),
-        close: () => handle.close(),
-        messages: (count: number) => handle.messages(count),
-        status: () => handle.status(),
+        prompt: (request: Prompt) => sessionHandle.prompt(request),
+        answer: (request: Answer) => sessionHandle.answer(request),
+        close: () => sessionHandle.close(),
+        messages: (count: number) => sessionHandle.messages(count),
+        status: () => sessionHandle.status(),
         delete: () =>
-          handle.delete().pipe(
+          sessionHandle.delete().pipe(
             Effect.andThen(destroyWorkspace(workspaces, sessionId)),
             Effect.andThen(
               Effect.promise(async () => {
@@ -183,12 +183,12 @@ export const SessionObjectLive = SessionObject.make(
 
           switch (request.headers.get(routeHeader)) {
             case FetchRoutes.connect: {
-              const sessionState = yield* handle.status();
-              const [response, socket] = yield* Cloudflare.upgrade();
+              const sessionState = yield* sessionHandle.status();
+              const [upgradeResponse, socket] = yield* Cloudflare.upgrade();
 
               yield* socket.send(yield* encodeState(sessionState));
 
-              return response;
+              return upgradeResponse;
             }
 
             case FetchRoutes.preview: {
@@ -198,9 +198,12 @@ export const SessionObjectLive = SessionObject.make(
               headers.delete(routeHeader);
               headers.delete(previewPortHeader);
 
-              const response = yield* handle.preview(port, new Request(request, { headers }));
+              const previewResponse = yield* sessionHandle.preview(
+                port,
+                new Request(request, { headers }),
+              );
 
-              return HttpServerResponse.raw(response, { status: response.status });
+              return HttpServerResponse.raw(previewResponse, { status: previewResponse.status });
             }
 
             default:
@@ -208,7 +211,7 @@ export const SessionObjectLive = SessionObject.make(
           }
         }).pipe(Effect.catchTag("SessionNotFound", () => Effect.succeed(notFound()))),
 
-        alarm: () => handle.wake(),
+        alarm: () => sessionHandle.wake(),
 
         webSocketClose: (socket: Cloudflare.WebSocket, code: number, reason: string) =>
           socket.close(sendableCode(code), reason),
@@ -225,19 +228,19 @@ export const sessionHostLayer = (sessions: Cloudflare.DurableObject<SessionObjec
     Effect.gen(function* () {
       const routed = new Request(request);
 
-      for (const [name, value] of Object.entries(headers)) {
-        routed.headers.set(name, value);
+      for (const [headerName, headerValue] of Object.entries(headers)) {
+        routed.headers.set(headerName, headerValue);
       }
 
-      const response = yield* session(sessionId)
+      const sessionResponse = yield* session(sessionId)
         .fetch(HttpServerRequest.fromWeb(routed))
         .pipe(Effect.map(HttpServerResponse.toWeb), Effect.orDie);
 
-      if (response.headers.has(notFoundHeader)) {
+      if (sessionResponse.headers.has(notFoundHeader)) {
         return yield* new SessionNotFound({ sessionId });
       }
 
-      return response;
+      return sessionResponse;
     });
 
   return Layer.succeed(

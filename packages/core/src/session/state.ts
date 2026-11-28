@@ -86,8 +86,10 @@ export const deriveState = (observed: Observed): SessionState | null => {
 
 // Two states are the same change when their status is, and, while waiting,
 // their question too.
-const changeKey = (state: SessionState) =>
-  SessionState.guards.waiting(state) ? `waiting ${state.question.id}` : statusOf(state);
+const changeKey = (sessionState: SessionState) =>
+  SessionState.guards.waiting(sessionState)
+    ? `waiting ${sessionState.question.id}`
+    : statusOf(sessionState);
 
 const readObserved = (harness: Harness, sessionId: SessionId) =>
   Effect.promise(async (): Promise<Omit<Observed, "names">> => {
@@ -103,9 +105,15 @@ const readObserved = (harness: Harness, sessionId: SessionId) =>
 const lastEntry = (harness: Harness) =>
   Effect.promise(async (): Promise<Entry | undefined> => {
     const root = await harness.root(BACKGROUND_CONTEXT);
-    const page = await root.entries({ order: "descending" }, 10, undefined, BACKGROUND_CONTEXT);
 
-    return page.items.toReversed().flatMap(toEntries).at(-1);
+    const entriesPage = await root.entries(
+      { order: "descending" },
+      10,
+      undefined,
+      BACKGROUND_CONTEXT,
+    );
+
+    return entriesPage.items.toReversed().flatMap(toEntries).at(-1);
   });
 
 /**
@@ -251,20 +259,20 @@ export const trackStatus = (harness: Harness, sessionId: SessionId) =>
           yield* attachOne<Readonly<LiveState>>(
             (target) =>
               harness.observeDoc(LiveDoc, ROOT_CONVERSATION_ID, target, BACKGROUND_CONTEXT),
-            (value) => {
-              observed.live = value;
+            (liveState) => {
+              observed.live = liveState;
             },
           );
           yield* attachOne<Readonly<{ questions: StoredQuestion[] }>>(
             (target) => harness.observeDoc(QuestionsDoc, target, BACKGROUND_CONTEXT),
-            (value) => {
-              observed.questions = value.questions;
+            (questionsDoc) => {
+              observed.questions = questionsDoc.questions;
             },
           );
           yield* attachOne<Readonly<SessionRecord>>(
             (target) => harness.observeDoc(RecordDoc, sessionId, target, BACKGROUND_CONTEXT),
-            (value) => {
-              observed.record = value;
+            (sessionRecord) => {
+              observed.record = sessionRecord;
             },
           );
         });

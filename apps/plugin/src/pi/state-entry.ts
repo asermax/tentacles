@@ -19,5 +19,5 @@ export const readStateEntry = (ctx: PiContext): LocalState => {
   return Option.getOrElse(decodeState(entry?.data), () => LocalState.make({ sessions: [] }));
 };
 
-export const writeStateEntry = (pi: PiExtensionApi, state: LocalState) =>
-  pi.appendEntry(stateEntryType, Schema.encodeSync(LocalState)(state));
+export const writeStateEntry = (pi: PiExtensionApi, localState: LocalState) =>
+  pi.appendEntry(stateEntryType, Schema.encodeSync(LocalState)(localState));

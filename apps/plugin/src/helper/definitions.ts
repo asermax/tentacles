@@ -101,7 +101,7 @@ const readSkill = (path: string) =>
 
     const missing = problemOf(path, `has no ${skillFile}`);
 
-    const info = yield* Effect.tryPromise({
+    const skillStat = yield* Effect.tryPromise({
       try: () => stat(skillPath),
       catch: (cause) =>
         isNotFound(cause) ? missing : problemOf(path, `cannot be read: ${String(cause)}`),
@@ -115,7 +115,7 @@ const readSkill = (path: string) =>
     const { text, source } = definitionFile(
       `${folder}/${skillFile}`,
       yield* readText(skillPath, path),
-      info.mode & permissionBits,
+      skillStat.mode & permissionBits,
     );
 
     // The packer walks from the source it is given, and the filter sees the paths it walks. Given the
@@ -137,12 +137,12 @@ const readSkill = (path: string) =>
 
 const readAgent = (path: string) =>
   Effect.gen(function* () {
-    const info = yield* inspect(path, "file");
+    const agentStat = yield* inspect(path, "file");
 
     const { text, source } = definitionFile(
       basename(path),
       yield* readText(path, path),
-      info.mode & permissionBits,
+      agentStat.mode & permissionBits,
     );
 
     return { agent: { path, text } satisfies AgentSource, sources: [source] };
@@ -151,16 +151,16 @@ const readAgent = (path: string) =>
 /** A context path is checked by its stat alone: nothing in a folder is read here. */
 const readContext = (path: string) =>
   Effect.gen(function* () {
-    const info = yield* statPath(path);
+    const contextStat = yield* statPath(path);
 
-    if (!info.isDirectory() && !info.isFile()) {
+    if (!contextStat.isDirectory() && !contextStat.isFile()) {
       return yield* Effect.fail(problemOf(path, "is not a file or a folder"));
     }
 
     const source = resolve(path);
     const target = basename(source);
 
-    return info.isDirectory()
+    return contextStat.isDirectory()
       ? ({ type: "directory", source, target } satisfies TarSource)
       : ({ type: "file", source, target } satisfies TarSource);
   });
@@ -302,10 +302,10 @@ export const packSpawnArchives = (paths: SpawnPaths) =>
     const archives: Types.Mutable<Pick<CreateSession, ArchiveKind>> = {};
 
     for (const kind of archiveKindNames) {
-      const result = results[kind];
+      const archiveResult = results[kind];
 
-      if (Result.isSuccess(result) && result.success != null) {
-        archives[kind] = result.success;
+      if (Result.isSuccess(archiveResult) && archiveResult.success != null) {
+        archives[kind] = archiveResult.success;
       }
     }
 

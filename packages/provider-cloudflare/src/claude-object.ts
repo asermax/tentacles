@@ -9,6 +9,7 @@ import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 
 import { createClaudeCalls } from "./claude-calls";
+import { claudeObjectClass } from "./claude-names";
 import { credentialPlaceholder, egressCaPath, interceptEgressHosts, loopback } from "./egress";
 
 const relayPort = 8080;
@@ -57,7 +58,7 @@ const relayReady = (container: Container) =>
  * Worker, which tells this object.
  */
 export class ClaudeObject extends Cloudflare.DurableObject<ClaudeObject>()(
-  "ClaudeObject",
+  claudeObjectClass,
   Effect.map(
     Effect.all({ state: Cloudflare.DurableObjectState, container: ClaudeContainer }),
     ({ state }) =>

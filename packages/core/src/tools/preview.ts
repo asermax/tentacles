@@ -22,12 +22,12 @@ export type PreviewRunner = <A>(
 const encodeResult = Schema.encodeSync(PreviewResult);
 
 // The model reads the result as JSON; programs that call the tool get it as the value.
-const toolResult = (result: PreviewResult) => {
-  const encoded = encodeResult(result);
+const toolResult = (previewResult: PreviewResult) => {
+  const encodedPreview = encodeResult(previewResult);
 
   return {
-    output: [{ type: "text" as const, text: JSON.stringify(encoded) }],
-    structuredOutput: encoded,
+    output: [{ type: "text" as const, text: JSON.stringify(encodedPreview) }],
+    structuredOutput: encodedPreview,
   };
 };
 
@@ -71,7 +71,7 @@ const close = (
   });
 
 /** The preview tool: opens the session's one preview, replacing an open one, or closes it. */
-export const previewTool = (sessionId: SessionId, run: PreviewRunner) =>
+export const previewTool = (sessionId: SessionId, runEffect: PreviewRunner) =>
   defineTool({
     name: ToolNames.preview,
     description:
@@ -88,5 +88,7 @@ export const previewTool = (sessionId: SessionId, run: PreviewRunner) =>
     ]),
     structuredOutputSchema: previewResultSchema,
     execute: async (args) =>
-      toolResult(await run(args.action === "open" ? open(sessionId, args.port) : close(sessionId))),
+      toolResult(
+        await runEffect(args.action === "open" ? open(sessionId, args.port) : close(sessionId)),
+      ),
   });

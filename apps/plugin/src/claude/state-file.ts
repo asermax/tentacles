@@ -15,11 +15,11 @@ const encodeState = Schema.encodeSync(LocalStateJson);
 export async function stateFilePath($: Engine, sessionId: string): Promise<string> {
   // Claude Code sets the variable for a plugin's hook commands; the folder it
   // names is the same one under the home folder.
-  const data =
+  const dataFolder =
     (await $.env.get("CLAUDE_PLUGIN_DATA")) ??
     `${(await $.env.get("HOME")) ?? ""}/.claude/plugins/data/tentacles`;
 
-  return `${data}/sessions/${sessionId}.json`;
+  return `${dataFolder}/sessions/${sessionId}.json`;
 }
 
 export async function readStateFile($: Engine, path: string): Promise<LocalState> {
@@ -28,6 +28,10 @@ export async function readStateFile($: Engine, path: string): Promise<LocalState
   return Option.getOrElse(decodeState(text), () => LocalState.make({ sessions: [] }));
 }
 
-export async function writeStateFile($: Engine, path: string, state: LocalState): Promise<void> {
-  await $.fs.write(path, encodeState(state));
+export async function writeStateFile(
+  $: Engine,
+  path: string,
+  localState: LocalState,
+): Promise<void> {
+  await $.fs.write(path, encodeState(localState));
 }

@@ -60,12 +60,12 @@ const fileTool = (
   isReadOnly: boolean,
 ) =>
   registration(declaration, isReadOnly ? "safe" : "unsafe", async (args, api, context) => {
-    const response = await execute(
+    const executeResponse = await execute(
       { id: api.callId, name: declaration.name, arguments: args },
       context.abortSignal == null ? {} : { abortSignal: context.abortSignal },
     );
 
-    return { output: response.content, isError: response.isError };
+    return { output: executeResponse.content, isError: executeResponse.isError };
   });
 
 // Computer's own exec returns only when the command ends. This one reads the client's exec events,
