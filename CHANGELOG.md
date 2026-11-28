@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/asermax/tentacles/compare/v1.5.0...v1.6.0) (2026-11-28)
+
+
+### Features
+
+* **lint:** type-check with the Effect-patched compiler and enforce the review's conventions ([f55b599](https://github.com/asermax/tentacles/commit/f55b599aa7aa78fddff400ab36fb8fc7be136a7f))
+
 # [1.5.0](https://github.com/asermax/tentacles/compare/v1.4.0...v1.5.0) (2026-11-28)
 
 
